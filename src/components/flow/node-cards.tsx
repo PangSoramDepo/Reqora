@@ -1,20 +1,31 @@
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon";
-import type { NodeKind } from "./graph";
+import type { NodeType, Step, WorkflowNode } from "@/lib/workflows/schema";
 
-type PortProps = {
-  name: string;
-  color: string;
-  className: string;
-  title?: string;
+type TypeStyle = { icon: string; tag: string; bar: string; text: string; dot: string; minimap: string };
+
+/** Category colours follow the design system's node semantic spectrum. */
+export const TYPE_STYLE: Record<NodeType, TypeStyle> = {
+  webhook: { icon: "webhook", tag: "EVENT", bar: "bg-secondary", text: "text-secondary", dot: "bg-secondary", minimap: "bg-secondary" },
+  http: { icon: "http", tag: "REST", bar: "bg-primary-container", text: "text-primary", dot: "bg-primary", minimap: "bg-primary-container" },
+  condition: { icon: "call_split", tag: "EXPR", bar: "bg-secondary-fixed-dim", text: "text-secondary-fixed-dim", dot: "bg-secondary-fixed-dim", minimap: "bg-secondary-fixed" },
+  transform: { icon: "transform", tag: "TRANS", bar: "bg-tertiary", text: "text-tertiary", dot: "bg-tertiary", minimap: "bg-tertiary" },
+  delay: { icon: "hourglass_top", tag: "WAIT", bar: "bg-outline", text: "text-outline", dot: "bg-outline", minimap: "bg-outline" },
+  response: { icon: "output_circle", tag: "EXIT", bar: "bg-error", text: "text-error", dot: "bg-error", minimap: "bg-error" },
 };
 
+const HEADER = "p-space-sm flex items-center justify-between";
+const BODY = "p-space-sm flex flex-col gap-space-xs font-body-sm text-body-sm";
+const FOOTER = "px-space-sm py-space-xs bg-surface-container-lowest/30 rounded-b-xl relative font-label-sm text-label-sm";
+const INSET = "px-space-xs py-space-xxs rounded bg-surface-container-lowest";
+const CODE = "p-space-xs rounded bg-surface-container-lowest font-mono text-[10px] leading-tight text-on-surface/80 overflow-hidden";
+
 /** Connection terminal; `data-port` lets the canvas measure where to attach edges. */
-function Port({ name, color, className, title }: PortProps) {
+function Port({ name, color, className, title }: { name: string; color: string; className: string; title?: string }) {
   return (
     <div
       data-port={name}
-      className={`w-3.5 h-3.5 rounded-full ${color} shadow-md absolute flex items-center justify-center cursor-pointer hover:scale-125 transition-transform ${className}`}
+      className={`w-3.5 h-3.5 rounded-full ${color} shadow-md absolute flex items-center justify-center cursor-pointer hover:scale-125 transition-transform z-30 ${className}`}
       title={title}
     >
       <div className="w-1.5 h-1.5 rounded-full bg-surface-container-lowest" />
@@ -22,241 +33,196 @@ function Port({ name, color, className, title }: PortProps) {
   );
 }
 
-const HEADER = "p-space-sm flex items-center justify-between bg-surface-container-lowest/40";
-const TITLE = "font-headline-sm text-headline-sm text-on-surface";
-const FOOTER = "px-space-sm py-space-xs bg-surface-container-lowest/30 rounded-b-xl relative";
+function MethodPill({ method }: { method: string }) {
+  return (
+    <span className="px-space-xs py-space-xxs rounded bg-primary text-on-primary font-label-sm text-label-sm font-bold">
+      {method}
+    </span>
+  );
+}
 
-function WebhookNode() {
+function StatusBadge({ node, step }: { node: WorkflowNode; step?: Step }) {
+  const style = TYPE_STYLE[node.type];
+  const base = "font-label-sm text-label-sm px-space-xs py-space-xxs rounded font-semibold";
+  if (!step) return <span className={`${base} bg-surface-container-highest ${style.text}`}>{style.tag}</span>;
+  if (step.status === "skipped") return <span className={`${base} bg-surface-container-highest text-outline`}>SKIPPED</span>;
+  if (step.status === "failed") return <span className={`${base} bg-error-container text-on-error-container`}>FAILED</span>;
+  return <span className={`${base} bg-primary/20 text-primary`}>OK · {step.durationMs}ms</span>;
+}
+
+function preview(value: unknown, lines = 4) {
+  const text = JSON.stringify(value, null, 2) ?? "";
+  const all = text.split("\n");
+  return all.length > lines ? [...all.slice(0, lines), "  …"].join("\n") : text;
+}
+
+function placeholders(template = "") {
+  return [...new Set([...template.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g)].map((m) => m[1]))].slice(0, 3);
+}
+
+function WebhookBody({ node, step }: { node: Extract<WorkflowNode, { type: "webhook" }>; step?: Step }) {
+  const payload = (step?.output as { body?: unknown } | undefined)?.body;
   return (
     <>
-      <div className="h-1 bg-secondary rounded-t-xl w-full" />
-      <div className={HEADER}>
-        <div className="flex items-center gap-space-xs">
-          <Icon name="webhook" className="text-secondary text-headline-sm" />
-          <span className={TITLE}>Webhook Trigger</span>
-        </div>
-        <div className="flex items-center gap-space-xxs">
-          <span className="w-2 h-2 rounded-full bg-secondary animate-pulse" />
-          <span className="font-label-sm text-label-sm text-secondary uppercase">Active</span>
-        </div>
-      </div>
-      <div className="p-space-sm flex flex-col gap-space-xs text-on-surface-variant font-body-sm text-body-sm">
+      <div className={`${BODY} text-on-surface-variant`}>
         <div className="flex items-center justify-between">
           <span className="px-space-xs py-space-xxs rounded bg-secondary-container text-on-secondary-container font-label-sm text-label-sm font-semibold">
-            POST
+            {node.config.method}
           </span>
-          <span className="font-mono text-outline">/hooks/order-created</span>
+          <span className="font-mono text-outline truncate">{node.config.path}</span>
         </div>
-        <div className="p-space-xs rounded bg-surface-container-lowest font-mono text-[10px] leading-tight text-on-surface/80 flex flex-col gap-0.5 overflow-hidden">
-          <div className="text-outline">{"// Event Preview (200 OK)"}</div>
-          <div>
-            {"{ "}
-            <span className="text-primary">&quot;id&quot;</span>: <span className="text-tertiary">&quot;ord_9941a&quot;</span>,
-          </div>
-          <div className="pl-2">
-            <span className="text-primary">&quot;amount&quot;</span>: <span className="text-tertiary">749.50</span>,
-          </div>
-          <div className="pl-2">
-            <span className="text-primary">&quot;currency&quot;</span>: <span className="text-on-surface">&quot;USD&quot;</span>
-            {" }"}
-          </div>
-        </div>
+        <pre className={CODE}>
+          {payload === undefined ? "// Awaiting first event" : `// Last event\n${preview(payload)}`}
+        </pre>
       </div>
       <div className={`${FOOTER} flex items-center justify-end`}>
-        <span className="font-label-sm text-label-sm text-on-surface-variant mr-3">payload.order</span>
-        <Port name="order" color="bg-secondary" className="-right-2" title="Output: order payload" />
+        <span className="text-on-surface-variant mr-3">trigger.body</span>
+        <Port name="out" color="bg-secondary" className="-right-2" title="Output: trigger payload" />
       </div>
     </>
   );
 }
 
-function StripeAuthNode() {
+function HttpBody({ node, step }: { node: Extract<WorkflowNode, { type: "http" }>; step?: Step }) {
+  const auth = Object.entries(node.config.headers).find(([name]) => name.toLowerCase() === "authorization");
+  const response = step?.output as { status?: number } | undefined;
+  const refs = placeholders(node.config.body);
   return (
     <>
-      <div className="h-1.5 bg-primary rounded-t-xl w-full" />
-      <Port name="in" color="bg-primary" className="-left-2 top-[102px] z-30" title="Input Port" />
-      <div className="p-space-sm flex items-center justify-between bg-surface-container-highest/60">
+      <div className={BODY}>
         <div className="flex items-center gap-space-xs">
-          <Icon name="verified_user" className="text-primary text-headline-sm" />
-          <span className={TITLE}>Auth &amp; Customer Verify</span>
-        </div>
-        <span className="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-primary/20 text-primary font-semibold">
-          ACTIVE
-        </span>
-      </div>
-      <div className="p-space-sm flex flex-col gap-space-xs font-body-sm text-body-sm">
-        <div className="flex items-center gap-space-xs">
-          <span className="px-space-xs py-space-xxs rounded bg-primary text-on-primary font-label-sm text-label-sm font-bold">
-            POST
+          <MethodPill method={node.config.method} />
+          <span className="font-mono text-outline truncate text-body-sm" title={node.config.url}>
+            {node.config.url}
           </span>
-          <span className="font-mono text-outline truncate text-body-sm">https://api.stripe.com/v1/cust...</span>
         </div>
-        <div className="flex items-center justify-between px-space-xs py-space-xxs rounded bg-surface-container-lowest font-label-sm text-label-sm">
-          <span className="text-outline">Bearer Token</span>
-          <span className="text-tertiary font-mono">sk_live_...93b1</span>
-        </div>
-        <div className="flex items-center justify-between px-space-xs py-space-xxs rounded bg-surface-container-lowest">
-          <div className="flex items-center gap-space-xxs">
-            <span className="w-2 h-2 rounded-full bg-primary" />
-            <span className="font-label-sm text-label-sm text-on-surface font-semibold">200 OK</span>
+        {auth && (
+          <div className={`flex items-center justify-between gap-space-xs ${INSET} font-label-sm text-label-sm`}>
+            <span className="text-outline">{auth[0]}</span>
+            <span className="text-tertiary font-mono truncate">{auth[1]}</span>
           </div>
-          <span className="font-mono text-outline text-body-sm">114ms</span>
-        </div>
+        )}
+        {refs.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {refs.map((ref) => (
+              <span key={ref} className="px-space-xs py-0.5 rounded bg-surface-container-lowest text-tertiary font-mono text-[10px]">
+                {`{{${ref}}}`}
+              </span>
+            ))}
+          </div>
+        )}
+        {step && step.status !== "skipped" && (
+          <div className={`flex items-center justify-between ${INSET}`}>
+            <div className="flex items-center gap-space-xxs min-w-0">
+              <span className={`w-2 h-2 shrink-0 rounded-full ${step.status === "failed" ? "bg-error" : "bg-primary"}`} />
+              <span className="font-label-sm text-label-sm text-on-surface font-semibold truncate" title={step.error}>
+                {response?.status ?? step.error}
+              </span>
+            </div>
+            <span className="font-mono text-outline text-body-sm">{step.durationMs}ms</span>
+          </div>
+        )}
       </div>
-      <div className={`${FOOTER} flex flex-col gap-1 bg-surface-container-lowest/40 font-label-sm text-label-sm`}>
-        <div className="flex items-center justify-between relative py-0.5">
-          <span className="text-outline text-[10px]">res.verified</span>
-          <span className="text-on-surface-variant">cust_status</span>
-          <Port name="verified" color="bg-secondary" className="-right-5" title="Output: Verification Result" />
-        </div>
-        <div className="flex items-center justify-between relative py-0.5">
-          <span className="text-outline text-[10px]">res.customer</span>
-          <span className="text-primary font-medium">customer.id</span>
-          <Port name="customer" color="bg-primary" className="-right-5" title="Output: Customer ID" />
-        </div>
+      <div className={`${FOOTER} flex items-center justify-end`}>
+        <span className="text-on-surface-variant mr-3">{node.id}.body</span>
+        <Port name="out" color="bg-primary" className="-right-2" title="Output: response" />
       </div>
     </>
   );
 }
 
-function EvaluateTierNode() {
+function ConditionBody({ node, step }: { node: Extract<WorkflowNode, { type: "condition" }>; step?: Step }) {
+  const { left, operator, right } = node.config;
   return (
     <>
-      <div className="h-1 bg-secondary-fixed-dim rounded-t-xl w-full" />
-      <Port name="in" color="bg-secondary-fixed-dim" className="-left-2 top-[65px]" />
-      <div className={HEADER}>
-        <div className="flex items-center gap-space-xs">
-          <Icon name="call_split" className="text-secondary-fixed-dim text-headline-sm" />
-          <span className={TITLE}>Evaluate Tier</span>
+      <div className={BODY}>
+        <div className={`${INSET} font-mono text-on-surface break-all`}>
+          <span className="text-primary">{left}</span> <span className="text-tertiary font-bold">{operator}</span>{" "}
+          {operator !== "exists" && <span className="text-secondary-fixed">{right}</span>}
         </div>
-        <span className="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-secondary-fixed-dim font-mono">
-          EXPR
-        </span>
-      </div>
-      <div className="p-space-sm flex flex-col gap-space-xs font-body-sm text-body-sm">
-        <div className="px-space-xs py-space-xxs rounded bg-surface-container-lowest font-mono text-on-surface">
-          <span className="text-primary">order.total</span> <span className="text-tertiary font-bold">&gt;</span>{" "}
-          <span className="text-secondary-fixed">500</span>
+        <div className="text-[10px] text-outline">
+          {step?.port ? `Last run: ${step.port.toUpperCase()}` : "Evaluates to Boolean state"}
         </div>
-        <div className="text-[10px] text-outline">Evaluates to Boolean state</div>
       </div>
       <div className={`${FOOTER} flex flex-col gap-1.5`}>
-        <div className="flex items-center justify-between relative">
-          <span className="font-label-sm text-label-sm text-tertiary font-bold">TRUE (VIP Priority)</span>
-          <Port name="true" color="bg-tertiary" className="-right-5" />
-        </div>
-        <div className="flex items-center justify-between relative">
-          <span className="font-label-sm text-label-sm text-outline">FALSE (Standard Queue)</span>
-          <Port name="false" color="bg-outline" className="-right-5" />
-        </div>
-      </div>
-    </>
-  );
-}
-
-function ErpSyncNode() {
-  return (
-    <>
-      <div className="h-1 bg-primary-container rounded-t-xl w-full" />
-      <Port name="in" color="bg-primary" className="-left-2 top-[60px]" />
-      <div className={HEADER}>
-        <div className="flex items-center gap-space-xs">
-          <Icon name="cloud_sync" className="text-primary-container text-headline-sm" />
-          <span className={TITLE}>ERP Inventory Sync</span>
-        </div>
-        <span className="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary-container">
-          SAP v2
-        </span>
-      </div>
-      <div className="p-space-sm flex flex-col gap-space-xs font-body-sm text-body-sm">
-        <div className="flex items-center gap-space-xs">
-          <span className="px-space-xs py-space-xxs rounded bg-primary text-on-primary font-label-sm text-label-sm font-bold">
-            POST
-          </span>
-          <span className="font-mono text-outline truncate text-body-sm">/sync-inventory</span>
-        </div>
-        <div className="flex flex-wrap gap-1 mt-1">
-          <span className="px-space-xs py-0.5 rounded bg-surface-container-lowest text-tertiary font-mono text-[10px]">
-            {"{{customer.id}}"}
-          </span>
-          <span className="px-space-xs py-0.5 rounded bg-surface-container-lowest text-primary font-mono text-[10px]">
-            {"{{order.sku}}"}
-          </span>
-          <span className="px-space-xs py-0.5 rounded bg-surface-container-lowest text-secondary font-mono text-[10px]">
-            qty: 1
-          </span>
-        </div>
-      </div>
-      <div className={`${FOOTER} flex items-center justify-end`}>
-        <span className="font-label-sm text-label-sm text-on-surface-variant mr-3">erp.sync_ack</span>
-        <Port name="ack" color="bg-primary-container" className="-right-2" />
-      </div>
-    </>
-  );
-}
-
-function SlackDispatchNode() {
-  return (
-    <>
-      <div className="h-1 bg-tertiary rounded-t-xl w-full" />
-      <Port name="in" color="bg-tertiary" className="-left-2 top-[60px]" />
-      <div className={HEADER}>
-        <div className="flex items-center gap-space-xs">
-          <Icon name="notifications_active" className="text-tertiary text-headline-sm" />
-          <span className={TITLE}>Dispatch VIP Slack</span>
-        </div>
-        <span className="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-tertiary font-mono">
-          #sales
-        </span>
-      </div>
-      <div className="p-space-sm flex flex-col gap-space-xs font-body-sm text-body-sm">
-        <div className="p-space-xs rounded bg-surface-container-lowest flex flex-col gap-1">
-          <div className="flex items-center gap-space-xxs text-tertiary font-label-sm text-label-sm">
-            <Icon name="star" className="text-body-sm" />
-            <span className="font-semibold">New High-Tier Order Alert!</span>
+        {(["true", "false"] as const).map((port) => (
+          <div key={port} className="flex items-center justify-between relative">
+            <span className={port === "true" ? "text-tertiary font-bold" : "text-outline"}>
+              {port.toUpperCase()}
+              {step?.port === port && " ●"}
+            </span>
+            <Port name={port} color={port === "true" ? "bg-tertiary" : "bg-outline"} className="-right-5" />
           </div>
-          <p className="font-body-sm text-[11px] text-on-surface/90">
-            Customer <span className="text-primary font-mono font-medium">ord_9941a</span> spent{" "}
-            <span className="text-tertiary font-bold">$749.50</span>. Fast-tracking dispatch.
-          </p>
-        </div>
-      </div>
-      <div className="px-space-sm py-space-xs flex items-center justify-between bg-surface-container-lowest/30 rounded-b-xl">
-        <span className="font-label-sm text-label-sm text-outline">Terminal Exit</span>
-        <span className="font-label-sm text-label-sm text-primary font-mono">201 Created</span>
+        ))}
       </div>
     </>
   );
 }
 
-export function NodeBody({ kind }: { kind: NodeKind }): ReactNode {
-  switch (kind) {
+function SimpleBody({ node, children }: { node: WorkflowNode; children: ReactNode }) {
+  return (
+    <>
+      <div className={BODY}>{children}</div>
+      <div className={`${FOOTER} flex items-center justify-end min-h-6`}>
+        {node.type !== "response" && (
+          <>
+            <span className="text-on-surface-variant mr-3">{node.id}</span>
+            <Port name="out" color={TYPE_STYLE[node.type].dot} className="-right-2" />
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function NodeBody({ node, step }: { node: WorkflowNode; step?: Step }) {
+  switch (node.type) {
     case "webhook":
-      return <WebhookNode />;
-    case "stripe-auth":
-      return <StripeAuthNode />;
-    case "evaluate-tier":
-      return <EvaluateTierNode />;
-    case "erp-sync":
-      return <ErpSyncNode />;
-    case "slack-dispatch":
-      return <SlackDispatchNode />;
+      return <WebhookBody node={node} step={step} />;
+    case "http":
+      return <HttpBody node={node} step={step} />;
+    case "condition":
+      return <ConditionBody node={node} step={step} />;
+    case "transform":
+      return (
+        <SimpleBody node={node}>
+          {Object.entries(node.config.output).map(([key, template]) => (
+            <div key={key} className={`${INSET} font-mono truncate`}>
+              <span className="text-primary">{key}</span>: <span className="text-tertiary">{template}</span>
+            </div>
+          ))}
+        </SimpleBody>
+      );
+    case "delay":
+      return (
+        <SimpleBody node={node}>
+          <span className="font-mono text-on-surface">Wait {node.config.ms}ms</span>
+        </SimpleBody>
+      );
+    case "response":
+      return (
+        <SimpleBody node={node}>
+          <span className="font-mono text-on-surface">HTTP {node.config.status}</span>
+          {node.config.body && <pre className={CODE}>{node.config.body}</pre>}
+        </SimpleBody>
+      );
   }
 }
 
-/** Card chrome per node; the Stripe node is the one shown selected in the design. */
-export const NODE_CARD_CLASS: Record<NodeKind, string> = {
-  webhook: "bg-surface-container-high/90 shadow-xl hover:-translate-y-0.5",
-  "stripe-auth": "bg-surface-container-high/95 shadow-2xl shadow-primary/20",
-  "evaluate-tier": "bg-surface-container-high/90 shadow-xl hover:-translate-y-0.5",
-  "erp-sync": "bg-surface-container-high/90 shadow-xl hover:-translate-y-0.5",
-  "slack-dispatch": "bg-surface-container-high/90 shadow-xl hover:-translate-y-0.5",
-};
-
-export const MINIMAP_COLOR: Record<NodeKind, string> = {
-  webhook: "bg-secondary opacity-80",
-  "stripe-auth": "bg-primary ring-1 ring-primary",
-  "evaluate-tier": "bg-secondary-fixed opacity-80",
-  "erp-sync": "bg-primary-container opacity-80",
-  "slack-dispatch": "bg-tertiary opacity-80",
-};
+export function NodeCard({ node, step, selected }: { node: WorkflowNode; step?: Step; selected: boolean }) {
+  const style = TYPE_STYLE[node.type];
+  return (
+    <>
+      <div className={`${selected ? "h-1.5" : "h-1"} ${style.bar} rounded-t-xl w-full`} />
+      {node.type !== "webhook" && <Port name="in" color={style.dot} className="-left-2 top-[60px]" title="Input" />}
+      <div className={`${HEADER} ${selected ? "bg-surface-container-highest/60" : "bg-surface-container-lowest/40"}`}>
+        <div className="flex items-center gap-space-xs min-w-0">
+          <Icon name={style.icon} className={`${style.text} text-headline-sm`} />
+          <span className="font-headline-sm text-headline-sm text-on-surface truncate">{node.name}</span>
+        </div>
+        <StatusBadge node={node} step={step} />
+      </div>
+      <NodeBody node={node} step={step} />
+    </>
+  );
+}

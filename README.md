@@ -9,8 +9,36 @@ The raw Stitch HTML exports live in [`design/`](design/) for reference.
 
 ```bash
 npm install
-npm run dev     # http://localhost:3000 → redirects to /flow
+cp .env.example .env.local   # demo secret used by the seeded workflow
+npm run dev                  # http://localhost:3000 → redirects to /flow
+npm test                     # engine/template unit tests (vitest)
 npm run build
+```
+
+Requires Node 22.5+ (uses the built-in `node:sqlite`). Data lives in `.data/reqora.db` (git-ignored); delete it to
+re-seed the "Customer Checkout Pipeline" workflow.
+
+## API
+
+The contract is [`api/openapi.yaml`](api/openapi.yaml). Summary:
+
+| Method & path                         | Purpose                                                          |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| `GET/POST /api/workflows`             | List / create workflows                                          |
+| `GET/PUT/DELETE /api/workflows/{id}`  | Read / replace (send `version`; stale → 409) / delete             |
+| `GET/POST /api/workflows/{id}/runs`   | List runs / execute synchronously with `{ trigger: { body } }`    |
+| `GET /api/runs/{runId}`               | Read a run with per-step request, output and errors               |
+| `POST /api/hooks/{id}`                | Webhook entry: request body becomes `trigger.body`                |
+| `POST /api/demo/...`                  | Local stand-ins for Stripe / ERP / Slack used by the seed          |
+
+Node types: `webhook` (trigger), `http`, `condition` (`true`/`false` ports), `transform`, `delay`, `response`.
+Templates: `{{trigger.body.x}}`, `{{<nodeId>.body.x}}`, `{{env.NAME}}` → reads `REQORA_ENV_NAME` only.
+Resolved secrets are never stored in run history; `Authorization`/`Cookie` trigger headers are redacted.
+
+```bash
+curl -X POST localhost:3000/api/workflows/wf_checkout_pipeline/runs \
+  -H 'content-type: application/json' \
+  -d '{"trigger":{"body":{"id":"ord_1","amount":749.5,"sku":"SKU-1"}}}'
 ```
 
 ## Routes
@@ -27,4 +55,6 @@ npm run build
 - `src/app/globals.css` — design tokens (`@theme`) from the "Nexus Orchestration System" design system. Note the radius remap: `rounded` = 2px, `rounded-lg` = 4px, `rounded-xl` = 8px.
 - `src/app/(workspace)/layout.tsx` — shared shell: node-library sidebar, top bar, status bar.
 - `src/components/icon.tsx` — Material Symbols glyph (`<Icon name="bolt" className="text-body-md" />`).
-- `src/components/<screen>/` — per-screen components; each has a `data.ts` with mock data to swap for real APIs.
+- `src/lib/workflows/` — model (`schema.ts`), graph validation, templates, execution engine, SQLite store, seed.
+- `src/components/flow/` — canvas wired to the API (load, autosave with version checks, run, inspect).
+- `src/components/{executions,secrets,telemetry}/` — still mock data (`data.ts`).

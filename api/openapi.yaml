@@ -1,0 +1,442 @@
+openapi: 3.1.0
+info:
+  title: Reqora API
+  version: 0.1.0
+  description: |
+    Workflows are directed acyclic graphs of nodes connected by edges. Running a workflow executes
+    its nodes in dependency order starting from its single trigger node; condition nodes choose which
+    output port (`true`/`false`) continues, and nodes on untaken branches are recorded as `skipped`.
+
+    **Templates.** String fields marked *template* may contain `{{path}}` placeholders resolved at run time
+    against: `trigger.body.*`, `trigger.headers.*`, `env.NAME` (reads the server variable `REQORA_ENV_NAME`;
+    a missing variable fails the step), and `<nodeId>.*` (the output of an already-executed node, e.g.
+    `{{node-2.body.customer_id}}`). In an HTTP `body`, a placeholder inside a JSON string literal is inserted
+    as string content; a bare placeholder is inserted as a JSON value.
+
+    Errors use `application/problem+json` (RFC 9457).
+servers:
+  - url: http://localhost:3000
+paths:
+  /api/workflows:
+    get:
+      operationId: listWorkflows
+      summary: List workflows (most recently updated first)
+      responses:
+        "200":
+          description: Workflow summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkflowSummary" }
+    post:
+      operationId: createWorkflow
+      summary: Create a workflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkflowInput" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    get:
+      operationId: getWorkflow
+      summary: Get a workflow
+      responses:
+        "200":
+          description: The workflow
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "404": { $ref: "#/components/responses/Problem" }
+    put:
+      operationId: replaceWorkflow
+      summary: Replace a workflow's definition
+      description: |
+        Optimistic concurrency: `version` must equal the stored version or the request fails with 409.
+        On success the version is incremented.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/WorkflowInput"
+                - type: object
+                  required: [version]
+                  properties:
+                    version: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteWorkflow
+      summary: Delete a workflow and its runs
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}/runs:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    get:
+      operationId: listWorkflowRuns
+      summary: List a workflow's runs (newest first)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: runWorkflow
+      summary: Execute a workflow synchronously
+      description: |
+        Executes the stored workflow and returns the completed run. A run whose steps fail still returns
+        201 with `status: failed`; inspect `steps[].error`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunInput" }
+      responses:
+        "201":
+          description: Run finished (succeeded or failed)
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/runs/{runId}:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getRun
+      summary: Get a run
+      responses:
+        "200":
+          description: The run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/hooks/{workflowId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    post:
+      operationId: triggerWorkflowWebhook
+      summary: Webhook entry point
+      description: |
+        Runs the workflow with the raw request as its trigger: the JSON body becomes `trigger.body`
+        and request headers become `trigger.headers`. Responds with the workflow's Response node
+        (status and body) if one executed, otherwise 202 with the run id.
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "200":
+          description: Body/status come from the workflow's Response node
+          content:
+            application/json:
+              schema: {}
+        "202":
+          description: Run finished without a Response node
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runId, status]
+                properties:
+                  runId: { type: string }
+                  status: { $ref: "#/components/schemas/RunStatus" }
+        "404": { $ref: "#/components/responses/Problem" }
+components:
+  parameters:
+    WorkflowId:
+      name: workflowId
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    Problem:
+      description: Error
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+  schemas:
+    Problem:
+      type: object
+      required: [title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        issues:
+          description: Validation issues (400 for malformed bodies, 422 for invalid graphs)
+          type: array
+          items:
+            type: object
+            required: [path, message]
+            properties:
+              path: { type: string }
+              message: { type: string }
+    Position:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number }
+        y: { type: number }
+    NodeBase:
+      type: object
+      required: [id, name, position]
+      properties:
+        id: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        position: { $ref: "#/components/schemas/Position" }
+    HttpMethod:
+      type: string
+      enum: [GET, POST, PUT, PATCH, DELETE]
+    WebhookNode:
+      description: Trigger. Exactly one per workflow. Output port `out`; output is the trigger payload.
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: webhook }
+            config:
+              type: object
+              required: [method, path]
+              properties:
+                method: { $ref: "#/components/schemas/HttpMethod" }
+                path: { type: string }
+    HttpNode:
+      description: |
+        Sends an HTTP request. Output port `out`; output is `{ status, headers, body, durationMs }`.
+        Responses with status >= 400 fail the step. Relative URLs resolve against the Reqora server origin.
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: http }
+            config:
+              type: object
+              required: [method, url]
+              properties:
+                method: { $ref: "#/components/schemas/HttpMethod" }
+                url: { type: string, description: template }
+                headers:
+                  type: object
+                  additionalProperties: { type: string, description: template }
+                body: { type: string, description: JSON template }
+                timeoutMs: { type: integer, minimum: 100, maximum: 30000, default: 10000 }
+    ConditionNode:
+      description: Compares two values. Output ports `true` and `false`; only the matching one continues.
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: condition }
+            config:
+              type: object
+              required: [left, operator]
+              properties:
+                left: { type: string, description: template }
+                operator:
+                  type: string
+                  enum: ["==", "!=", ">", ">=", "<", "<=", contains, exists]
+                right: { type: string, description: template (ignored for `exists`) }
+    TransformNode:
+      description: Builds a new object from templates. Output port `out`.
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: transform }
+            config:
+              type: object
+              required: [output]
+              properties:
+                output:
+                  type: object
+                  additionalProperties: { type: string, description: template }
+    DelayNode:
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: delay }
+            config:
+              type: object
+              required: [ms]
+              properties:
+                ms: { type: integer, minimum: 0, maximum: 10000 }
+    ResponseNode:
+      description: Terminal. Sets the run's `output` (and the webhook HTTP response). No output ports.
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: response }
+            config:
+              type: object
+              required: [status]
+              properties:
+                status: { type: integer, minimum: 100, maximum: 599 }
+                body: { type: string, description: JSON template }
+    Node:
+      oneOf:
+        - $ref: "#/components/schemas/WebhookNode"
+        - $ref: "#/components/schemas/HttpNode"
+        - $ref: "#/components/schemas/ConditionNode"
+        - $ref: "#/components/schemas/TransformNode"
+        - $ref: "#/components/schemas/DelayNode"
+        - $ref: "#/components/schemas/ResponseNode"
+      discriminator:
+        propertyName: type
+    Edge:
+      type: object
+      required: [id, source, sourcePort, target]
+      properties:
+        id: { type: string }
+        source: { type: string, description: Source node id }
+        sourcePort: { type: string, description: "`out`, or `true`/`false` for condition nodes" }
+        target: { type: string, description: Target node id }
+    WorkflowInput:
+      type: object
+      required: [name, nodes, edges]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        nodes:
+          type: array
+          maxItems: 200
+          items: { $ref: "#/components/schemas/Node" }
+        edges:
+          type: array
+          maxItems: 500
+          items: { $ref: "#/components/schemas/Edge" }
+    Workflow:
+      allOf:
+        - $ref: "#/components/schemas/WorkflowInput"
+        - type: object
+          required: [id, version, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            version: { type: integer }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    WorkflowSummary:
+      type: object
+      required: [id, name, version, nodeCount, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        version: { type: integer }
+        nodeCount: { type: integer }
+        updatedAt: { type: string, format: date-time }
+    RunInput:
+      type: object
+      properties:
+        trigger:
+          type: object
+          properties:
+            body: {}
+            headers:
+              type: object
+              additionalProperties: { type: string }
+    RunStatus:
+      type: string
+      enum: [succeeded, failed]
+    Step:
+      type: object
+      required: [nodeId, nodeType, name, status, startedAt, durationMs]
+      properties:
+        nodeId: { type: string }
+        nodeType: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [succeeded, failed, skipped] }
+        startedAt: { type: string, format: date-time }
+        durationMs: { type: integer }
+        port: { type: string, description: Output port taken (condition nodes report `true`/`false`) }
+        request:
+          description: HTTP nodes only. Headers are recorded unresolved so secrets are not persisted.
+          type: object
+          properties:
+            method: { type: string }
+            url: { type: string }
+            headers: { type: object, additionalProperties: { type: string } }
+        output: {}
+        error: { type: string }
+    Run:
+      type: object
+      required: [id, workflowId, workflowVersion, status, trigger, startedAt, finishedAt, durationMs, steps]
+      properties:
+        id: { type: string }
+        workflowId: { type: string }
+        workflowVersion: { type: integer }
+        status: { $ref: "#/components/schemas/RunStatus" }
+        trigger:
+          type: object
+          properties:
+            source: { type: string, enum: [manual, webhook] }
+            body: {}
+            headers: { type: object, additionalProperties: { type: string } }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        durationMs: { type: integer }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/Step" }
+        output:
+          description: Set when a Response node executed
+          type: object
+          properties:
+            status: { type: integer }
+            body: {}
+        error: { type: string }

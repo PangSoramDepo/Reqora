@@ -1,0 +1,36 @@
+import { connection } from "next/server";
+import { notFound, parseBody, problem } from "@/lib/http";
+import { validateGraph } from "@/lib/workflows/graph";
+import { workflowReplaceSchema } from "@/lib/workflows/schema";
+import { deleteWorkflow, getWorkflow, replaceWorkflow } from "@/lib/workflows/store";
+
+type Ctx = RouteContext<"/api/workflows/[workflowId]">;
+
+export async function GET(_request: Request, ctx: Ctx) {
+  await connection();
+  const { workflowId } = await ctx.params;
+  const workflow = getWorkflow(workflowId);
+  return workflow ? Response.json(workflow) : notFound(`workflow "${workflowId}"`);
+}
+
+export async function PUT(request: Request, ctx: Ctx) {
+  const { workflowId } = await ctx.params;
+  const parsed = await parseBody(request, workflowReplaceSchema);
+  if ("error" in parsed) return parsed.error;
+
+  const { version, ...input } = parsed.data;
+  const issues = validateGraph(input);
+  if (issues.length) return problem(422, "Unprocessable Content", { detail: "invalid workflow graph", issues });
+
+  const result = replaceWorkflow(workflowId, input, version);
+  if (result.ok) return Response.json(result.workflow);
+  if (result.reason === "not_found") return notFound(`workflow "${workflowId}"`);
+  return problem(409, "Conflict", {
+    detail: `workflow was modified (current version ${result.current}, request was based on ${version}); reload and retry`,
+  });
+}
+
+export async function DELETE(_request: Request, ctx: Ctx) {
+  const { workflowId } = await ctx.params;
+  return deleteWorkflow(workflowId) ? new Response(null, { status: 204 }) : notFound(`workflow "${workflowId}"`);
+}
