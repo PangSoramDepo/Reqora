@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=JetBrains+Mono:wght@100..900&display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface": "#031427", "on-primary": "#003640", "primary": "#4cd7f6", "on-secondary": "#1000a9", "surface-bright": "#2a3a4f", "surface-container": "#102034", "on-primary-container": "#00424f", "on-tertiary-fixed-variant": "#653e00", "secondary-container": "#3131c0", "primary-fixed-dim": "#4cd7f6", "tertiary-fixed": "#ffddb8", "tertiary-container": "#e79400", "secondary-fixed": "#e1e0ff", "surface-variant": "#26364a", "on-surface": "#d3e4fe", "primary-fixed": "#acedff", "tertiary-fixed-dim": "#ffb95f", "on-secondary-fixed-variant": "#2f2ebe", "surface-dim": "#031427", "on-tertiary-fixed": "#2a1700", "tertiary": "#ffb95f", "error-container": "#93000a", "surface-container-high": "#1b2b3f", "on-tertiary": "#472a00", "secondary": "#c0c1ff", "surface-tint": "#4cd7f6", "surface-container-highest": "#26364a", "on-surface-variant": "#bcc9cd", "on-background": "#d3e4fe", "outline-variant": "#3d494c", "on-error": "#690005", "background": "#031427", "inverse-on-surface": "#213145", "on-secondary-container": "#b0b2ff", "on-primary-fixed": "#001f26", "on-secondary-fixed": "#07006c", "error": "#ffb4ab", "surface-container-low": "#0b1c30", "on-error-container": "#ffdad6", "inverse-primary": "#00687a", "on-tertiary-container": "#563400", "on-primary-fixed-variant": "#004e5c", "outline": "#869397", "inverse-surface": "#d3e4fe", "primary-container": "#06b6d4", "secondary-fixed-dim": "#c0c1ff", "surface-container-lowest": "#000f21" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1rem", "space-2xl": "2rem", "space-xs": "0.25rem", "gutter-canvas": "1.5rem", "margin": "1rem", "space-md": "0.75rem", "space-xl": "1.5rem", "gutter": "1rem", "margin-panel": "1.5rem", "space-xxs": "0.125rem", "space-sm": "0.5rem" }, "fontFamily": { "body-md": ["JetBrains Mono"], "code-block": ["JetBrains Mono"], "headline-sm": ["Geist"], "label-md": ["JetBrains Mono"], "headline-md": ["Geist"], "body-sm": ["JetBrains Mono"], "label-sm": ["JetBrains Mono"], "display-lg": ["Geist"], "headline-lg": ["Geist"], "body-lg": ["JetBrains Mono"] }, "fontSize": { "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "code-block": ["12px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-sm": ["15px", { "lineHeight": "20px", "fontWeight": "500" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "500" }], "body-sm": ["11px", { "lineHeight": "16px", "fontWeight": "400" }], "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600" }], "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "body-lg": ["14px", { "lineHeight": "22px", "fontWeight": "400" }] } } } }</script></head><body class="bg-surface font-body-md text-body-md text-on-surface antialiased min-h-screen"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-low/95 backdrop-blur-xl z-50 flex flex-col shadow-[0_1px_8px_rgba(0,0,0,0.3)]"><div class="h-14 px-space-md flex items-center justify-between bg-surface-container-lowest/60"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary text-headline-sm">account_tree</span><span class="font-headline-sm text-headline-sm text-on-surface uppercase tracking-wider font-semibold">Node Library</span></div><button class="p-space-xs rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" title="Collapse Library Rail" type="button"><span class="material-symbols-outlined text-body-lg">first_page</span></button></div><div class="p-space-sm"><div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-lowest text-on-surface-variant"><span class="material-symbols-outlined text-body-md">search</span><span class="font-body-sm text-body-sm text-outline">Filter nodes...</span></div></div><div class="px-space-sm pt-space-xs pb-space-sm"><div class="font-label-sm text-label-sm text-outline uppercase tracking-wider px-space-xs mb-space-xs">Core Blocks</div><div class="space-y-space-xxs"><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary text-body-lg">http</span><span class="font-body-sm text-body-sm text-on-surface">Send HTTP</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary">REST</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-tertiary text-body-lg">webhook</span><span class="font-body-sm text-body-sm text-on-surface">Webhook Trigger</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-tertiary">EVENT</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-secondary text-body-lg">transform</span><span class="font-body-sm text-body-sm text-on-surface">Data Mapping</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-secondary">TRANS</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary-fixed text-body-lg">call_split</span><span class="font-body-sm text-body-sm text-on-surface">Condition/Filter</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary-fixed">FLOW</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-outline text-body-lg">hourglass_top</span><span class="font-body-sm text-body-sm text-on-surface">Delay / Sleep</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-outline">WAIT</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary-container text-body-lg">output_circle</span><span class="font-body-sm text-body-sm text-on-surface">Response / Output</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary-container">EXIT</span></div></div></div><div class="mt-auto p-space-sm bg-surface-container-lowest/50"><div class="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-space-xs">Navigation</div><nav class="flex flex-col gap-space-xxs" data-active-classes="bg-surface-container-high text-primary font-medium rounded"><a class="flex items-center gap-space-xs px-space-sm py-space-xs rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="flow-canvas" href="#"><span class="material-symbols-outlined text-body-md">schema</span><span>Flow Canvas</span></a><a aria-current="page" class="flex items-center gap-space-xs px-space-sm py-space-xs transition-colors bg-surface-container-high text-primary font-medium rounded" data-path="execution-history" href="#"><span class="material-symbols-outlined text-body-md">history</span><span>Execution History</span></a><a class="flex items-center gap-space-xs px-space-sm py-space-xs rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-secrets" href="#"><span class="material-symbols-outlined text-body-md">key</span><span>Environment Secrets</span></a><a class="flex items-center gap-space-xs px-space-sm py-space-xs rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="pipeline-analytics" href="#"><span class="material-symbols-outlined text-body-md">monitoring</span><span>Telemetry & Metrics</span></a></nav></div></aside><div class="pl-64 flex flex-col min-h-screen"><header class="fixed top-0 left-64 right-0 h-14 bg-surface-container-low/90 backdrop-blur-xl z-40 px-space-md flex items-center justify-between shadow-[0_1px_8px_rgba(0,0,0,0.25)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs"><img alt="NexusFlow Brand Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCoe7Tioa1zuBWUN5KTEyCueElvyJqr7xoUGV4N_xYGVDm52RTwG1r5PAB36JEoCfBT6feBc2-N7bVR-vrUO1JVvV9-fLz5pdqBjpYtTTPVECusL1j9-zSBA5dYPqCk9BNVxss402BJJg__nd5sNkOXcBvMvzpB7ctRQUVDD_0XUko-b5t2omGTaPW5ruBvOyToeNAPvNLXMlBWZoxMOH7jhlQ9-AtPwn6k4AaKoB5FuRtr9SQZBFDBow"/><span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight">NexusFlow</span></div><div class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant"><span class="text-outline">/</span><span>Workspaces</span><span class="text-outline">/</span><span>Payments & Auth</span><span class="text-outline">/</span><span class="text-on-surface font-medium">Customer Checkout Pipeline</span></div><div class="flex items-center gap-space-xxs px-space-xs py-space-xxs rounded bg-surface-container-highest text-tertiary border border-outline-variant/30"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span><span class="font-label-sm text-label-sm uppercase">Production US-East</span></div></div><div class="flex items-center gap-space-sm"><div class="flex items-center rounded bg-surface-container-highest p-space-xxs"><button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" title="Zoom Out" type="button"><span class="material-symbols-outlined text-body-md">remove</span></button><span class="px-space-xs font-label-sm text-label-sm text-on-surface">100%</span><button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" title="Zoom In" type="button"><span class="material-symbols-outlined text-body-md">add</span></button><button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded ml-space-xxs" title="Toggle Minimap" type="button"><span class="material-symbols-outlined text-body-md">map</span></button></div><button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body-sm text-body-sm transition-colors" type="button"><span class="material-symbols-outlined text-body-md">share</span><span>Share</span></button><button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-secondary-container hover:bg-secondary-container/80 text-on-secondary-container font-body-sm text-body-sm transition-colors" type="button"><span class="material-symbols-outlined text-body-md">cloud_upload</span><span>Deploy</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded bg-primary text-on-primary hover:bg-primary-container font-body-sm text-body-sm font-semibold transition-all" type="button"><span class="material-symbols-outlined text-body-md fill-current">play_arrow</span><span>Run Workflow</span><span class="w-2 h-2 rounded-full bg-on-primary animate-ping"></span></button><div class="flex items-center gap-space-xs pl-space-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAUlpwms9FBMQb4aRIscEECcY66Qw7wkNnpwdiicp_JW1p09ei_pJyMmfBZET7vgvs6L1_bpNuqWWFaNrY3E7v-TEuyp5dwnTTUcIkCxnavXDJ3mPN-zjADAOO-hC88E0PPOLZQ4eR2drFsLx9xJZgn9hU1gqp6zyyQXYtKP-u5vhVov4UN5dy6DgnqHZ75M8J2qBImJshOEj8PqNG_yXQ4nxTe_0IGtp2Il1Lf9AiXV3QA26TCZsuVYQ"/></div></div></header><main class="relative pt-14 bg-surface flex-1 w-full"><div class="flex flex-col w-full pb-16">
+<!-- Top Stats Strip / Workflow Run Telemetry Overview -->
+<section class="w-full px-space-lg py-space-md bg-surface-container-low shadow-sm">
+<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-space-md">
+<!-- Metrics Strip -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-space-sm flex-1">
+<!-- Metric 1: Total Runs -->
+<div class="p-space-sm rounded-lg bg-surface-container flex items-center justify-between group hover:bg-surface-container-high transition-colors shadow-sm">
+<div class="min-w-0">
+<span class="block font-label-sm text-label-sm uppercase tracking-wider text-outline truncate">Runs (Last 24h)</span>
+<div class="flex items-baseline gap-space-xs mt-space-xxs">
+<span class="font-display-lg text-headline-lg font-bold text-on-surface">14,290</span>
+<span class="font-label-sm text-label-sm text-primary flex items-center">
+<span class="material-symbols-outlined text-[13px]">trending_up</span>+8.2%
+              </span>
+</div>
+</div>
+<div class="w-9 h-9 rounded bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+<span class="material-symbols-outlined text-headline-sm">cycle</span>
+</div>
+</div>
+<!-- Metric 2: Success Rate -->
+<div class="p-space-sm rounded-lg bg-surface-container flex items-center justify-between group hover:bg-surface-container-high transition-colors shadow-sm">
+<div class="min-w-0">
+<span class="block font-label-sm text-label-sm uppercase tracking-wider text-outline truncate">Success Rate</span>
+<div class="flex items-baseline gap-space-xs mt-space-xxs">
+<span class="font-display-lg text-headline-lg font-bold text-primary">99.4%</span>
+<span class="font-label-sm text-label-sm text-outline">/ 0.6% flakiness</span>
+</div>
+</div>
+<div class="w-9 h-9 rounded bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+<span class="material-symbols-outlined text-headline-sm">verified</span>
+</div>
+</div>
+<!-- Metric 3: Avg Latency -->
+<div class="p-space-sm rounded-lg bg-surface-container flex items-center justify-between group hover:bg-surface-container-high transition-colors shadow-sm">
+<div class="min-w-0">
+<span class="block font-label-sm text-label-sm uppercase tracking-wider text-outline truncate">Avg Latency</span>
+<div class="flex items-baseline gap-space-xs mt-space-xxs">
+<span class="font-display-lg text-headline-lg font-bold text-secondary">240ms</span>
+<span class="font-label-sm text-label-sm text-outline">p95: 395ms</span>
+</div>
+</div>
+<div class="w-9 h-9 rounded bg-secondary-container/20 flex items-center justify-center text-secondary flex-shrink-0">
+<span class="material-symbols-outlined text-headline-sm">speed</span>
+</div>
+</div>
+<!-- Metric 4: Failed Runs -->
+<div class="p-space-sm rounded-lg bg-surface-container flex items-center justify-between group hover:bg-surface-container-high transition-colors shadow-sm">
+<div class="min-w-0">
+<span class="block font-label-sm text-label-sm uppercase tracking-wider text-outline truncate">Failed Runs</span>
+<div class="flex items-baseline gap-space-xs mt-space-xxs">
+<span class="font-display-lg text-headline-lg font-bold text-error">12</span>
+<span class="font-label-sm text-label-sm text-error bg-error-container/40 px-space-xs py-space-xxs rounded">4 unresolved</span>
+</div>
+</div>
+<div class="w-9 h-9 rounded bg-error-container/20 flex items-center justify-center text-error flex-shrink-0">
+<span class="material-symbols-outlined text-headline-sm">error_circle_rounded</span>
+</div>
+</div>
+</div>
+<!-- Action Controls & Time Range -->
+<div class="flex items-center gap-space-xs flex-shrink-0 bg-surface-container-lowest p-space-xxs rounded-lg">
+<button class="px-space-sm py-space-xs rounded bg-surface-container-high text-primary font-label-md text-label-md transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-body-md">schedule</span>24h
+        </button>
+<button class="px-space-sm py-space-xs rounded hover:bg-surface-container-high text-on-surface-variant font-label-md text-label-md transition-colors" type="button">7d</button>
+<button class="px-space-sm py-space-xs rounded hover:bg-surface-container-high text-on-surface-variant font-label-md text-label-md transition-colors" type="button">30d</button>
+<span class="w-px h-5 bg-surface-variant mx-space-xxs"></span>
+<button class="p-space-xs rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors" title="Export Runs HAR / JSON" type="button">
+<span class="material-symbols-outlined text-body-lg">download</span>
+</button>
+<button class="p-space-xs rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors" title="Telemetry Configuration" type="button">
+<span class="material-symbols-outlined text-body-lg">tune</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Live Canvas Split Debugger Section -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-sm p-space-sm items-start">
+<!-- LEFT PANEL: Runs List & Filter Bar (Cols 12 -> 5) -->
+<div class="lg:col-span-5 flex flex-col gap-space-xs bg-surface-container-low rounded-lg p-space-sm shadow-md">
+<!-- Filter Bar & Search -->
+<div class="flex flex-col gap-space-xs pb-space-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Executions</span>
+<span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary font-mono">LIVE_STREAM</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="flex items-center gap-space-xxs text-primary font-label-sm text-label-sm hover:underline" id="toggleAutoScroll" type="button">
+<span class="material-symbols-outlined text-body-md">sync</span> Auto-refresh
+            </button>
+</div>
+</div>
+<!-- Filter Pill Chips -->
+<div class="flex items-center gap-space-xs flex-wrap pt-space-xxs">
+<div class="relative flex-1 min-w-[140px]">
+<input class="w-full bg-surface-container-lowest text-on-surface font-body-sm text-body-sm pl-7 pr-space-xs py-space-xxs rounded focus:outline-none focus:bg-surface-container-highest transition-colors" placeholder="Filter ID, IP, tag..." type="text"/>
+<span class="material-symbols-outlined text-outline text-body-md absolute left-2 top-1.5 pointer-events-none">search</span>
+</div>
+<!-- Status Dropdown Selector -->
+<select class="bg-surface-container-lowest text-on-surface font-body-sm text-body-sm px-space-xs py-space-xxs rounded focus:outline-none cursor-pointer">
+<option>All Statuses</option>
+<option>200 OK (Success)</option>
+<option>500 Error (Failed)</option>
+<option>Running</option>
+<option>Retried</option>
+</select>
+<!-- Trigger Source Filter -->
+<select class="bg-surface-container-lowest text-on-surface font-body-sm text-body-sm px-space-xs py-space-xxs rounded focus:outline-none cursor-pointer">
+<option>All Triggers</option>
+<option>Webhook</option>
+<option>Scheduled Cron</option>
+<option>Manual Test</option>
+</select>
+</div>
+</div>
+<!-- Execution Runs List (Clickable items that swap trace) -->
+<div class="flex flex-col gap-space-xxs overflow-y-auto max-h-[750px] pr-space-xxs" id="runsListContainer">
+<!-- Run Item 1: Selected / Active in trace view (Failed 500) -->
+<div class="run-item cursor-pointer p-space-sm rounded-lg bg-surface-container-high text-on-surface transition-all shadow-sm group" data-duration="384ms" data-run-id="#run_893fa02" data-status="500" data-timestamp="12 secs ago" data-trigger="Webhook">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-error animate-ping"></span>
+<span class="font-label-md text-label-md font-mono text-primary font-semibold">#run_893fa02</span>
+<span class="px-space-xs py-space-xxs rounded font-label-sm text-label-sm bg-error-container text-on-error-container font-mono font-bold">500 FAIL</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline font-mono">12s ago</span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs mt-space-xs pt-space-xs bg-surface-container-lowest/60 p-space-xs rounded">
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Trigger</span>
+<span class="font-body-sm text-body-sm text-tertiary flex items-center gap-space-xxs">
+<span class="material-symbols-outlined text-[13px]">webhook</span>Webhook
+              </span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Duration</span>
+<span class="font-body-sm text-body-sm font-mono text-on-surface">384ms</span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Steps Run</span>
+<span class="font-body-sm text-body-sm font-mono text-error font-medium">4/5 broken</span>
+</div>
+</div>
+<div class="mt-space-xxs flex items-center justify-between text-outline">
+<span class="font-body-sm text-body-sm text-error truncate">Inventory Sync timed out: upstream gateway 504</span>
+<span class="material-symbols-outlined text-body-md group-hover:translate-x-0.5 text-primary transition-transform">chevron_right</span>
+</div>
+</div>
+<!-- Run Item 2: Success 200 -->
+<div class="run-item cursor-pointer p-space-sm rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-all shadow-sm group" data-duration="218ms" data-run-id="#run_893fa01" data-status="200" data-timestamp="2 mins ago" data-trigger="Manual Test">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="font-label-md text-label-md font-mono text-on-surface font-semibold">#run_893fa01</span>
+<span class="px-space-xs py-space-xxs rounded font-label-sm text-label-sm bg-surface-container-highest text-primary font-mono font-bold">200 OK</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline font-mono">2m ago</span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs mt-space-xs pt-space-xs bg-surface-container-lowest/40 p-space-xs rounded">
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Trigger</span>
+<span class="font-body-sm text-body-sm text-secondary flex items-center gap-space-xxs">
+<span class="material-symbols-outlined text-[13px]">terminal</span>Manual
+              </span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Duration</span>
+<span class="font-body-sm text-body-sm font-mono text-on-surface">218ms</span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Steps Run</span>
+<span class="font-body-sm text-body-sm font-mono text-primary font-medium">5/5 complete</span>
+</div>
+</div>
+<div class="mt-space-xxs flex items-center justify-between text-outline">
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Stripe Auth & Slack notification verified</span>
+<span class="material-symbols-outlined text-body-md group-hover:translate-x-0.5 text-on-surface-variant transition-transform">chevron_right</span>
+</div>
+</div>
+<!-- Run Item 3: Running In-Flight -->
+<div class="run-item cursor-pointer p-space-sm rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-all shadow-sm group" data-duration="410ms..." data-run-id="#run_893fa00" data-status="RUNNING" data-timestamp="Just now" data-trigger="Webhook">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>
+<span class="font-label-md text-label-md font-mono text-on-surface font-semibold">#run_893fa00</span>
+<span class="px-space-xs py-space-xxs rounded font-label-sm text-label-sm bg-tertiary-container text-on-tertiary-container font-mono font-bold">RUNNING</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline font-mono">Just now</span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs mt-space-xs pt-space-xs bg-surface-container-lowest/40 p-space-xs rounded">
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Trigger</span>
+<span class="font-body-sm text-body-sm text-tertiary flex items-center gap-space-xxs">
+<span class="material-symbols-outlined text-[13px]">webhook</span>Webhook
+              </span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Duration</span>
+<span class="font-body-sm text-body-sm font-mono text-tertiary">410ms...</span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Steps Run</span>
+<span class="font-body-sm text-body-sm font-mono text-on-surface">3/5 executing</span>
+</div>
+</div>
+<div class="mt-space-xxs flex items-center justify-between text-outline">
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Order Condition matched: forwarding payload</span>
+<span class="material-symbols-outlined text-body-md group-hover:translate-x-0.5 text-on-surface-variant transition-transform">chevron_right</span>
+</div>
+</div>
+<!-- Run Item 4: Retried Success -->
+<div class="run-item cursor-pointer p-space-sm rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-all shadow-sm group" data-duration="640ms" data-run-id="#run_893f9ef" data-status="RETRIED" data-timestamp="14 mins ago" data-trigger="Scheduled Cron">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-secondary"></span>
+<span class="font-label-md text-label-md font-mono text-on-surface font-semibold">#run_893f9ef</span>
+<span class="px-space-xs py-space-xxs rounded font-label-sm text-label-sm bg-secondary-container text-on-secondary-container font-mono font-bold">RETRIED (2x)</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline font-mono">14m ago</span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs mt-space-xs pt-space-xs bg-surface-container-lowest/40 p-space-xs rounded">
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Trigger</span>
+<span class="font-body-sm text-body-sm text-on-surface flex items-center gap-space-xxs">
+<span class="material-symbols-outlined text-[13px]">alarm</span>Cron
+              </span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Duration</span>
+<span class="font-body-sm text-body-sm font-mono text-on-surface">640ms</span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Steps Run</span>
+<span class="font-body-sm text-body-sm font-mono text-primary">5/5 passed</span>
+</div>
+</div>
+<div class="mt-space-xxs flex items-center justify-between text-outline">
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Attempt 2 resolved with backoff delay</span>
+<span class="material-symbols-outlined text-body-md group-hover:translate-x-0.5 text-on-surface-variant transition-transform">chevron_right</span>
+</div>
+</div>
+<!-- Run Item 5: Success 200 -->
+<div class="run-item cursor-pointer p-space-sm rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface transition-all shadow-sm group" data-duration="192ms" data-run-id="#run_893f9ee" data-status="200" data-timestamp="21 mins ago" data-trigger="Webhook">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="font-label-md text-label-md font-mono text-on-surface font-semibold">#run_893f9ee</span>
+<span class="px-space-xs py-space-xxs rounded font-label-sm text-label-sm bg-surface-container-highest text-primary font-mono font-bold">200 OK</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline font-mono">21m ago</span>
+</div>
+<div class="grid grid-cols-3 gap-space-xs mt-space-xs pt-space-xs bg-surface-container-lowest/40 p-space-xs rounded">
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Trigger</span>
+<span class="font-body-sm text-body-sm text-tertiary flex items-center gap-space-xxs">
+<span class="material-symbols-outlined text-[13px]">webhook</span>Webhook
+              </span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Duration</span>
+<span class="font-body-sm text-body-sm font-mono text-on-surface">192ms</span>
+</div>
+<div>
+<span class="block font-label-sm text-label-sm text-outline">Steps Run</span>
+<span class="font-body-sm text-body-sm font-mono text-primary">5/5 passed</span>
+</div>
+</div>
+<div class="mt-space-xxs flex items-center justify-between text-outline">
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Checkout payload settled successfully</span>
+<span class="material-symbols-outlined text-body-md group-hover:translate-x-0.5 text-on-surface-variant transition-transform">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT PANEL: Execution Trace Waterfall & Deep-Dive Debugger Inspector (Cols 12 -> 7) -->
+<div class="lg:col-span-7 flex flex-col gap-space-sm bg-surface-container-low rounded-lg p-space-sm shadow-md">
+<!-- Execution Inspector Header -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between pb-space-xs bg-surface-container-lowest/50 p-space-sm rounded-lg gap-space-sm">
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-space-xs flex-wrap">
+<span class="font-headline-md text-headline-md text-on-surface font-bold font-mono">#run_893fa02</span>
+<span class="px-space-xs py-space-xxs rounded bg-error-container text-on-error-container font-label-sm text-label-sm font-bold">500 FAILED</span>
+<span class="font-label-sm text-label-sm text-outline font-mono">12:48:19.402 UTC</span>
+</div>
+<div class="flex items-center gap-space-xs mt-space-xxs text-on-surface-variant font-body-sm text-body-sm">
+<span>Root Cause:</span>
+<span class="text-error font-medium truncate">Step 4 (Inventory Sync) Gateway Timeout</span>
+</div>
+</div>
+<!-- Quick Actions -->
+<div class="flex items-center gap-space-xs flex-shrink-0">
+<button class="px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-space-xxs" type="button">
+<span class="material-symbols-outlined text-body-md">share</span>Share Run
+          </button>
+<button class="px-space-sm py-space-xs rounded bg-primary text-on-primary hover:bg-primary-container font-body-sm text-body-sm font-semibold transition-all shadow-sm flex items-center gap-space-xxs active:scale-95" id="replayBtn" type="button">
+<span class="material-symbols-outlined text-body-md fill-current">replay</span>Replay Flow from this step
+          </button>
+</div>
+</div>
+<!-- Waterfall Timeline Trace Visualization -->
+<div class="flex flex-col bg-surface-container rounded-lg p-space-sm shadow-inner">
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-body-lg">waterfall_chart</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Execution Flow Waterfall</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline font-mono">Total Execution Time: 384ms</span>
+</div>
+<!-- Waterfall Steps Container -->
+<div class="flex flex-col gap-space-xs mt-space-xs font-mono">
+<!-- Step 1: Webhook Received -->
+<div class="step-row flex flex-col p-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest cursor-pointer transition-colors" data-step-target="step-1">
+<div class="flex items-center justify-between font-body-sm text-body-sm">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="w-5 h-5 rounded-full bg-tertiary-container text-on-tertiary-container flex items-center justify-center font-label-sm text-label-sm font-bold">1</span>
+<span class="text-tertiary font-medium">Webhook Received</span>
+<span class="px-space-xs py-space-xxs rounded bg-surface-container-lowest text-outline font-label-sm text-label-sm">stripe.event: charge.created</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-sm text-label-sm text-primary">200 OK</span>
+<span class="font-label-sm text-label-sm text-outline font-mono">14ms</span>
+</div>
+</div>
+<!-- Waterfall relative visual bar -->
+<div class="w-full bg-surface-container-lowest h-1.5 rounded-full mt-space-xs overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 8%; margin-left: 0%;"></div>
+</div>
+</div>
+<!-- Step 2: Stripe Customer Verify -->
+<div class="step-row flex flex-col p-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest cursor-pointer transition-colors" data-step-target="step-2">
+<div class="flex items-center justify-between font-body-sm text-body-sm">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center font-label-sm text-label-sm font-bold">2</span>
+<span class="text-on-surface font-medium">Stripe Customer Verify</span>
+<span class="px-space-xs py-space-xxs rounded bg-surface-container-lowest text-primary font-label-sm text-label-sm">GET /v1/customers/cus_98A</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-sm text-label-sm text-primary">200 OK</span>
+<span class="font-label-sm text-label-sm text-outline font-mono">120ms</span>
+</div>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5 rounded-full mt-space-xs overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 32%; margin-left: 8%;"></div>
+</div>
+</div>
+<!-- Step 3: Order Condition Evaluated -->
+<div class="step-row flex flex-col p-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest cursor-pointer transition-colors" data-step-target="step-3">
+<div class="flex items-center justify-between font-body-sm text-body-sm">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="w-5 h-5 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-label-sm text-label-sm font-bold">3</span>
+<span class="text-on-surface font-medium">Order Condition Evaluated</span>
+<span class="px-space-xs py-space-xxs rounded bg-surface-container-lowest text-secondary font-label-sm text-label-sm">amount > $50.00 → TRUE</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-sm text-label-sm text-secondary">MATCH</span>
+<span class="font-label-sm text-label-sm text-outline font-mono">4ms</span>
+</div>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5 rounded-full mt-space-xs overflow-hidden">
+<div class="bg-secondary h-full rounded-full" style="width: 4%; margin-left: 40%;"></div>
+</div>
+</div>
+<!-- Step 4: Inventory Sync (FAILING POINT) -->
+<div class="step-row flex flex-col p-space-xs rounded bg-error-container/20 hover:bg-error-container/30 cursor-pointer transition-colors shadow-sm" data-step-target="step-4">
+<div class="flex items-center justify-between font-body-sm text-body-sm">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="w-5 h-5 rounded-full bg-error-container text-on-error-container flex items-center justify-center font-label-sm text-label-sm font-bold">4</span>
+<span class="text-error font-bold flex items-center gap-space-xxs">
+<span class="material-symbols-outlined text-body-sm">warning</span>Inventory Sync
+                </span>
+<span class="px-space-xs py-space-xxs rounded bg-error-container/50 text-error font-label-sm text-label-sm">POST /warehouse/stock/reserve</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-sm text-label-sm text-error font-bold">504 TIMEOUT</span>
+<span class="font-label-sm text-label-sm text-error font-mono font-bold">246ms</span>
+</div>
+</div>
+<div class="w-full bg-surface-container-lowest h-1.5 rounded-full mt-space-xs overflow-hidden">
+<div class="bg-error h-full rounded-full" style="width: 56%; margin-left: 44%;"></div>
+</div>
+</div>
+<!-- Step 5: Slack Notification Sent (SKIPPED/ABORTED) -->
+<div class="step-row flex flex-col p-space-xs rounded bg-surface-container-lowest/60 opacity-60 cursor-not-allowed" data-step-target="step-5">
+<div class="flex items-center justify-between font-body-sm text-body-sm">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="w-5 h-5 rounded-full bg-surface-container-highest text-outline flex items-center justify-center font-label-sm text-label-sm font-bold">5</span>
+<span class="text-outline">Slack Notification Sent</span>
+<span class="px-space-xs py-space-xxs rounded bg-surface-container-highest text-outline font-label-sm text-label-sm">SKIPPED (Due to predecessor error)</span>
+</div>
+<div class="flex items-center gap-space-sm flex-shrink-0">
+<span class="font-label-sm text-label-sm text-outline">0ms</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Deep Dive Inspector Panel with Tabs -->
+<div class="flex flex-col bg-surface-container rounded-lg p-space-sm shadow-inner mt-space-xs">
+<!-- Tab Navigation Bar -->
+<div class="flex items-center justify-between pb-space-xs">
+<div class="flex items-center gap-space-xs overflow-x-auto" id="debuggerTabs">
+<button class="tab-btn px-space-sm py-space-xs rounded font-label-md text-label-md bg-surface-container-high text-primary font-semibold flex items-center gap-space-xxs transition-colors" data-tab-id="payloads" type="button">
+<span class="material-symbols-outlined text-body-md">data_object</span>Step Payloads (Diff)
+            </button>
+<button class="tab-btn px-space-sm py-space-xs rounded font-label-md text-label-md hover:bg-surface-container-high text-on-surface-variant flex items-center gap-space-xxs transition-colors" data-tab-id="headers" type="button">
+<span class="material-symbols-outlined text-body-md">http</span>Raw Headers
+            </button>
+<button class="tab-btn px-space-sm py-space-xs rounded font-label-md text-label-md hover:bg-surface-container-high text-on-surface-variant flex items-center gap-space-xxs transition-colors" data-tab-id="logs" type="button">
+<span class="material-symbols-outlined text-body-md">terminal</span>Console Logs
+              <span class="w-2 h-2 rounded-full bg-error"></span>
+</button>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="font-label-sm text-label-sm text-outline font-mono">Viewing: Step 4 (Failed)</span>
+<button class="p-space-xxs rounded hover:bg-surface-container-high text-outline hover:text-on-surface" title="Copy raw payload" type="button">
+<span class="material-symbols-outlined text-body-md">content_copy</span>
+</button>
+</div>
+</div>
+<!-- TAB CONTENT 1: STEP PAYLOADS (DIFF VIEW) -->
+<div class="tab-pane flex flex-col gap-space-xs pt-space-xs" id="tab-content-payloads">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm font-code-block text-code-block">
+<!-- Left: Node Input -->
+<div class="flex flex-col bg-surface-container-lowest rounded p-space-sm shadow-sm">
+<div class="flex items-center justify-between pb-space-xxs mb-space-xxs text-outline font-label-sm text-label-sm uppercase">
+<span class="flex items-center gap-space-xxs"><span class="material-symbols-outlined text-primary text-body-md">input</span>Input Payload</span>
+<span class="text-outline">JSON (294 bytes)</span>
+</div>
+<pre class="overflow-x-auto text-on-surface-variant font-mono leading-relaxed select-all">{
+  <span class="text-primary">"order_id"</span>: <span class="text-tertiary">"ord_92019318"</span>,
+  <span class="text-primary">"customer"</span>: {
+    <span class="text-primary">"id"</span>: <span class="text-tertiary">"cus_98A33190"</span>,
+    <span class="text-primary">"tier"</span>: <span class="text-tertiary">"enterprise_plus"</span>
+  },
+  <span class="text-primary">"items"</span>: [
+    {
+      <span class="text-primary">"sku"</span>: <span class="text-tertiary">"NEX-NODE-ACCEL"</span>,
+      <span class="text-primary">"quantity"</span>: <span class="text-secondary">2</span>,
+      <span class="text-primary">"warehouse"</span>: <span class="text-tertiary">"us-east-cluster-04"</span>
+    }
+  ],
+  <span class="text-primary">"idempotency_key"</span>: <span class="text-tertiary">"ik_893fa02_sec"</span>
+}</pre>
+</div>
+<!-- Right: Node Output / Error Diff -->
+<div class="flex flex-col bg-surface-container-lowest rounded p-space-sm shadow-sm">
+<div class="flex items-center justify-between pb-space-xxs mb-space-xxs text-error font-label-sm text-label-sm uppercase">
+<span class="flex items-center gap-space-xxs"><span class="material-symbols-outlined text-error text-body-md">output</span>Error Response</span>
+<span class="text-error font-mono">Status: 504 Gateway Timeout</span>
+</div>
+<pre class="overflow-x-auto text-on-surface font-mono leading-relaxed select-all">{
+  <span class="text-error">"error"</span>: {
+    <span class="text-error">"type"</span>: <span class="text-error">"UpstreamConnectionTimeout"</span>,
+    <span class="text-error">"code"</span>: <span class="text-error">"GATEWAY_TIMEOUT"</span>,
+    <span class="text-error">"message"</span>: <span class="text-on-surface">"Upstream inventory microservice (10.240.18.99:8080) failed to respond within 240ms timeout window."</span>,
+    <span class="text-error">"retryable"</span>: <span class="text-secondary">true</span>,
+    <span class="text-error">"recommended_backoff_ms"</span>: <span class="text-secondary">500</span>
+  }
+}</pre>
+</div>
+</div>
+</div>
+<!-- TAB CONTENT 2: RAW HEADERS (Hidden by default) -->
+<div class="tab-pane hidden flex-col gap-space-xs pt-space-xs font-code-block text-code-block" id="tab-content-headers">
+<div class="bg-surface-container-lowest rounded p-space-sm flex flex-col gap-space-xs">
+<span class="font-label-sm text-label-sm text-outline uppercase">Request Headers & Meta</span>
+<div class="font-mono text-on-surface-variant space-y-space-xxs">
+<div><span class="text-primary">POST</span> /warehouse/stock/reserve HTTP/2</div>
+<div><span class="text-outline">Host:</span> api.internal.inventory.cluster.local</div>
+<div><span class="text-outline">Authorization:</span> Bearer ••••••••••[MASKED_ENV_VAR]</div>
+<div><span class="text-outline">Content-Type:</span> application/json; charset=utf-8</div>
+<div><span class="text-outline">X-Nexus-Trace-ID:</span> trace_770982c_run_893fa02</div>
+<div><span class="text-outline">X-Nexus-Span-ID:</span> span_node_04_inventory</div>
+<div><span class="text-outline">User-Agent:</span> NexusFlow-Worker-Pool/v4.1.9-rc</div>
+</div>
+<div class="w-full h-px bg-surface-variant my-space-xs"></div>
+<span class="font-label-sm text-label-sm text-error uppercase">Response Headers</span>
+<div class="font-mono text-on-surface-variant space-y-space-xxs">
+<div><span class="text-error font-bold">HTTP/2 504 Gateway Timeout</span></div>
+<div><span class="text-outline">server:</span> envoy-proxy/1.26.0</div>
+<div><span class="text-outline">date:</span> Tue, 24 Oct 2024 12:48:19 GMT</div>
+<div><span class="text-outline">content-length:</span> 246</div>
+<div><span class="text-outline">x-envoy-upstream-service-time:</span> 246</div>
+</div>
+</div>
+</div>
+<!-- TAB CONTENT 3: CONSOLE LOGS & PRINTS (Hidden by default) -->
+<div class="tab-pane hidden flex-col gap-space-xs pt-space-xs font-code-block text-code-block" id="tab-content-logs">
+<div class="bg-surface-container-lowest rounded p-space-sm font-mono space-y-space-xxs max-h-56 overflow-y-auto">
+<div class="text-outline">[12:48:19.402] [WORKER] Node 01 (Webhook): Received valid signature sha256=9f8a...</div>
+<div class="text-primary">[12:48:19.416] [WORKER] Node 02 (Stripe Customer): Cache miss. Querying API.</div>
+<div class="text-outline">[12:48:19.536] [WORKER] Node 02: 200 OK. Customer cus_98A loaded (tier=enterprise_plus).</div>
+<div class="text-secondary">[12:48:19.540] [EVAL] Node 03 (Condition): Condition check: order.amount ($129.00) > $50.00 => TRUE.</div>
+<div class="text-outline">[12:48:19.544] [WORKER] Node 04 (Inventory): Initiating POST to warehouse/stock/reserve.</div>
+<div class="text-tertiary">[12:48:19.780] [WARN] Node 04: Downstream worker socket unresponsive after 230ms...</div>
+<div class="text-error font-bold">[12:48:19.790] [FATAL] Node 04: Envoy Gateway 504 timeout exceeded. Pipeline halted.</div>
+</div>
+</div>
+</div>
+<!-- Quick Action Floating Bar for Node Debugger -->
+<div class="flex items-center justify-between p-space-sm bg-surface-container-lowest/80 rounded-lg">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-body-lg">bug_report</span>
+<span class="font-body-sm text-body-sm text-on-surface">Step 4 failed: Would you like to patch parameters or inject mock response?</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-label-md text-label-md transition-colors" type="button">
+            Mock Step Output
+          </button>
+<button class="px-space-sm py-space-xs rounded bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold transition-colors" type="button">
+            Configure Retries & Fallback
+          </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+  // Tab Switcher Interaction for Deep-Dive Debugger Inspector
+  document.addEventListener('DOMContentLoaded', () => {
+    const tabButtons = document.querySelectorAll('#debuggerTabs .tab-btn');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+
+    tabButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const targetTab = button.getAttribute('data-tab-id');
+
+        // Reset all buttons
+        tabButtons.forEach(btn => {
+          btn.classList.remove('bg-surface-container-high', 'text-primary', 'font-semibold');
+          btn.classList.add('text-on-surface-variant');
+        });
+
+        // Activate clicked button
+        button.classList.add('bg-surface-container-high', 'text-primary', 'font-semibold');
+        button.classList.remove('text-on-surface-variant');
+
+        // Toggle panes
+        tabPanes.forEach(pane => {
+          pane.classList.add('hidden');
+        });
+
+        const activePane = document.getElementById('tab-content-' + targetTab);
+        if (activePane) {
+          activePane.classList.remove('hidden');
+        }
+      });
+    });
+
+    // Run item selection interaction
+    const runItems = document.querySelectorAll('.run-item');
+    runItems.forEach(item => {
+      item.addEventListener('click', () => {
+        runItems.forEach(r => {
+          r.classList.remove('bg-surface-container-high');
+          r.classList.add('bg-surface-container');
+        });
+        item.classList.remove('bg-surface-container');
+        item.classList.add('bg-surface-container-high');
+      });
+    });
+
+    // Replay button feedback animation
+    const replayBtn = document.getElementById('replayBtn');
+    if (replayBtn) {
+      replayBtn.addEventListener('click', () => {
+        const originalContent = replayBtn.innerHTML;
+        replayBtn.innerHTML = '<span class="material-symbols-outlined text-body-md animate-spin">refresh</span> Dispatching Re-run...';
+        replayBtn.classList.add('opacity-80', 'pointer-events-none');
+
+        setTimeout(() => {
+          replayBtn.innerHTML = '<span class="material-symbols-outlined text-body-md">check</span> Run Queued #run_893fa03';
+          replayBtn.classList.remove('bg-primary', 'text-on-primary');
+          replayBtn.classList.add('bg-tertiary', 'text-on-tertiary');
+
+          setTimeout(() => {
+            replayBtn.innerHTML = originalContent;
+            replayBtn.classList.remove('opacity-80', 'pointer-events-none', 'bg-tertiary', 'text-on-tertiary');
+            replayBtn.classList.add('bg-primary', 'text-on-primary');
+          }, 2400);
+        }, 1000);
+      });
+    }
+  });
+</script></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-low/95 backdrop-blur-xl z-40 px-space-md flex items-center justify-between shadow-[0_-1px_8px_rgba(0,0,0,0.3)]"><div class="flex items-center gap-space-md"><button class="flex items-center gap-space-xs text-primary font-body-sm text-body-sm hover:underline" type="button"><span class="material-symbols-outlined text-body-md">terminal</span><span>Live Execution Console & Telemetry</span></button><div class="flex items-center gap-space-xs font-label-sm text-label-sm text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-primary"></span><span>READY</span><span class="text-outline">|</span><span>Active Nodes: 14</span><span class="text-outline">|</span><span>Latency: 42ms</span></div></div><div class="flex items-center gap-space-sm font-label-sm text-label-sm text-outline"><span>Auto-save enabled</span><button class="text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-body-md">unfold_more</span></button></div></footer></div></body></html>
