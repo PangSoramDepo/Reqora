@@ -1,4 +1,4 @@
-import type { Run, RunTrigger, Workflow } from "./schema";
+import type { Run, RunTrigger, RunWindow, Workflow, WorkflowSummary } from "./schema";
 
 /** Error carrying the API's problem+json details. */
 export class ApiError extends Error {
@@ -35,6 +35,27 @@ export function saveWorkflow(workflow: Workflow) {
 
 export const startRun = (workflowId: string, trigger: Omit<RunTrigger, "source">) =>
   request<Run>(`/api/workflows/${workflowId}/runs`, { method: "POST", body: JSON.stringify({ trigger }) });
+
+export type RunStatsResponse = {
+  window: RunWindow;
+  since: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  successRate: number | null;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+};
+
+export const fetchRuns = (since: RunWindow, status?: Run["status"]) =>
+  request<{ data: Run[] }>(`/api/runs?since=${since}&limit=100${status ? `&status=${status}` : ""}`).then((r) => r.data);
+
+export const fetchRunStats = (since: RunWindow) => request<RunStatsResponse>(`/api/runs/stats?since=${since}`);
+
+export const replayRun = (runId: string) => request<Run>(`/api/runs/${runId}/replay`, { method: "POST" });
+
+export const fetchWorkflowSummaries = () =>
+  request<{ data: WorkflowSummary[] }>("/api/workflows").then((r) => r.data);
 
 export async function fetchLatestRun(workflowId: string): Promise<Run | undefined> {
   const { data } = await request<{ data: Run[] }>(`/api/workflows/${workflowId}/runs?limit=1`);

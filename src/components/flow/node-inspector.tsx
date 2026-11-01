@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/icon";
 import type { Step, WorkflowNode } from "@/lib/workflows/schema";
-import { TYPE_STYLE } from "./node-cards";
+import { NodeConfigForm } from "./node-config-form";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
 
@@ -113,7 +113,6 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
 export function NodeInspector({ node, step, running, onChange, onRun }: InspectorProps) {
   const [tab, setTab] = useState<Tab>("Headers");
   const [copied, setCopied] = useState(false);
-  const style = TYPE_STYLE[node.type];
 
   const copyCurl = async () => {
     if (node.type !== "http") return;
@@ -213,14 +212,7 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
             <HttpPanels node={node} tab={tab} onChange={onChange} />
           </>
         ) : (
-          <div className="flex flex-col gap-space-xs">
-            <span className={SECTION_LABEL}>Configuration</span>
-            <div className={`${CODE_BLOCK} leading-relaxed text-on-surface`}>
-              <span className={style.text}>{node.type}</span>
-              {"\n"}
-              {JSON.stringify(node.config, null, 2)}
-            </div>
-          </div>
+          <NodeConfigForm node={node} onChange={onChange} />
         )}
 
         <div className="flex items-center gap-space-xs">

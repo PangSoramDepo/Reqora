@@ -141,6 +141,78 @@ paths:
               schema: { $ref: "#/components/schemas/Run" }
         "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
+  /api/runs:
+    get:
+      operationId: listRuns
+      summary: List runs across all workflows (newest first)
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/RunStatus" }
+        - name: workflowId
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Run" }
+        "400": { $ref: "#/components/responses/Problem" }
+  /api/runs/stats:
+    get:
+      operationId: getRunStats
+      summary: Aggregate run metrics for a time window
+      parameters:
+        - $ref: "#/components/parameters/Since"
+      responses:
+        "200":
+          description: Stats. Rates and durations are null when the window has no runs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [window, since, total, succeeded, failed, successRate, avgDurationMs, p95DurationMs]
+                properties:
+                  window: { type: string, enum: [24h, 7d, 30d] }
+                  since: { type: string, format: date-time }
+                  total: { type: integer }
+                  succeeded: { type: integer }
+                  failed: { type: integer }
+                  successRate: { type: [number, "null"], minimum: 0, maximum: 1 }
+                  avgDurationMs: { type: [integer, "null"] }
+                  p95DurationMs: { type: [integer, "null"] }
+        "400": { $ref: "#/components/responses/Problem" }
+  /api/runs/{runId}/replay:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: replayRun
+      summary: Re-run a run's trigger body against the workflow's current version
+      description: Stored trigger headers are redacted, so only the body is replayed. The new run has `replayOf` set.
+      responses:
+        "201":
+          description: The new run
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
   /api/runs/{runId}:
     parameters:
       - name: runId
@@ -190,6 +262,11 @@ paths:
         "404": { $ref: "#/components/responses/Problem" }
 components:
   parameters:
+    Since:
+      name: since
+      in: query
+      description: Time window ending now
+      schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
     WorkflowId:
       name: workflowId
       in: path
@@ -440,3 +517,4 @@ components:
             status: { type: integer }
             body: {}
         error: { type: string }
+        replayOf: { type: string, description: Id of the run this one replayed }

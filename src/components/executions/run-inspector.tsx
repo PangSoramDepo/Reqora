@@ -1,38 +1,21 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import { Icon } from "@/components/icon";
-import {
-  CONSOLE_LOGS,
-  ERROR_PAYLOAD,
-  INPUT_PAYLOAD,
-  REQUEST_HEADERS,
-  RESPONSE_HEADERS,
-  TRACE_STEPS,
-  type CodeLine,
-  type HeaderLine,
-  type StepTone,
-  type TraceStep,
-} from "./data";
+import type { Run, Step } from "@/lib/workflows/schema";
+import { shortId, utcTime } from "./format";
 
 type Tab = "payloads" | "headers" | "logs";
-type ReplayPhase = "idle" | "dispatching" | "queued";
-
-const TABS: { id: Tab; icon: string; label: string; alert?: boolean }[] = [
-  { id: "payloads", icon: "data_object", label: "Step Payloads (Diff)" },
-  { id: "headers", icon: "http", label: "Raw Headers" },
-  { id: "logs", icon: "terminal", label: "Console Logs", alert: true },
-];
+type StepTone = "tertiary" | "primary" | "secondary" | "error" | "skipped";
 
 const TAB_BASE =
   "px-space-sm py-space-xs rounded font-label-md text-label-md flex items-center gap-space-xxs transition-colors";
 const TAB_ACTIVE = `${TAB_BASE} bg-surface-container-high text-primary font-semibold`;
 const TAB_IDLE = `${TAB_BASE} hover:bg-surface-container-high text-on-surface-variant`;
+const CODE = "overflow-auto max-h-80 font-mono leading-relaxed select-all whitespace-pre";
 
-const STEP_STYLES: Record<
-  StepTone,
-  { row: string; num: string; name: string; chip: string; result: string; duration: string; bar: string; verdict: string }
-> = {
+const STEP_STYLES: Record<StepTone, { row: string; num: string; name: string; chip: string; result: string; duration: string; bar: string; verdict: string }> = {
   tertiary: {
     row: "bg-surface-container-high hover:bg-surface-container-highest cursor-pointer transition-colors",
     num: "bg-tertiary-container text-on-tertiary-container",
@@ -61,7 +44,7 @@ const STEP_STYLES: Record<
     result: "text-secondary",
     duration: "text-outline font-mono",
     bar: "bg-secondary",
-    verdict: "Matched",
+    verdict: "Evaluated",
   },
   error: {
     row: "bg-error-container/20 hover:bg-error-container/30 cursor-pointer transition-colors shadow-sm",
@@ -85,111 +68,216 @@ const STEP_STYLES: Record<
   },
 };
 
-const codeText = (lines: CodeLine[]) => lines.map((l) => l.map(([t]) => t).join("")).join("\n");
-const headerText = (lines: HeaderLine[]) =>
-  lines.map((h) => (h.name ? `${h.name} ${h.value}` : h.value)).join("\n");
+function toneOf(step: Step): StepTone {
+  if (step.status === "failed") return "error";
+  if (step.status === "skipped") return "skipped";
+  if (step.nodeType === "webhook") return "tertiary";
+  if (step.nodeType === "condition") return "secondary";
+  return "primary";
+}
 
-const COPY_TEXT: Record<Tab, string> = {
-  payloads: codeText(INPUT_PAYLOAD),
-  headers: `${headerText(REQUEST_HEADERS)}\n\n${headerText(RESPONSE_HEADERS)}`,
-  logs: CONSOLE_LOGS.map((l) => l.text).join("\n"),
+const responseOf = (step: Step) => step.output as { status?: number; headers?: Record<string, string>; body?: unknown } | undefined;
+
+function stepDetail(step: Step) {
+  if (step.request) return `${step.request.method} ${new URL(step.request.url).pathname}`;
+  if (step.nodeType === "webhook") return "trigger payload";
+  return step.nodeType;
+}
+
+function stepResult(step: Step) {
+  if (step.status === "skipped") return "SKIPPED (branch not taken or upstream error)";
+  const status = responseOf(step)?.status;
+  if (step.status === "failed") return status ? `${status} FAILED` : "FAILED";
+  if (step.nodeType === "condition") return step.port?.toUpperCase();
+  return status ? `${status} OK` : "OK";
+}
+
+/** What went into a step: the HTTP request, or the trigger payload for the webhook. */
+function stepInput(step: Step, run: Run): unknown {
+  if (step.request) return step.request;
+  if (step.nodeType === "webhook") return run.trigger.body ?? null;
+  return undefined;
+}
+
+const json = (value: unknown) => JSON.stringify(value, null, 2) ?? "undefined";
+
+function logLines(run: Run) {
+  const start = Date.parse(run.startedAt);
+  return run.steps.map((step) => {
+    const at = `+${Math.max(0, Date.parse(step.startedAt) - start)}ms`.padStart(7);
+    const what = `${step.nodeId} (${step.name})`;
+    if (step.status === "skipped") return { text: `[${at}] SKIP  ${what}`, className: "text-outline" };
+    if (step.status === "failed") return { text: `[${at}] FAIL  ${what} — ${step.error}`, className: "text-error" };
+    const extra = step.request ? ` ${step.request.method} ${step.request.url} → ${responseOf(step)?.status}` : step.port ? ` → ${step.port}` : "";
+    return { text: `[${at}] OK    ${what}${extra} (${step.durationMs}ms)`, className: "text-on-surface-variant" };
+  });
+}
+
+type RunInspectorProps = {
+  run: Run | undefined;
+  workflowName: string | undefined;
+  replaying: boolean;
+  onReplay: () => void;
 };
 
-export function RunInspector() {
+export function RunInspector({ run, workflowName, replaying, onReplay }: RunInspectorProps) {
   const [tab, setTab] = useState<Tab>("payloads");
-  const [stepN, setStepN] = useState(4);
-  const [replay, setReplay] = useState<ReplayPhase>("idle");
+  const [chosen, setChosen] = useState<{ runId: string; nodeId: string } | null>(null);
 
-  useEffect(() => {
-    if (replay === "idle") return;
-    const timer = setTimeout(
-      () => setReplay(replay === "dispatching" ? "queued" : "idle"),
-      replay === "dispatching" ? 1000 : 2400,
+  if (!run) {
+    return (
+      <div className="lg:col-span-7 flex items-center justify-center min-h-96 bg-surface-container-low rounded-lg p-space-sm shadow-md text-outline font-body-sm text-body-sm">
+        Select a run to inspect its trace.
+      </div>
     );
-    return () => clearTimeout(timer);
-  }, [replay]);
+  }
 
-  const viewing = TRACE_STEPS.find((s) => s.n === stepN) ?? TRACE_STEPS[3];
+  const failedStep = run.steps.find((s) => s.status === "failed");
+  // Default to the failing step, otherwise the last executed one.
+  const fallback = failedStep ?? [...run.steps].reverse().find((s) => s.status !== "skipped") ?? run.steps[0];
+  const viewing = (chosen?.runId === run.id && run.steps.find((s) => s.nodeId === chosen.nodeId)) || fallback;
+  const viewingIndex = run.steps.indexOf(viewing);
+  const response = responseOf(viewing);
+  const input = stepInput(viewing, run);
+  const logs = logLines(run);
+  const start = Date.parse(run.startedAt);
+  const total = Math.max(1, run.durationMs);
+
+  const copyText: Record<Tab, string> = {
+    payloads: json({ input, output: viewing.output, error: viewing.error }),
+    headers: json({ request: viewing.request?.headers ?? {}, response: response?.headers ?? {} }),
+    logs: logs.map((l) => l.text).join("\n"),
+  };
 
   return (
     <div className="lg:col-span-7 flex flex-col gap-space-sm bg-surface-container-low rounded-lg p-space-sm shadow-md">
-      {/* Execution Inspector Header */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-space-xs bg-surface-container-lowest/50 p-space-sm rounded-lg gap-space-sm">
         <div className="flex flex-col min-w-0">
           <div className="flex items-center gap-space-xs flex-wrap">
-            <span className="font-headline-md text-headline-md text-on-surface font-bold font-mono">#run_893fa02</span>
-            <span className="px-space-xs py-space-xxs rounded bg-error-container text-on-error-container font-label-sm text-label-sm font-bold">
-              500 FAILED
+            <span className="font-headline-md text-headline-md text-on-surface font-bold font-mono">{shortId(run.id)}</span>
+            <span
+              className={`px-space-xs py-space-xxs rounded font-label-sm text-label-sm font-bold ${
+                run.status === "failed" ? "bg-error-container text-on-error-container" : "bg-primary/20 text-primary"
+              }`}
+            >
+              {run.status.toUpperCase()}
             </span>
-            <span className="font-label-sm text-label-sm text-outline font-mono">12:48:19.402 UTC</span>
+            <span className="font-label-sm text-label-sm text-outline font-mono">{utcTime(run.startedAt)}</span>
           </div>
-          <div className="flex items-center gap-space-xs mt-space-xxs text-on-surface-variant font-body-sm text-body-sm">
-            <span>Root Cause:</span>
-            <span className="text-error font-medium truncate">Step 4 (Inventory Sync) Gateway Timeout</span>
+          <div className="flex items-center gap-space-xs mt-space-xxs text-on-surface-variant font-body-sm text-body-sm min-w-0">
+            {run.error ? (
+              <>
+                <span>Root Cause:</span>
+                <span className="text-error font-medium truncate" title={run.error}>
+                  Step {run.steps.indexOf(failedStep!) + 1} — {run.error}
+                </span>
+              </>
+            ) : (
+              <span className="truncate">
+                {workflowName ?? run.workflowId} · v{run.workflowVersion} · {run.trigger.source} trigger
+                {run.replayOf && <> · replay of {shortId(run.replayOf)}</>}
+              </span>
+            )}
           </div>
         </div>
-        {/* Quick Actions */}
         <div className="flex items-center gap-space-xs flex-shrink-0">
-          <button
+          <Link
+            href="/flow"
             className="px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-space-xxs"
-            type="button"
           >
-            <Icon name="share" className="text-body-md" />
-            Share Run
-          </button>
+            <Icon name="schema" className="text-body-md" />
+            Open in Canvas
+          </Link>
           <button
-            className={`px-space-sm py-space-xs rounded font-body-sm text-body-sm font-semibold transition-all shadow-sm flex items-center gap-space-xxs active:scale-95 ${
-              replay === "queued"
-                ? "bg-tertiary text-on-tertiary hover:bg-primary-container"
-                : "bg-primary text-on-primary hover:bg-primary-container"
-            } ${replay === "idle" ? "" : "opacity-80 pointer-events-none"}`}
-            disabled={replay !== "idle"}
-            onClick={() => setReplay("dispatching")}
+            className="px-space-sm py-space-xs rounded font-body-sm text-body-sm font-semibold transition-all shadow-sm flex items-center gap-space-xxs active:scale-95 bg-primary text-on-primary hover:bg-primary-container disabled:opacity-70"
+            disabled={replaying}
+            onClick={onReplay}
+            title="Re-run this trigger payload against the workflow's current version"
             type="button"
           >
-            {replay === "idle" && (
-              <>
-                <Icon name="replay" className="text-body-md fill-current" />
-                Replay Flow from this step
-              </>
-            )}
-            {replay === "dispatching" && (
-              <>
-                <Icon name="refresh" className="text-body-md animate-spin" /> Dispatching Re-run...
-              </>
-            )}
-            {replay === "queued" && (
-              <>
-                <Icon name="check" className="text-body-md" /> Run Queued #run_893fa03
-              </>
-            )}
+            <Icon name={replaying ? "refresh" : "replay"} className={`text-body-md ${replaying ? "animate-spin" : ""}`} />
+            {replaying ? "Replaying…" : "Replay Run"}
           </button>
         </div>
       </div>
 
-      {/* Waterfall Timeline Trace Visualization */}
+      {/* Waterfall */}
       <div className="flex flex-col bg-surface-container rounded-lg p-space-sm shadow-inner">
         <div className="flex items-center justify-between pb-space-xs">
           <div className="flex items-center gap-space-xs">
             <Icon name="waterfall_chart" className="text-primary text-body-lg" />
-            <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">
-              Execution Flow Waterfall
-            </span>
+            <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">Execution Flow Waterfall</span>
           </div>
-          <span className="font-label-sm text-label-sm text-outline font-mono">Total Execution Time: 384ms</span>
+          <span className="font-label-sm text-label-sm text-outline font-mono">Total Execution Time: {run.durationMs}ms</span>
         </div>
         <div className="flex flex-col gap-space-xs mt-space-xs font-mono">
-          {TRACE_STEPS.map((step) => (
-            <StepRow key={step.n} step={step} onSelect={() => setStepN(step.n)} />
-          ))}
+          {run.steps.map((step, i) => {
+            const tone = toneOf(step);
+            const s = STEP_STYLES[tone];
+            const skipped = tone === "skipped";
+            const offset = ((Date.parse(step.startedAt) - start) / total) * 100;
+            const width = Math.max(1, (step.durationMs / total) * 100);
+            const select = () => setChosen({ runId: run.id, nodeId: step.nodeId });
+            return (
+              <div
+                key={step.nodeId}
+                aria-disabled={skipped || undefined}
+                aria-pressed={step === viewing}
+                className={`flex flex-col p-space-xs rounded ${s.row} ${step === viewing ? "ring-1 ring-primary/50" : ""}`}
+                onClick={skipped ? undefined : select}
+                onKeyDown={(e) => {
+                  if (!skipped && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    select();
+                  }
+                }}
+                role="button"
+                tabIndex={skipped ? -1 : 0}
+              >
+                <div className="flex items-center justify-between gap-space-xs font-body-sm text-body-sm">
+                  <div className="flex items-center gap-space-xs min-w-0">
+                    <span className={`w-5 h-5 shrink-0 rounded-full flex items-center justify-center font-label-sm text-label-sm font-bold ${s.num}`}>
+                      {i + 1}
+                    </span>
+                    <span className={`${s.name} truncate`}>
+                      {tone === "error" && <Icon name="warning" className="text-body-sm" />}
+                      {step.name}
+                    </span>
+                    <span className={`px-space-xs py-space-xxs rounded font-label-sm text-label-sm truncate ${s.chip}`}>
+                      {stepDetail(step)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-space-sm flex-shrink-0">
+                    <span className={`font-label-sm text-label-sm ${s.result}`}>{stepResult(step)}</span>
+                    <span className={`font-label-sm text-label-sm ${s.duration}`}>{step.durationMs}ms</span>
+                  </div>
+                </div>
+                {!skipped && (
+                  <div className="w-full bg-surface-container-lowest h-1.5 rounded-full mt-space-xs overflow-hidden">
+                    <div
+                      className={`${s.bar} h-full rounded-full`}
+                      style={{ width: `${Math.min(width, 100 - offset)}%`, marginLeft: `${Math.min(offset, 99)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Deep Dive Inspector Panel with Tabs */}
+      {/* Deep dive tabs */}
       <div className="flex flex-col bg-surface-container rounded-lg p-space-sm shadow-inner mt-space-xs">
-        <div className="flex items-center justify-between pb-space-xs">
+        <div className="flex items-center justify-between pb-space-xs gap-space-xs">
           <div className="flex items-center gap-space-xs overflow-x-auto" role="tablist">
-            {TABS.map((t) => (
+            {(
+              [
+                { id: "payloads", icon: "data_object", label: "Step Payloads" },
+                { id: "headers", icon: "http", label: "Raw Headers" },
+                { id: "logs", icon: "terminal", label: "Console Logs", alert: run.status === "failed" },
+              ] as const
+            ).map((t) => (
               <button
                 key={t.id}
                 aria-selected={tab === t.id}
@@ -200,18 +288,18 @@ export function RunInspector() {
               >
                 <Icon name={t.icon} className="text-body-md" />
                 {t.label}
-                {t.alert && <span className="w-2 h-2 rounded-full bg-error" />}
+                {"alert" in t && t.alert && <span className="w-2 h-2 rounded-full bg-error" />}
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-space-xs">
+          <div className="flex items-center gap-space-xs shrink-0">
             <span className="font-label-sm text-label-sm text-outline font-mono">
-              Viewing: Step {viewing.n} ({STEP_STYLES[viewing.tone].verdict})
+              Viewing: Step {viewingIndex + 1} ({STEP_STYLES[toneOf(viewing)].verdict})
             </span>
             <button
               className="p-space-xxs rounded hover:bg-surface-container-high text-outline hover:text-on-surface"
-              onClick={() => void navigator.clipboard?.writeText(COPY_TEXT[tab])}
-              title="Copy raw payload"
+              onClick={() => void navigator.clipboard?.writeText(copyText[tab])}
+              title="Copy as JSON / text"
               type="button"
             >
               <Icon name="content_copy" className="text-body-md" />
@@ -220,56 +308,57 @@ export function RunInspector() {
         </div>
 
         {tab === "payloads" && (
-          <div className="flex flex-col gap-space-xs pt-space-xs" role="tabpanel">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-space-sm font-code-block text-code-block">
-              {/* Left: Node Input */}
-              <div className="flex flex-col bg-surface-container-lowest rounded p-space-sm shadow-sm">
-                <div className="flex items-center justify-between pb-space-xxs mb-space-xxs text-outline font-label-sm text-label-sm uppercase">
-                  <span className="flex items-center gap-space-xxs">
-                    <Icon name="input" className="text-primary text-body-md" />
-                    Input Payload
-                  </span>
-                  <span className="text-outline">JSON (294 bytes)</span>
-                </div>
-                <CodeBlock
-                  className="overflow-x-auto text-on-surface-variant font-mono leading-relaxed select-all"
-                  lines={INPUT_PAYLOAD}
-                />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-space-sm pt-space-xs font-code-block text-code-block" role="tabpanel">
+            <div className="flex flex-col bg-surface-container-lowest rounded p-space-sm shadow-sm min-w-0">
+              <div className="flex items-center justify-between pb-space-xxs mb-space-xxs text-outline font-label-sm text-label-sm uppercase">
+                <span className="flex items-center gap-space-xxs">
+                  <Icon name="input" className="text-primary text-body-md" />
+                  {viewing.request ? "Request" : "Input"}
+                </span>
+                {input !== undefined && <span>JSON ({new TextEncoder().encode(json(input)).length} bytes)</span>}
               </div>
-              {/* Right: Node Output / Error Diff */}
-              <div className="flex flex-col bg-surface-container-lowest rounded p-space-sm shadow-sm">
-                <div className="flex items-center justify-between pb-space-xxs mb-space-xxs text-error font-label-sm text-label-sm uppercase">
-                  <span className="flex items-center gap-space-xxs">
-                    <Icon name="output" className="text-error text-body-md" />
-                    Error Response
-                  </span>
-                  <span className="text-error font-mono">Status: 504 Gateway Timeout</span>
-                </div>
-                <CodeBlock
-                  className="overflow-x-auto text-on-surface font-mono leading-relaxed select-all"
-                  lines={ERROR_PAYLOAD}
-                />
+              <pre className={`${CODE} text-on-surface-variant`}>
+                {input === undefined ? `// ${viewing.nodeType} nodes read from earlier steps via templates` : json(input)}
+              </pre>
+            </div>
+            <div className="flex flex-col bg-surface-container-lowest rounded p-space-sm shadow-sm min-w-0">
+              <div
+                className={`flex items-center justify-between pb-space-xxs mb-space-xxs font-label-sm text-label-sm uppercase ${
+                  viewing.status === "failed" ? "text-error" : "text-outline"
+                }`}
+              >
+                <span className="flex items-center gap-space-xxs">
+                  <Icon name="output" className={`${viewing.status === "failed" ? "text-error" : "text-primary"} text-body-md`} />
+                  {viewing.status === "failed" ? "Error Response" : "Output"}
+                </span>
+                {response?.status !== undefined && <span className="font-mono">Status: {response.status}</span>}
               </div>
+              {viewing.error && <div className="text-error font-mono mb-space-xs">{viewing.error}</div>}
+              <pre className={`${CODE} text-on-surface`}>
+                {viewing.status === "skipped" ? "// skipped — not executed in this run" : json(viewing.output ?? null)}
+              </pre>
             </div>
           </div>
         )}
 
         {tab === "headers" && (
-          <div className="flex-col gap-space-xs pt-space-xs font-code-block text-code-block" role="tabpanel">
-            <div className="bg-surface-container-lowest rounded p-space-sm flex flex-col gap-space-xs">
-              <span className="font-label-sm text-label-sm text-outline uppercase">Request Headers &amp; Meta</span>
-              <HeaderList lines={REQUEST_HEADERS} />
+          <div className="pt-space-xs font-code-block text-code-block" role="tabpanel">
+            <div className="bg-surface-container-lowest rounded p-space-sm flex flex-col gap-space-xs font-mono">
+              <span className="font-label-sm text-label-sm text-outline uppercase">Request Headers (templates, unresolved)</span>
+              <HeaderList headers={viewing.request?.headers} />
               <div className="w-full h-px bg-surface-variant my-space-xs" />
-              <span className="font-label-sm text-label-sm text-error uppercase">Response Headers</span>
-              <HeaderList lines={RESPONSE_HEADERS} />
+              <span className={`font-label-sm text-label-sm uppercase ${viewing.status === "failed" ? "text-error" : "text-outline"}`}>
+                Response Headers
+              </span>
+              <HeaderList headers={response?.headers} />
             </div>
           </div>
         )}
 
         {tab === "logs" && (
-          <div className="flex-col gap-space-xs pt-space-xs font-code-block text-code-block" role="tabpanel">
-            <div className="bg-surface-container-lowest rounded p-space-sm font-mono space-y-space-xxs max-h-56 overflow-y-auto">
-              {CONSOLE_LOGS.map((log) => (
+          <div className="pt-space-xs font-code-block text-code-block" role="tabpanel">
+            <div className="bg-surface-container-lowest rounded p-space-sm font-mono space-y-space-xxs max-h-56 overflow-auto whitespace-pre">
+              {logs.map((log) => (
                 <div key={log.text} className={log.className}>
                   {log.text}
                 </div>
@@ -279,116 +368,37 @@ export function RunInspector() {
         )}
       </div>
 
-      {/* Quick Action Floating Bar for Node Debugger */}
-      <div className="flex items-center justify-between p-space-sm bg-surface-container-lowest/80 rounded-lg">
-        <div className="flex items-center gap-space-xs">
-          <Icon name="bug_report" className="text-primary text-body-lg" />
-          <span className="font-body-sm text-body-sm text-on-surface">
-            Step 4 failed: Would you like to patch parameters or inject mock response?
-          </span>
-        </div>
-        <div className="flex items-center gap-space-xs">
-          <button
-            className="px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-label-md text-label-md transition-colors"
-            type="button"
-          >
-            Mock Step Output
-          </button>
-          <button
-            className="px-space-sm py-space-xs rounded bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold transition-colors"
-            type="button"
-          >
-            Configure Retries &amp; Fallback
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StepRow({ step, onSelect }: { step: TraceStep; onSelect: () => void }) {
-  const s = STEP_STYLES[step.tone];
-  const skipped = step.tone === "skipped";
-
-  return (
-    <div
-      aria-disabled={skipped || undefined}
-      className={`flex flex-col p-space-xs rounded ${s.row}`}
-      onClick={skipped ? undefined : onSelect}
-      onKeyDown={(e) => {
-        if (!skipped && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      role="button"
-      tabIndex={skipped ? -1 : 0}
-    >
-      <div className="flex items-center justify-between font-body-sm text-body-sm">
+      {/* Debugger hint bar */}
+      <div className="flex items-center justify-between gap-space-sm p-space-sm bg-surface-container-lowest/80 rounded-lg">
         <div className="flex items-center gap-space-xs min-w-0">
-          <span
-            className={`w-5 h-5 rounded-full flex items-center justify-center font-label-sm text-label-sm font-bold ${s.num}`}
+          <Icon name={failedStep ? "bug_report" : "task_alt"} className={`${failedStep ? "text-error" : "text-primary"} text-body-lg`} />
+          <span className="font-body-sm text-body-sm text-on-surface truncate">
+            {failedStep
+              ? `Step ${run.steps.indexOf(failedStep) + 1} failed. Fix the node in the canvas, then replay this payload.`
+              : "Every executed step succeeded."}
+          </span>
+        </div>
+        {failedStep && (
+          <Link
+            href="/flow"
+            className="px-space-sm py-space-xs rounded bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold transition-colors shrink-0"
           >
-            {step.n}
-          </span>
-          <span className={s.name}>
-            {step.tone === "error" && <Icon name="warning" className="text-body-sm" />}
-            {step.name}
-          </span>
-          <span className={`px-space-xs py-space-xxs rounded font-label-sm text-label-sm ${s.chip}`}>
-            {step.detail}
-          </span>
-        </div>
-        <div className="flex items-center gap-space-sm flex-shrink-0">
-          {step.result && <span className={`font-label-sm text-label-sm ${s.result}`}>{step.result}</span>}
-          <span className={`font-label-sm text-label-sm ${s.duration}`}>{step.duration}</span>
-        </div>
+            Fix in Canvas
+          </Link>
+        )}
       </div>
-      {step.bar && (
-        <div className="w-full bg-surface-container-lowest h-1.5 rounded-full mt-space-xs overflow-hidden">
-          <div
-            className={`${s.bar} h-full rounded-full`}
-            style={{ width: step.bar.width, marginLeft: step.bar.offset }}
-          />
-        </div>
-      )}
     </div>
   );
 }
 
-function CodeBlock({ lines, className }: { lines: CodeLine[]; className: string }) {
+function HeaderList({ headers }: { headers: Record<string, string> | undefined }) {
+  const entries = Object.entries(headers ?? {});
+  if (entries.length === 0) return <div className="text-outline">—</div>;
   return (
-    <pre className={className}>
-      {lines.map((line, i) => (
-        <Fragment key={i}>
-          {i > 0 && "\n"}
-          {line.map(([text, cls], j) =>
-            cls ? (
-              <span key={j} className={cls}>
-                {text}
-              </span>
-            ) : (
-              <Fragment key={j}>{text}</Fragment>
-            ),
-          )}
-        </Fragment>
-      ))}
-    </pre>
-  );
-}
-
-function HeaderList({ lines }: { lines: HeaderLine[] }) {
-  return (
-    <div className="font-mono text-on-surface-variant space-y-space-xxs">
-      {lines.map((h) => (
-        <div key={`${h.name ?? ""}${h.value}`}>
-          {h.name ? (
-            <>
-              <span className={h.nameClass ?? "text-outline"}>{h.name}</span> {h.value}
-            </>
-          ) : (
-            <span className={h.valueClass}>{h.value}</span>
-          )}
+    <div className="text-on-surface-variant space-y-space-xxs">
+      {entries.map(([name, value]) => (
+        <div key={name} className="break-all">
+          <span className="text-outline">{name}:</span> <span className={value.includes("{{env.") ? "text-tertiary" : ""}>{value}</span>
         </div>
       ))}
     </div>

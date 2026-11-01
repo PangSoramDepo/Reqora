@@ -1,158 +1,132 @@
 "use client";
 
-import { useState } from "react";
 import { Icon } from "@/components/icon";
-import {
-  RUNS,
-  STATUS_FILTERS,
-  TRIGGER_FILTERS,
-  type Run,
-  type RunStatus,
-  type RunTrigger,
-} from "./data";
+import type { Run, RunTrigger } from "@/lib/workflows/schema";
+import { ago, shortId, stepCounts, summarize } from "./format";
 
-const STATUS_STYLES: Record<
-  RunStatus,
-  { dot: string; badge: string; steps: string; duration: string; summary: string }
-> = {
-  "500": {
-    dot: "bg-error animate-ping",
+export type StatusFilter = Run["status"] | "all";
+export type TriggerFilter = RunTrigger["source"] | "all";
+
+const STATUS_STYLES: Record<Run["status"], { dot: string; badge: string; label: string; steps: string; summary: string }> = {
+  failed: {
+    dot: "bg-error",
     badge: "bg-error-container text-on-error-container",
+    label: "FAILED",
     steps: "text-error font-medium",
-    duration: "text-on-surface",
     summary: "text-error",
   },
-  "200": {
+  succeeded: {
     dot: "bg-primary",
     badge: "bg-surface-container-highest text-primary",
+    label: "OK",
     steps: "text-primary",
-    duration: "text-on-surface",
-    summary: "text-on-surface-variant",
-  },
-  RUNNING: {
-    dot: "bg-tertiary animate-pulse",
-    badge: "bg-tertiary-container text-on-tertiary-container",
-    steps: "text-on-surface",
-    duration: "text-tertiary",
-    summary: "text-on-surface-variant",
-  },
-  RETRIED: {
-    dot: "bg-secondary",
-    badge: "bg-secondary-container text-on-secondary-container",
-    steps: "text-primary",
-    duration: "text-on-surface",
     summary: "text-on-surface-variant",
   },
 };
 
-const TRIGGER_STYLES: Record<RunTrigger, { icon: string; label: string; className: string }> = {
-  Webhook: { icon: "webhook", label: "Webhook", className: "text-tertiary" },
-  "Manual Test": { icon: "terminal", label: "Manual", className: "text-secondary" },
-  "Scheduled Cron": { icon: "alarm", label: "Cron", className: "text-on-surface" },
+const TRIGGER_STYLES: Record<RunTrigger["source"], { icon: string; label: string; className: string }> = {
+  webhook: { icon: "webhook", label: "Webhook", className: "text-tertiary" },
+  manual: { icon: "terminal", label: "Manual", className: "text-secondary" },
 };
 
 const SELECT_CLASS =
   "bg-surface-container-lowest text-on-surface font-body-sm text-body-sm px-space-xs py-space-xxs rounded focus:outline-none cursor-pointer";
 
-export function RunsPanel() {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<RunStatus | "all">("all");
-  const [trigger, setTrigger] = useState<RunTrigger | "all">("all");
-  const [selectedId, setSelectedId] = useState(RUNS[0].id);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+type RunsPanelProps = {
+  runs: Run[];
+  workflowNames: Map<string, string>;
+  now: number;
+  loading: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  query: string;
+  onQuery: (q: string) => void;
+  status: StatusFilter;
+  onStatus: (s: StatusFilter) => void;
+  trigger: TriggerFilter;
+  onTrigger: (t: TriggerFilter) => void;
+  autoRefresh: boolean;
+  onAutoRefresh: (on: boolean) => void;
+};
 
-  const needle = query.trim().toLowerCase();
-  const runs = RUNS.filter(
-    (run) =>
-      (status === "all" || run.status === status) &&
-      (trigger === "all" || run.trigger === trigger) &&
-      (needle === "" ||
-        [run.id, run.summary, run.trigger, run.statusLabel].some((f) =>
-          f.toLowerCase().includes(needle),
-        )),
-  );
+export function RunsPanel(props: RunsPanelProps) {
+  const { runs, workflowNames, now, loading, selectedId, onSelect } = props;
 
   return (
     <div className="lg:col-span-5 flex flex-col gap-space-xs bg-surface-container-low rounded-lg p-space-sm shadow-md">
-      {/* Filter Bar & Search */}
       <div className="flex flex-col gap-space-xs pb-space-xs">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-space-xs">
             <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">Executions</span>
             <span className="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary font-mono">
-              LIVE_STREAM
+              {props.autoRefresh ? "LIVE_STREAM" : "PAUSED"}
             </span>
           </div>
-          <div className="flex items-center gap-space-xs">
-            <button
-              aria-pressed={autoRefresh}
-              className={`flex items-center gap-space-xxs font-label-sm text-label-sm hover:underline ${
-                autoRefresh ? "text-primary" : "text-outline"
-              }`}
-              onClick={() => setAutoRefresh((v) => !v)}
-              type="button"
-            >
-              <Icon name={autoRefresh ? "sync" : "sync_disabled"} className="text-body-md" /> Auto-refresh
-            </button>
-          </div>
+          <button
+            aria-pressed={props.autoRefresh}
+            className={`flex items-center gap-space-xxs font-label-sm text-label-sm hover:underline ${
+              props.autoRefresh ? "text-primary" : "text-outline"
+            }`}
+            onClick={() => props.onAutoRefresh(!props.autoRefresh)}
+            type="button"
+          >
+            <Icon
+              name={props.autoRefresh ? "sync" : "sync_disabled"}
+              className={`text-body-md ${loading && props.autoRefresh ? "animate-spin" : ""}`}
+            />{" "}
+            Auto-refresh
+          </button>
         </div>
 
-        {/* Filter Pill Chips */}
         <div className="flex items-center gap-space-xs flex-wrap pt-space-xxs">
           <div className="relative flex-1 min-w-[140px]">
             <input
               aria-label="Filter runs"
               className="w-full bg-surface-container-lowest text-on-surface font-body-sm text-body-sm pl-7 pr-space-xs py-space-xxs rounded focus:outline-none focus:bg-surface-container-highest transition-colors"
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter ID, IP, tag..."
+              onChange={(e) => props.onQuery(e.target.value)}
+              placeholder="Filter run ID, workflow, error..."
               type="text"
-              value={query}
+              value={props.query}
             />
-            <Icon
-              name="search"
-              className="text-outline text-body-md absolute left-2 top-1.5 pointer-events-none"
-            />
+            <Icon name="search" className="text-outline text-body-md absolute left-2 top-1.5 pointer-events-none" />
           </div>
           <select
             aria-label="Filter by status"
             className={SELECT_CLASS}
-            onChange={(e) => setStatus(e.target.value as RunStatus | "all")}
-            value={status}
+            onChange={(e) => props.onStatus(e.target.value as StatusFilter)}
+            value={props.status}
           >
-            {STATUS_FILTERS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
+            <option value="all">All Statuses</option>
+            <option value="succeeded">Succeeded</option>
+            <option value="failed">Failed</option>
           </select>
           <select
             aria-label="Filter by trigger"
             className={SELECT_CLASS}
-            onChange={(e) => setTrigger(e.target.value as RunTrigger | "all")}
-            value={trigger}
+            onChange={(e) => props.onTrigger(e.target.value as TriggerFilter)}
+            value={props.trigger}
           >
-            {TRIGGER_FILTERS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
+            <option value="all">All Triggers</option>
+            <option value="webhook">Webhook</option>
+            <option value="manual">Manual</option>
           </select>
         </div>
       </div>
 
-      {/* Execution Runs List */}
       <div className="flex flex-col gap-space-xxs overflow-y-auto max-h-[750px] pr-space-xxs">
         {runs.map((run) => (
           <RunItem
             key={run.id}
             run={run}
+            workflowName={workflowNames.get(run.workflowId) ?? run.workflowId}
+            now={now}
             selected={run.id === selectedId}
-            onSelect={() => setSelectedId(run.id)}
+            onSelect={() => onSelect(run.id)}
           />
         ))}
         {runs.length === 0 && (
           <div className="p-space-sm rounded-lg bg-surface-container text-outline font-body-sm text-body-sm text-center">
-            No executions match the current filters.
+            {loading ? "Loading runs…" : "No executions in this window match the current filters."}
           </div>
         )}
       </div>
@@ -160,9 +134,21 @@ export function RunsPanel() {
   );
 }
 
-function RunItem({ run, selected, onSelect }: { run: Run; selected: boolean; onSelect: () => void }) {
+function RunItem({
+  run,
+  workflowName,
+  now,
+  selected,
+  onSelect,
+}: {
+  run: Run;
+  workflowName: string;
+  now: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   const s = STATUS_STYLES[run.status];
-  const t = TRIGGER_STYLES[run.trigger];
+  const t = TRIGGER_STYLES[run.trigger.source];
 
   return (
     <div
@@ -180,21 +166,24 @@ function RunItem({ run, selected, onSelect }: { run: Run; selected: boolean; onS
       role="button"
       tabIndex={0}
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-space-xs">
-          <span className={`w-2 h-2 rounded-full ${s.dot}`} />
+      <div className="flex items-center justify-between gap-space-xs">
+        <div className="flex items-center gap-space-xs min-w-0">
+          <span className={`w-2 h-2 shrink-0 rounded-full ${s.dot}`} />
           <span
-            className={`font-label-md text-label-md font-mono font-semibold ${
-              selected ? "text-primary" : "text-on-surface"
-            }`}
+            className={`font-label-md text-label-md font-mono font-semibold truncate ${selected ? "text-primary" : "text-on-surface"}`}
           >
-            {run.id}
+            {shortId(run.id)}
           </span>
-          <span className={`px-space-xs py-space-xxs rounded font-label-sm text-label-sm font-mono font-bold ${s.badge}`}>
-            {run.statusLabel}
+          <span className={`px-space-xs py-space-xxs rounded font-label-sm text-label-sm font-mono font-bold shrink-0 ${s.badge}`}>
+            {s.label}
           </span>
+          {run.replayOf && (
+            <span className="px-space-xs py-space-xxs rounded font-label-sm text-label-sm font-mono bg-secondary-container text-on-secondary-container shrink-0">
+              REPLAY
+            </span>
+          )}
         </div>
-        <span className="font-label-sm text-label-sm text-outline font-mono">{run.ago}</span>
+        <span className="font-label-sm text-label-sm text-outline font-mono shrink-0">{ago(run.startedAt, now)}</span>
       </div>
       <div
         className={`grid grid-cols-3 gap-space-xs mt-space-xs pt-space-xs p-space-xs rounded ${
@@ -210,15 +199,18 @@ function RunItem({ run, selected, onSelect }: { run: Run; selected: boolean; onS
         </div>
         <div>
           <span className="block font-label-sm text-label-sm text-outline">Duration</span>
-          <span className={`font-body-sm text-body-sm font-mono ${s.duration}`}>{run.duration}</span>
+          <span className="font-body-sm text-body-sm font-mono text-on-surface">{run.durationMs}ms</span>
         </div>
         <div>
           <span className="block font-label-sm text-label-sm text-outline">Steps Run</span>
-          <span className={`font-body-sm text-body-sm font-mono ${s.steps}`}>{run.steps}</span>
+          <span className={`font-body-sm text-body-sm font-mono ${s.steps}`}>{stepCounts(run)}</span>
         </div>
       </div>
-      <div className="mt-space-xxs flex items-center justify-between text-outline">
-        <span className={`font-body-sm text-body-sm truncate ${s.summary}`}>{run.summary}</span>
+      <div className="mt-space-xxs flex items-center justify-between gap-space-xs text-outline">
+        <span className={`font-body-sm text-body-sm truncate ${s.summary}`}>
+          <span className="text-outline">{workflowName} · </span>
+          {summarize(run)}
+        </span>
         <Icon
           name="chevron_right"
           className={`text-body-md group-hover:translate-x-0.5 transition-transform ${

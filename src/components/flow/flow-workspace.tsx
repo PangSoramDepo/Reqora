@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
 import { fetchLatestRun, fetchWorkflow, startRun } from "@/lib/workflows/client";
-import type { Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
+import { newNode } from "@/lib/workflows/defaults";
+import { topologicalOrder } from "@/lib/workflows/graph";
+import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
 import { CHECKOUT_WORKFLOW_ID, SAMPLE_ORDER } from "@/lib/workflows/seed";
 import { createAutosaver, type SaveState } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
@@ -38,8 +40,11 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
   const [saveState, setSaveState] = useState<SaveState>({ kind: "saved" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pulsingNodeId, setPulsingNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [autosaver] = useState(() => createAutosaver({ onChange: setWorkflow, onState: setSaveState }));
 
   useEffect(() => () => autosaver.dispose(), [autosaver]);
@@ -68,6 +73,88 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
 
   const updateNode = (node: WorkflowNode) =>
     autosaver.update((wf) => ({ ...wf, nodes: wf.nodes.map((n) => (n.id === node.id ? node : n)) }));
+
+  const flash = useCallback((message: string) => {
+    clearTimeout(noticeTimer.current);
+    setNotice(message);
+    noticeTimer.current = setTimeout(() => setNotice(null), 3500);
+  }, []);
+
+  const addNode = useCallback(
+    (type: NodeType, position: { x: number; y: number }) => {
+      const current = autosaver.current();
+      if (!current) return;
+      if (type === "webhook" && current.nodes.some((n) => n.type === "webhook")) {
+        flash("A workflow has exactly one trigger — this one already has a Webhook Trigger.");
+        return;
+      }
+      const node = newNode(type, position, current.nodes.map((n) => n.id));
+      autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true });
+      setSelectedId(node.id);
+      setSelectedEdgeId(null);
+    },
+    [autosaver, flash],
+  );
+
+  const connect = (source: string, sourcePort: string, target: string) => {
+    const current = autosaver.current();
+    if (!current) return;
+    if (source === target) return;
+    if (current.edges.some((e) => e.source === source && e.sourcePort === sourcePort && e.target === target)) {
+      flash("Those ports are already connected.");
+      return;
+    }
+    let n = current.edges.length + 1;
+    while (current.edges.some((e) => e.id === `e${n}`)) n += 1;
+    const edges = [...current.edges, { id: `e${n}`, source, sourcePort, target }];
+    if (!topologicalOrder(current.nodes, edges)) {
+      flash("That connection would create a loop — flows must be acyclic.");
+      return;
+    }
+    autosaver.update((wf) => ({ ...wf, edges }), { immediate: true });
+  };
+
+  const deleteSelection = () => {
+    const current = autosaver.current();
+    if (!current) return;
+    if (selectedEdgeId) {
+      autosaver.update((wf) => ({ ...wf, edges: wf.edges.filter((e) => e.id !== selectedEdgeId) }), { immediate: true });
+      setSelectedEdgeId(null);
+      return;
+    }
+    const node = current.nodes.find((n) => n.id === selectedId);
+    if (!node) return;
+    if (node.type === "webhook") {
+      flash("The trigger can't be deleted — every workflow needs one.");
+      return;
+    }
+    autosaver.update(
+      (wf) => ({
+        ...wf,
+        nodes: wf.nodes.filter((n) => n.id !== node.id),
+        edges: wf.edges.filter((e) => e.source !== node.id && e.target !== node.id),
+      }),
+      { immediate: true },
+    );
+    setSelectedId(null);
+  };
+
+  // Delete / Backspace removes the selected edge or node, unless the user is typing.
+  const deleteRef = useRef(deleteSelection);
+  useEffect(() => {
+    deleteRef.current = deleteSelection;
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      const el = event.target as HTMLElement;
+      if (el.closest("input, textarea, select, [contenteditable=true]")) return;
+      event.preventDefault();
+      deleteRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const pulse = (id: string) => {
     clearTimeout(pulseTimer.current);
@@ -155,9 +242,18 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
           </button>
         </div>
 
-        {saveState.kind === "error" && (
-          <div className="absolute top-14 left-space-md z-30 max-w-xl px-space-md py-space-xs rounded-xl bg-error-container/90 text-on-error-container font-body-sm text-body-sm shadow-xl">
-            {saveState.message}
+        {(saveState.kind === "error" || notice) && (
+          <div className="absolute top-14 left-space-md z-30 max-w-xl flex flex-col gap-space-xs">
+            {saveState.kind === "error" && (
+              <div className="px-space-md py-space-xs rounded-xl bg-error-container/90 text-on-error-container font-body-sm text-body-sm shadow-xl">
+                {saveState.message}
+              </div>
+            )}
+            {notice && (
+              <div className="px-space-md py-space-xs rounded-xl bg-surface-container-highest/95 text-tertiary font-body-sm text-body-sm shadow-xl">
+                {notice}
+              </div>
+            )}
           </div>
         )}
 
@@ -166,11 +262,21 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
           edges={workflow.edges}
           steps={steps}
           selectedId={selectedId}
+          selectedEdgeId={selectedEdgeId}
           pulsingNodeId={pulsingNodeId}
-          onSelect={setSelectedId}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setSelectedEdgeId(null);
+          }}
+          onSelectEdge={(id) => {
+            setSelectedEdgeId(id);
+            setSelectedId(null);
+          }}
           onMoveNode={moveNode}
           onMoveEnd={() => autosaver.update((wf) => wf, { immediate: true })}
           onAutoLayout={() => autosaver.update((wf) => ({ ...wf, nodes: autoLayout(wf) }), { immediate: true })}
+          onAddNode={addNode}
+          onConnect={connect}
         />
         {selected ? (
           <NodeInspector
@@ -182,8 +288,18 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
             onRun={execute}
           />
         ) : (
-          <aside className="w-[380px] h-full bg-surface-container-low/95 flex items-center justify-center text-outline font-body-sm text-body-sm">
-            Select a node to inspect it.
+          <aside className="w-[380px] h-full bg-surface-container-low/95 flex flex-col items-center justify-center gap-space-xs p-space-xl text-center text-outline font-body-sm text-body-sm">
+            {selectedEdgeId ? (
+              <>
+                <span className="text-on-surface">Connection selected</span>
+                <span>Press Delete to remove it.</span>
+              </>
+            ) : (
+              <>
+                <span className="text-on-surface">Select a node to inspect it.</span>
+                <span>Drag blocks in from the Node Library, then drag from an output port to an input port to connect.</span>
+              </>
+            )}
           </aside>
         )}
       </div>

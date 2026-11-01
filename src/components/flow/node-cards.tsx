@@ -25,7 +25,9 @@ function Port({ name, color, className, title }: { name: string; color: string; 
   return (
     <div
       data-port={name}
-      className={`w-3.5 h-3.5 rounded-full ${color} shadow-md absolute flex items-center justify-center cursor-pointer hover:scale-125 transition-transform z-30 ${className}`}
+      className={`w-3.5 h-3.5 rounded-full ${color} shadow-md absolute flex items-center justify-center hover:scale-125 transition-transform z-30 ${
+        name === "in" ? "cursor-default" : "cursor-crosshair"
+      } ${className}`}
       title={title}
     >
       <div className="w-1.5 h-1.5 rounded-full bg-surface-container-lowest" />

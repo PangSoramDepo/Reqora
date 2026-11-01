@@ -20,7 +20,12 @@ function redact(headers: Record<string, string> | undefined) {
  * Executes a workflow and stores the run. `{{env.NAME}}` reads only `REQORA_ENV_NAME`, so workflow
  * authors can't exfiltrate arbitrary server environment variables.
  */
-export async function runWorkflow(workflow: Workflow, trigger: RunTrigger, baseUrl: string): Promise<Run> {
+export async function runWorkflow(
+  workflow: Workflow,
+  trigger: RunTrigger,
+  baseUrl: string,
+  replayOf?: string,
+): Promise<Run> {
   const result = await executeWorkflow(workflow, trigger, {
     fetch,
     env: (name) => process.env[`${ENV_PREFIX}${name}`],
@@ -33,6 +38,7 @@ export async function runWorkflow(workflow: Workflow, trigger: RunTrigger, baseU
     workflowVersion: workflow.version,
     trigger: { ...trigger, headers: redact(trigger.headers) },
     ...result,
+    ...(replayOf ? { replayOf } : {}),
   };
   insertRun(run);
   return run;

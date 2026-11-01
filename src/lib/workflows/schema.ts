@@ -154,7 +154,12 @@ export type Run = {
   steps: Step[];
   output?: { status: number; body: unknown };
   error?: string;
+  /** Set when this run replayed an earlier run's trigger. */
+  replayOf?: string;
 };
+
+export const RUN_WINDOWS = { "24h": 24, "7d": 24 * 7, "30d": 24 * 30 } as const;
+export type RunWindow = keyof typeof RUN_WINDOWS;
 
 /** Output ports each node type exposes. */
 export const OUTPUT_PORTS: Record<NodeType, readonly string[]> = {

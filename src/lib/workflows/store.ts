@@ -142,6 +142,51 @@ export function getRun(id: string): Run | undefined {
   return row && (JSON.parse(row.data) as Run);
 }
 
+export type RunQuery = { limit: number; since?: string; status?: Run["status"]; workflowId?: string };
+
+/** Runs across all workflows, newest first. */
+export function queryRuns({ limit, since, status, workflowId }: RunQuery): Run[] {
+  const filters: [string, string | undefined][] = [
+    ["started_at >= ?", since],
+    ["status = ?", status],
+    ["workflow_id = ?", workflowId],
+  ];
+  const active = filters.filter(([, value]) => value !== undefined) as [string, string][];
+  const where = active.map(([clause]) => clause);
+  const params = active.map(([, value]) => value);
+  const rows = db()
+    .prepare(
+      `SELECT data FROM runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY started_at DESC LIMIT ?`,
+    )
+    .all(...params, limit) as { data: string }[];
+  return rows.map((row) => JSON.parse(row.data) as Run);
+}
+
+export type RunStats = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  successRate: number | null;
+  avgDurationMs: number | null;
+  p95DurationMs: number | null;
+};
+
+export function runStats(since: string): RunStats {
+  const rows = db()
+    .prepare("SELECT status, json_extract(data, '$.durationMs') AS duration FROM runs WHERE started_at >= ?")
+    .all(since) as { status: Run["status"]; duration: number }[];
+  const durations = rows.map((r) => r.duration).sort((a, b) => a - b);
+  const succeeded = rows.filter((r) => r.status === "succeeded").length;
+  return {
+    total: rows.length,
+    succeeded,
+    failed: rows.length - succeeded,
+    successRate: rows.length ? succeeded / rows.length : null,
+    avgDurationMs: rows.length ? Math.round(durations.reduce((a, b) => a + b, 0) / rows.length) : null,
+    p95DurationMs: rows.length ? durations[Math.min(durations.length - 1, Math.ceil(durations.length * 0.95) - 1)] : null,
+  };
+}
+
 export function listRuns(workflowId: string, limit: number): Run[] {
   const rows = db()
     .prepare("SELECT data FROM runs WHERE workflow_id = ? ORDER BY started_at DESC LIMIT ?")

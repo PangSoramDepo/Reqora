@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Icon } from "@/components/icon";
-import type { Step, WorkflowEdge, WorkflowNode } from "@/lib/workflows/schema";
-import { NODE_WIDTH, edgePath, edgeStyle, portKey, type PortOffsets } from "./graph";
+import { ADD_NODE_EVENT, NODE_DRAG_MIME } from "@/lib/workflows/defaults";
+import type { NodeType, Step, WorkflowEdge, WorkflowNode } from "@/lib/workflows/schema";
+import { NODE_WIDTH, edgePath, edgeStyle, portKey, type Point, type PortOffsets } from "./graph";
 import { NodeCard, TYPE_STYLE } from "./node-cards";
 
 const MIN_ZOOM = 0.5;
@@ -18,43 +19,54 @@ type FlowCanvasProps = {
   edges: WorkflowEdge[];
   steps: Map<string, Step>;
   selectedId: string | null;
+  selectedEdgeId: string | null;
   pulsingNodeId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
+  onSelectEdge: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
   onMoveEnd: () => void;
   onAutoLayout: () => void;
+  onAddNode: (type: NodeType, position: Point) => void;
+  onConnect: (source: string, sourcePort: string, target: string) => void;
 };
 
 type Drag = { id: string; pointerX: number; pointerY: number; originX: number; originY: number; moved: boolean };
+type Wire = { source: string; port: string; from: Point; to: Point };
 
 export function FlowCanvas({
   nodes,
   edges,
   steps,
   selectedId,
+  selectedEdgeId,
   pulsingNodeId,
   onSelect,
+  onSelectEdge,
   onMoveNode,
   onMoveEnd,
   onAutoLayout,
+  onAddNode,
+  onConnect,
 }: FlowCanvasProps) {
   const [zoom, setZoom] = useState(1);
   const [ports, setPorts] = useState<PortOffsets>({});
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
+  const [wire, setWire] = useState<Wire | null>(null);
+  const [viewport, setViewport] = useState({ width: 1120, height: 640 });
   const dragRef = useRef<Drag | null>(null);
   const panRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
+  const viewRef = useRef({ pan, zoom, viewport });
   const nodeIds = nodes.map((n) => n.id).join(",");
-
-  const [viewport, setViewport] = useState({ width: 1120, height: 640 });
 
   useEffect(() => {
     zoomRef.current = zoom;
-  }, [zoom]);
+    viewRef.current = { pan, zoom, viewport };
+  }, [pan, zoom, viewport]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -65,6 +77,20 @@ export function FlowCanvas({
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+
+  // Double-clicking a Node Library block adds it at the centre of the current view.
+  useEffect(() => {
+    const add = (event: Event) => {
+      const { pan: p, zoom: z, viewport: v } = viewRef.current;
+      const type = (event as CustomEvent<NodeType>).detail;
+      onAddNode(type, {
+        x: Math.round((v.width / 2 - p.x) / z - NODE_WIDTH / 2),
+        y: Math.round((v.height / 2 - p.y) / z - 80),
+      });
+    };
+    window.addEventListener(ADD_NODE_EVENT, add);
+    return () => window.removeEventListener(ADD_NODE_EVENT, add);
+  }, [onAddNode]);
 
   // Edge endpoints come from the rendered port dots, so wires stay attached whatever the card layout.
   useEffect(() => {
@@ -94,9 +120,28 @@ export function FlowCanvas({
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
 
+  /** Converts a viewport point to unscaled canvas coordinates. */
+  const toCanvas = (clientX: number, clientY: number): Point => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return { x: (clientX - rect.left - pan.x) / zoom, y: (clientY - rect.top - pan.y) / zoom };
+  };
+
   const startDrag = (event: ReactPointerEvent<HTMLDivElement>, node: WorkflowNode) => {
     const target = event.target as HTMLElement;
-    if (event.button !== 0 || target.closest("input, button, [data-port]")) return;
+    if (event.button !== 0 || target.closest("input, button")) return;
+
+    // Pressing an output port starts a wire instead of moving the node.
+    const port = target.closest<HTMLElement>("[data-port]")?.dataset.port;
+    if (port && port !== "in") {
+      const offset = ports[portKey(node.id, port)];
+      if (!offset) return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const from = { x: node.position.x + offset.x, y: node.position.y + offset.y };
+      setWire({ source: node.id, port, from, to: from });
+      return;
+    }
+    if (port) return;
+
     onSelect(node.id);
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
@@ -111,6 +156,10 @@ export function FlowCanvas({
   };
 
   const moveDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (wire) {
+      setWire({ ...wire, to: toCanvas(event.clientX, event.clientY) });
+      return;
+    }
     const drag = dragRef.current;
     if (!drag) return;
     drag.moved = true;
@@ -121,7 +170,17 @@ export function FlowCanvas({
     );
   };
 
-  const endDrag = () => {
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (wire) {
+      // Search every element under the pointer: wire hit areas overlap the input ports they end on.
+      const port = document
+        .elementsFromPoint(event.clientX, event.clientY)
+        .find((el) => el.closest('[data-port="in"]'));
+      const target = port?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId;
+      if (target) onConnect(wire.source, wire.port, target);
+      setWire(null);
+      return;
+    }
     if (dragRef.current?.moved) onMoveEnd();
     dragRef.current = null;
     setDraggingId(null);
@@ -130,9 +189,9 @@ export function FlowCanvas({
   const changeZoom = (delta: number) =>
     setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((z + delta) * 10) / 10)));
 
-  // Dragging empty canvas pans the view.
+  // Dragging empty canvas pans the view; a plain click on it clears the selection.
   const startPan = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || (event.target as HTMLElement).closest("[data-node-id], button")) return;
+    if (event.button !== 0 || (event.target as HTMLElement).closest("[data-node-id], [data-edge-id], button")) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     panRef.current = { pointerX: event.clientX, pointerY: event.clientY, originX: pan.x, originY: pan.y };
     setPanning(true);
@@ -144,9 +203,21 @@ export function FlowCanvas({
     setPan({ x: drag.originX + event.clientX - drag.pointerX, y: drag.originY + event.clientY - drag.pointerY });
   };
 
-  const endPan = () => {
+  const endPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = panRef.current;
+    if (drag && Math.abs(event.clientX - drag.pointerX) + Math.abs(event.clientY - drag.pointerY) < 4) onSelect(null);
     panRef.current = null;
     setPanning(false);
+  };
+
+  const acceptsDrop = (event: DragEvent) => event.dataTransfer.types.includes(NODE_DRAG_MIME);
+
+  const drop = (event: DragEvent<HTMLDivElement>) => {
+    const type = event.dataTransfer.getData(NODE_DRAG_MIME) as NodeType;
+    if (!type) return;
+    event.preventDefault();
+    const point = toCanvas(event.clientX, event.clientY);
+    onAddNode(type, { x: Math.round(point.x - NODE_WIDTH / 2), y: Math.round(point.y - 20) });
   };
 
   /** Zooms and pans so every node is visible (never zooming in past 100%). */
@@ -183,6 +254,12 @@ export function FlowCanvas({
       onPointerMove={movePan}
       onPointerUp={endPan}
       onPointerCancel={endPan}
+      onDragOver={(e) => {
+        if (!acceptsDrop(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+      }}
+      onDrop={drop}
     >
       {/* Infinite dot-matrix grid */}
       <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
@@ -194,7 +271,11 @@ export function FlowCanvas({
         <rect fill="url(#dot-pattern)" height="100%" width="100%" />
       </svg>
 
-      <div ref={layerRef} className="relative w-full h-full origin-top-left" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
+      <div
+        ref={layerRef}
+        className="relative w-full h-full origin-top-left"
+        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+      >
         <svg className="absolute inset-0 overflow-visible pointer-events-none" width="100%" height="100%">
           <defs>
             <filter height="140%" id="glow-primary" width="140%" x="-20%" y="-20%">
@@ -221,17 +302,38 @@ export function FlowCanvas({
             const a = { x: from.position.x + out.x, y: from.position.y + out.y };
             const b = { x: to.position.x + inp.x, y: to.position.y + inp.y };
             const style = edgeStyle(edge, from, steps);
+            const selected = edge.id === selectedEdgeId;
+            const d = edgePath(a, b);
             return (
-              <g key={edge.id} opacity={style.opacity}>
+              <g key={edge.id} opacity={selected ? 1 : style.opacity}>
+                {selected && <path d={d} fill="none" stroke="#d3e4fe" strokeOpacity={0.35} strokeWidth={8} />}
                 <path
                   className={style.animated ? "animate-dash" : undefined}
-                  d={edgePath(a, b)}
+                  d={d}
                   fill="none"
                   filter={style.glow ? `url(#glow-${style.glow})` : undefined}
                   stroke={style.stroke}
                   strokeDasharray={style.dash}
                   strokeWidth={style.width}
                 />
+                {/* Wide invisible hit area so thin wires are easy to select. */}
+                <path
+                  data-edge-id={edge.id}
+                  d={d}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={14}
+                  pointerEvents="stroke"
+                  className="cursor-pointer"
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    onSelectEdge(edge.id);
+                  }}
+                >
+                  <title>
+                    {edge.source}.{edge.sourcePort} → {edge.target} (select, then press Delete to remove)
+                  </title>
+                </path>
                 {style.animated && (
                   <circle
                     className="animate-ping"
@@ -245,6 +347,9 @@ export function FlowCanvas({
               </g>
             );
           })}
+          {wire && (
+            <path d={edgePath(wire.from, wire.to)} fill="none" stroke="#4cd7f6" strokeDasharray="5,4" strokeWidth={2} />
+          )}
         </svg>
 
         {nodes.map((node) => {
@@ -259,7 +364,7 @@ export function FlowCanvas({
                   : "bg-surface-container-high/90 shadow-xl hover:-translate-y-0.5"
               } ${draggingId === node.id ? "z-25 cursor-grabbing" : "z-20 cursor-move"} ${
                 pulsingNodeId === node.id ? "scale-[1.02]" : ""
-              }`}
+              } ${wire && wire.source !== node.id ? "[&_[data-port=in]]:ring-2 [&_[data-port=in]]:ring-primary" : ""}`}
               style={{ top: node.position.y, left: node.position.x, width: NODE_WIDTH }}
               onPointerDown={(e) => startDrag(e, node)}
               onPointerMove={moveDrag}
@@ -271,6 +376,12 @@ export function FlowCanvas({
           );
         })}
       </div>
+
+      {nodes.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-outline font-body-md">
+          Drag a block from the Node Library to start.
+        </div>
+      )}
 
       {/* Floating canvas control dock */}
       <div className="absolute bottom-space-md left-space-md z-30 flex items-center gap-space-xs bg-surface-container-high/90 backdrop-blur-xl p-space-xs rounded-xl shadow-xl">
