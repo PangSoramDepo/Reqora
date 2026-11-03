@@ -1,3 +1,5 @@
+import type { NextRequest } from "next/server";
+import { requireUser } from "@/lib/auth/session";
 import { notFound, parseBody, problem } from "@/lib/http";
 import { MissingKeyError } from "@/lib/secrets/crypto";
 import { deleteVariable, listVariables, putVariable } from "@/lib/secrets/variables";
@@ -16,7 +18,9 @@ async function target(ctx: Ctx) {
 }
 
 /** Creates or replaces a variable. Secret values are encrypted at rest and never returned. */
-export async function PUT(request: Request, ctx: Ctx) {
+export async function PUT(request: NextRequest, ctx: Ctx) {
+  const auth = requireUser(request);
+  if ("error" in auth) return auth.error;
   const t = await target(ctx);
   if ("error" in t) return t.error;
   const parsed = await parseBody(request, variableInputSchema);
@@ -33,7 +37,9 @@ export async function PUT(request: Request, ctx: Ctx) {
   return Response.json(variable, { status: created ? 201 : 200 });
 }
 
-export async function DELETE(_request: Request, ctx: Ctx) {
+export async function DELETE(request: NextRequest, ctx: Ctx) {
+  const auth = requireUser(request);
+  if ("error" in auth) return auth.error;
   const t = await target(ctx);
   if ("error" in t) return t.error;
   return deleteVariable(t.environment, t.name)

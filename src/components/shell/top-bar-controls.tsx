@@ -6,9 +6,11 @@ import { Icon } from "@/components/icon";
 import { onCanvasState, sendCanvasCommand, type CanvasState } from "@/lib/canvas-events";
 import { ENVIRONMENT_LABELS, setEnvironment, useEnvironment } from "@/lib/environment";
 import { ENVIRONMENTS, type Environment } from "@/lib/workflows/schema";
+import { UserMenu } from "./user-menu";
 
 const SECTIONS: [prefix: string, label: string][] = [
   ["/flow", "Flow Canvas"],
+  ["/collections", "Collections & Requests"],
   ["/executions", "Execution History"],
   ["/secrets", "Environment Secrets"],
   ["/telemetry", "Telemetry & Metrics"],
@@ -122,14 +124,7 @@ export function TopBarControls() {
           <span>{canvas.running ? "Running…" : "Run Workflow"}</span>
           {canvas.running && <span className="w-2 h-2 rounded-full bg-on-primary animate-ping" />}
         </button>
-        <div className="flex items-center gap-space-xs pl-space-xs">
-          <span
-            className="w-8 h-8 rounded-full bg-secondary-container text-on-secondary-container font-label-md text-label-md flex items-center justify-center"
-            title="Profile"
-          >
-            PS
-          </span>
-        </div>
+        <UserMenu />
       </div>
     </div>
   );

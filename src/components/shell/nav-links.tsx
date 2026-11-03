@@ -6,6 +6,7 @@ import { Icon } from "@/components/icon";
 
 const NAV_ITEMS = [
   { href: "/flow", icon: "schema", label: "Flow Canvas" },
+  { href: "/collections", icon: "folder_data", label: "Collections & Requests" },
   { href: "/executions", icon: "history", label: "Execution History" },
   { href: "/secrets", icon: "key", label: "Environment Secrets" },
   { href: "/telemetry", icon: "monitoring", label: "Telemetry & Metrics" },

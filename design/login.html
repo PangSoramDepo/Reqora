@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_blank" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface": "#031427", "on-primary": "#003640", "primary": "#4cd7f6", "on-secondary": "#1000a9", "surface-bright": "#2a3a4f", "surface-container": "#102034", "on-primary-container": "#00424f", "on-tertiary-fixed-variant": "#653e00", "secondary-container": "#3131c0", "primary-fixed-dim": "#4cd7f6", "tertiary-fixed": "#ffddb8", "tertiary-container": "#e79400", "secondary-fixed": "#e1e0ff", "surface-variant": "#26364a", "on-surface": "#d3e4fe", "primary-fixed": "#acedff", "tertiary-fixed-dim": "#ffb95f", "on-secondary-fixed-variant": "#2f2ebe", "surface-dim": "#031427", "on-tertiary-fixed": "#2a1700", "tertiary": "#ffb95f", "error-container": "#93000a", "surface-container-high": "#1b2b3f", "on-tertiary": "#472a00", "secondary": "#c0c1ff", "surface-tint": "#4cd7f6", "surface-container-highest": "#26364a", "on-surface-variant": "#bcc9cd", "on-background": "#d3e4fe", "outline-variant": "#3d494c", "on-error": "#690005", "background": "#031427", "inverse-on-surface": "#213145", "on-secondary-container": "#b0b2ff", "on-primary-fixed": "#001f26", "on-secondary-fixed": "#07006c", "error": "#ffb4ab", "surface-container-low": "#0b1c30", "on-error-container": "#ffdad6", "inverse-primary": "#00687a", "on-tertiary-container": "#563400", "on-primary-fixed-variant": "#004e5c", "outline": "#869397", "inverse-surface": "#d3e4fe", "primary-container": "#06b6d4", "secondary-fixed-dim": "#c0c1ff", "surface-container-lowest": "#000f21" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1rem", "space-2xl": "2rem", "space-xs": "0.25rem", "gutter-canvas": "1.5rem", "margin": "1rem", "space-md": "0.75rem", "space-xl": "1.5rem", "gutter": "1rem", "margin-panel": "1.5rem", "space-xxs": "0.125rem", "space-sm": "0.5rem" }, "fontFamily": { "body-md": ["JetBrains Mono"], "code-block": ["JetBrains Mono"], "headline-sm": ["Geist"], "label-md": ["JetBrains Mono"], "headline-md": ["Geist"], "body-sm": ["JetBrains Mono"], "label-sm": ["JetBrains Mono"], "display-lg": ["Geist"], "headline-lg": ["Geist"], "body-lg": ["JetBrains Mono"] }, "fontSize": { "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "code-block": ["12px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-sm": ["15px", { "lineHeight": "20px", "fontWeight": "500" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "500" }], "body-sm": ["11px", { "lineHeight": "16px", "fontWeight": "400" }], "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600" }], "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "body-lg": ["14px", { "lineHeight": "22px", "fontWeight": "400" }] } } } }</script></head><body class="bg-surface font-body-md text-body-md text-on-surface antialiased min-h-screen"><main class="relative bg-surface flex-1 w-full min-h-screen"><div class="flex flex-col w-full">
+<div class="relative w-full min-h-screen overflow-hidden flex flex-col justify-between py-space-xl px-margin">
+<div class="pointer-events-none absolute inset-0 z-0 opacity-20">
+<svg class="w-full h-full" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<pattern height="24" id="dot-matrix" patternunits="userSpaceOnUse" width="24">
+<circle cx="2" cy="2" fill="#4cd7f6" fill-opacity="0.35" r="1.25"></circle>
+</pattern>
+</defs>
+<rect fill="url(#dot-matrix)" height="100%" width="100%"></rect>
+</svg>
+</div>
+<div class="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[720px] h-[360px] bg-primary/10 blur-[130px] rounded-full"></div>
+<div class="pointer-events-none absolute top-1/3 -right-32 w-[480px] h-[480px] bg-secondary-container/20 blur-[150px] rounded-full"></div>
+<div class="pointer-events-none absolute bottom-0 -left-20 w-[420px] h-[420px] bg-primary-container/15 blur-[140px] rounded-full"></div>
+<header class="relative z-10 w-full max-w-7xl mx-auto flex items-center justify-between pb-space-lg">
+<div class="flex items-center gap-space-md">
+<div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-surface-container-high shadow-lg">
+<div class="absolute inset-0 rounded-xl bg-primary/20 blur-sm"></div>
+<span class="material-symbols-outlined text-primary text-headline-lg relative z-10" style="font-variation-settings: 'FILL' 1;">hub</span>
+</div>
+<div>
+<div class="flex items-center gap-space-xs">
+<span class="font-headline-md text-headline-md tracking-tight text-on-surface font-semibold">NexusFlow</span>
+<span class="px-space-xs py-0.5 rounded-full bg-primary/10 text-primary font-label-sm text-label-sm uppercase tracking-widest font-semibold">v3.4-prod</span>
+</div>
+<p class="font-label-sm text-label-sm text-on-surface-variant tracking-wide uppercase">Visual API Orchestration &amp; Flow Engineering Platform</p>
+</div>
+</div>
+<div class="hidden md:flex items-center gap-space-sm text-body-sm text-on-surface-variant font-body-sm">
+<span class="inline-flex items-center gap-1.5 px-space-sm py-1 rounded-full bg-surface-container-low shadow-sm">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+          Cluster: <span class="text-on-surface font-semibold">us-east-mesh.active</span>
+</span>
+<span class="px-space-sm py-1 rounded bg-surface-container font-label-sm text-label-sm text-outline">99.995% Uptime</span>
+</div>
+</header>
+<div class="relative z-10 w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-space-2xl items-center my-auto py-space-lg">
+<div class="lg:col-span-6 flex flex-col gap-space-xl">
+<div class="bg-surface-container-low/90 backdrop-blur-xl p-space-2xl rounded-xl shadow-2xl flex flex-col gap-space-xl">
+<div>
+<div class="flex items-center justify-between">
+<span class="font-label-sm text-label-sm uppercase tracking-widest text-primary font-bold">Secure Access Gateway</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">SSO / SAML 2.0</span>
+</div>
+<h1 class="font-display-lg text-display-lg text-on-surface font-semibold tracking-tight mt-space-xs">Sign In to Workspace</h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-space-xxs">Authenticate into low-latency distributed pipeline clusters.</p>
+</div>
+<div class="flex flex-col gap-space-sm">
+<button class="w-full flex items-center justify-between px-space-lg py-space-md bg-surface-container hover:bg-surface-container-high transition-colors duration-150 rounded-lg group shadow-sm" type="button">
+<div class="flex items-center gap-space-md">
+<svg class="w-5 h-5 text-on-surface group-hover:text-primary transition-colors" fill="currentColor" viewbox="0 0 24 24">
+<path clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" fill-rule="evenodd"></path>
+</svg>
+<span class="font-label-md text-label-md text-on-surface">Continue with GitHub Enterprise</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-space-xs py-0.5 rounded bg-surface-container-low group-hover:text-primary transition-colors">Developer</span>
+</button>
+<button class="w-full flex items-center justify-between px-space-lg py-space-md bg-surface-container hover:bg-surface-container-high transition-colors duration-150 rounded-lg group shadow-sm" type="button">
+<div class="flex items-center gap-space-md">
+<svg class="w-5 h-5" viewbox="0 0 24 24">
+<path d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.3 8.9 5 12 5z" fill="#EA4335"></path>
+<path d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.6h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5.1 3.7-8.9z" fill="#4285F4"></path>
+<path d="M5.3 14.7c-.2-.7-.4-1.5-.4-2.7s.1-2 .4-2.7L1.6 6.4C.6 8.3 0 10.1 0 12s.6 3.7 1.6 5.6l3.7-2.9z" fill="#FBBC05"></path>
+<path d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.3-6.7-5.3L1.6 16c1.9 3.8 5.8 7 10.4 7z" fill="#34A853"></path>
+</svg>
+<span class="font-label-md text-label-md text-on-surface">Continue with Google Workspace</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-space-xs py-0.5 rounded bg-surface-container-low group-hover:text-on-surface transition-colors">Team ID</span>
+</button>
+<button class="w-full flex items-center justify-between px-space-lg py-space-md bg-surface-container hover:bg-surface-container-high transition-colors duration-150 rounded-lg group shadow-sm" type="button">
+<div class="flex items-center gap-space-md">
+<span class="material-symbols-outlined text-secondary text-headline-sm">vpn_key</span>
+<span class="font-label-md text-label-md text-on-surface">Continue with Okta / SAML SSO</span>
+</div>
+<span class="font-label-sm text-label-sm text-tertiary px-space-xs py-0.5 rounded bg-surface-container-low">SSO</span>
+</button>
+</div>
+<div class="relative flex items-center justify-center my-space-xs">
+<div class="w-full h-px bg-surface-variant"></div>
+<span class="absolute px-space-md bg-surface-container-low font-label-sm text-label-sm text-outline uppercase tracking-wider">Or sign in with team credentials</span>
+</div>
+<form class="flex flex-col gap-space-lg" onsubmit="event.preventDefault();">
+<div class="flex flex-col gap-space-xs">
+<label class="font-label-md text-label-md text-on-surface flex items-center justify-between" for="work-email">
+<span>Work Email</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Company domain</span>
+</label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-space-md text-outline text-headline-sm pointer-events-none">alternate_email</span>
+<input class="w-full pl-11 pr-space-md py-space-md bg-surface-container text-on-surface font-body-md text-body-md rounded-lg focus:outline-none focus:bg-surface-container-highest transition-all duration-150 placeholder:text-outline-variant shadow-inner" id="work-email" placeholder="alex@company.com" required="" type="email" value="alex@hyperflow.dev"/>
+</div>
+</div>
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<label class="font-label-md text-label-md text-on-surface" for="master-pwd">Secret / Password</label>
+<a class="font-label-sm text-label-sm text-primary hover:underline" href="#forgot">Forgot password?</a>
+</div>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-space-md text-outline text-headline-sm pointer-events-none">lock</span>
+<input class="w-full pl-11 pr-11 py-space-md bg-surface-container text-on-surface font-body-md text-body-md rounded-lg focus:outline-none focus:bg-surface-container-highest transition-all duration-150 placeholder:text-outline-variant shadow-inner" id="master-pwd" placeholder="••••••••••••" required="" type="password" value="••••••••••••••••"/>
+<button class="absolute right-space-md text-outline hover:text-on-surface transition-colors p-1 flex items-center justify-center rounded" id="toggle-pwd" title="Toggle Password Visibility" type="button">
+<span class="material-symbols-outlined text-headline-sm" id="pwd-icon">visibility</span>
+</button>
+</div>
+</div>
+<div class="flex items-center justify-between pt-space-xxs">
+<label class="flex items-center gap-space-sm cursor-pointer select-none">
+<input checked="" class="w-4 h-4 rounded bg-surface-container accent-primary cursor-pointer" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Remember device for 30 days</span>
+</label>
+<span class="font-label-sm text-label-sm text-outline flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">shield</span> MFA Required
+              </span>
+</div>
+<button class="w-full py-space-md px-space-xl bg-primary text-on-primary font-headline-sm text-headline-sm font-semibold rounded-lg shadow-xl shadow-primary/25 hover:bg-primary-fixed hover:shadow-primary/40 active:scale-[0.99] transition-all duration-150 flex items-center justify-center gap-space-sm group mt-space-xs" type="submit">
+<span>Sign In to Workspace</span>
+<span class="material-symbols-outlined text-headline-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</button>
+</form>
+<div class="flex items-center justify-between pt-space-xs text-body-sm text-body-sm text-on-surface-variant">
+<span>New team or environment?</span>
+<div class="flex items-center gap-space-md font-label-md text-label-md">
+<a class="text-primary hover:underline" href="#register">Create Org Account</a>
+<span class="text-outline">/</span>
+<a class="text-secondary hover:underline" href="#demo">Book Demo</a>
+</div>
+</div>
+</div>
+</div>
+<div class="lg:col-span-6 flex flex-col gap-space-xl pl-0 lg:pl-space-xl">
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center gap-space-xs text-primary font-label-sm text-label-sm uppercase tracking-widest font-semibold">
+<span class="material-symbols-outlined text-headline-sm">account_tree</span>
+            Live Flow Pipeline
+          </div>
+<h2 class="font-headline-lg text-headline-lg text-on-surface font-semibold">Microservices Orchestrated visually at sub-millisecond execution.</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Inspect live node topologies, trigger webhooks, synthesize payload transformations, and verify HMAC signatures in real time.</p>
+</div>
+<div class="relative bg-surface-container-lowest rounded-xl p-space-xl shadow-2xl overflow-hidden">
+<div class="flex items-center justify-between pb-space-md mb-space-md border-b border-surface-variant/40">
+<div class="flex items-center gap-space-sm">
+<span class="w-3 h-3 rounded-full bg-error/80"></span>
+<span class="w-3 h-3 rounded-full bg-tertiary/80"></span>
+<span class="w-3 h-3 rounded-full bg-primary/80"></span>
+<span class="font-label-sm text-label-sm text-outline ml-2">mesh-graph://v3/payments-ingest.nexus</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="px-space-xs py-0.5 rounded bg-surface-container-high text-primary font-label-sm text-label-sm">RUNNING</span>
+<span class="font-label-sm text-label-sm text-outline">18.4k req/s</span>
+</div>
+</div>
+<div class="relative w-full h-[320px] flex items-center justify-between px-space-xs">
+<svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+<path class="opacity-70" d="M 120 80 C 180 80, 180 160, 240 160" fill="none" stroke="#4cd7f6" stroke-dasharray="4,4" stroke-width="2"></path>
+<path class="opacity-70" d="M 120 240 C 180 240, 180 160, 240 160" fill="none" stroke="#ffb95f" stroke-dasharray="4,4" stroke-width="2"></path>
+<path d="M 360 160 C 410 160, 410 120, 460 120" fill="none" stroke="#4cd7f6" stroke-width="2"></path>
+<circle class="animate-ping" cx="200" cy="120" fill="#4cd7f6" r="3.5"></circle>
+<circle cx="410" cy="140" fill="#acedff" r="3.5"></circle>
+</svg>
+<div class="flex flex-col justify-between h-full py-space-xs z-10">
+<div class="w-28 p-space-sm rounded-lg bg-surface-container-high shadow-lg hover:shadow-primary/20 transition-shadow">
+<div class="flex items-center justify-between pb-1">
+<span class="font-label-sm text-label-sm text-primary font-bold">WEBHOOK</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+</div>
+<div class="font-body-sm text-body-sm text-on-surface truncate">POST /events</div>
+<div class="text-[9px] text-outline font-label-sm">latency: 1.2ms</div>
+</div>
+<div class="w-28 p-space-sm rounded-lg bg-surface-container-high shadow-lg hover:shadow-tertiary/20 transition-shadow">
+<div class="flex items-center justify-between pb-1">
+<span class="font-label-sm text-label-sm text-tertiary font-bold">KAFKA</span>
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+</div>
+<div class="font-body-sm text-body-sm text-on-surface truncate">topic.orders</div>
+<div class="text-[9px] text-outline font-label-sm">ack: sync_0</div>
+</div>
+</div>
+<div class="z-10 mx-auto">
+<div class="w-36 p-space-md rounded-xl bg-surface-container-highest shadow-2xl relative">
+<div class="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-primary text-on-primary font-label-sm text-[9px] font-bold uppercase tracking-wider">Transformer</div>
+<div class="flex items-center gap-1.5 pt-1">
+<span class="material-symbols-outlined text-primary text-headline-sm">transform</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">Schema Map</span>
+</div>
+<div class="mt-2 p-1.5 rounded bg-surface-container-lowest font-code-block text-[10px] text-primary truncate">
+                  { uuid: id, amt: $mul }
+                </div>
+<div class="flex justify-between items-center mt-2 pt-1 border-t border-surface-variant/40 text-[9px] text-outline">
+<span>99.98% ok</span>
+<span class="text-primary font-bold">0.8ms</span>
+</div>
+</div>
+</div>
+<div class="flex flex-col justify-center h-full z-10">
+<div class="w-28 p-space-sm rounded-lg bg-surface-container-high shadow-lg">
+<div class="flex items-center justify-between pb-1">
+<span class="font-label-sm text-label-sm text-secondary font-bold">GRPC</span>
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+</div>
+<div class="font-body-sm text-body-sm text-on-surface truncate">Ledger.Commit</div>
+<div class="text-[9px] text-outline font-label-sm">status: 200 OK</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-space-md mt-space-md pt-space-md border-t border-surface-variant/30 text-center">
+<div class="p-space-xs rounded bg-surface-container">
+<div class="font-headline-sm text-headline-sm text-primary font-bold">14.8M</div>
+<div class="font-label-sm text-[10px] text-on-surface-variant">Daily Dispatches</div>
+</div>
+<div class="p-space-xs rounded bg-surface-container">
+<div class="font-headline-sm text-headline-sm text-secondary font-bold">&lt; 3.2ms</div>
+<div class="font-label-sm text-[10px] text-on-surface-variant">Avg Edge Latency</div>
+</div>
+<div class="p-space-xs rounded bg-surface-container">
+<div class="font-headline-sm text-headline-sm text-tertiary font-bold">Zero-Loss</div>
+<div class="font-label-sm text-[10px] text-on-surface-variant">Replay Queues</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-space-md">
+<div class="p-space-md rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center gap-1.5 text-on-surface font-label-md text-label-md">
+<span class="material-symbols-outlined text-primary text-headline-sm">terminal</span>
+              CLI &amp; SDK
+            </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Sync flows directly via `nexus push` in your CI/CD.</p>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center gap-1.5 text-on-surface font-label-md text-label-md">
+<span class="material-symbols-outlined text-tertiary text-headline-sm">security</span>
+              Vault Secrets
+            </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Automated rotated keys &amp; AWS KMS hardware enclave.</p>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-low flex flex-col gap-1">
+<div class="flex items-center gap-1.5 text-on-surface font-label-md text-label-md">
+<span class="material-symbols-outlined text-secondary text-headline-sm">monitoring</span>
+              OpenTelemetry
+            </div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Native distributed traces exported to Datadog.</p>
+</div>
+</div>
+</div>
+</div>
+<footer class="relative z-10 w-full max-w-7xl mx-auto pt-space-lg flex flex-col md:flex-row items-center justify-between gap-space-md border-t border-surface-variant/30 text-on-surface-variant font-label-sm text-label-sm">
+<div class="flex flex-wrap items-center gap-space-lg justify-center md:justify-start">
+<span class="flex items-center gap-1.5 text-on-surface">
+<span class="material-symbols-outlined text-primary text-[14px]">verified_user</span>
+          SOC-2 Type II Certified
+        </span>
+<span class="flex items-center gap-1.5 text-on-surface">
+<span class="material-symbols-outlined text-primary text-[14px]">lock</span>
+          End-to-End Key Encryption
+        </span>
+<span class="flex items-center gap-1.5 text-on-surface">
+<span class="material-symbols-outlined text-primary text-[14px]">memory</span>
+          FIPS 140-2 Level 3 HSM Enclave
+        </span>
+</div>
+<div class="flex items-center gap-space-md">
+<span>ISO/IEC 27001</span>
+<span class="text-outline">•</span>
+<span>GDPR Compliant</span>
+<span class="text-outline">•</span>
+<a class="hover:text-primary transition-colors" href="#status">Systems Operational</a>
+</div>
+</footer>
+</div>
+<script>
+    (function() {
+      const toggleBtn = document.getElementById('toggle-pwd');
+      const pwdInput = document.getElementById('master-pwd');
+      const pwdIcon = document.getElementById('pwd-icon');
+
+      if (toggleBtn && pwdInput && pwdIcon) {
+        toggleBtn.addEventListener('click', function() {
+          const isPassword = pwdInput.getAttribute('type') === 'password';
+          pwdInput.setAttribute('type', isPassword ? 'text' : 'password');
+          pwdIcon.textContent = isPassword ? 'visibility_off' : 'visibility';
+        });
+      }
+    })();
+  </script>
+</div></main></body></html>

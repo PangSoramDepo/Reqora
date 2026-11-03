@@ -5,8 +5,10 @@ Visual API flow builder — Next.js 16 (App Router, Turbopack, Cache Components)
 UI is ported from the Stitch project **Visual API Flow Builder** (`projects/14292666328900997952`).
 The raw Stitch HTML exports live in [`design/`](design/) for reference.
 
-> **No authentication yet.** Anyone who can reach the server can edit workflows, write secrets and run
-> flows. Keep it on localhost until auth is added.
+> **Accounts.** The first visit offers to create the owner account; after that sign-up is closed and an admin
+> adds people with `npm run user -- create <email> "<name>"` (`reset-password <email>`, `list`). Every page and API
+> needs a session except `/login`, `/api/auth/*`, `/api/demo/*` and the webhook endpoint `/api/hooks/{id}` —
+> anyone who knows a workflow's webhook URL can trigger its deployed version.
 
 ## Getting started
 
@@ -65,7 +67,9 @@ curl -X POST localhost:3000/api/hooks/wf_checkout_pipeline \
 | Route             | Screen                                                     |
 | ----------------- | ---------------------------------------------------------- |
 | `/flow`           | Redirects to the most recently edited workflow             |
+| `/login`          | Sign in (or create the first account)                      |
 | `/flow/{id}`      | Flow canvas (switch / create / rename / delete in the strip) |
+| `/collections`    | API collections & request builder                          |
 | `/executions`     | Execution history & trace debugger                         |
 | `/secrets`        | Environment variables & secrets                            |
 | `/telemetry`      | Telemetry & metrics (still mock data)                      |
@@ -76,6 +80,8 @@ curl -X POST localhost:3000/api/hooks/wf_checkout_pipeline \
 - `src/app/(workspace)/layout.tsx` — shared shell: node-library sidebar, top bar, status bar.
 - `src/lib/workflows/` — model (`schema.ts`), graph validation, templates, engine, SQLite store, seed.
 - `src/lib/secrets/` — encryption and variable storage.
+- `src/lib/auth/`, `src/proxy.ts` — scrypt passwords, hashed session tokens, login throttling; the proxy denies by default.
+- `src/lib/collections/`, `src/components/collections/` — saved requests, server-side send, assertions, cURL/OpenAPI import.
 - `src/lib/canvas-events.ts`, `src/lib/environment.ts` — top bar ↔ canvas commands; shared environment choice.
 - `src/components/flow/` — canvas: load, autosave with version checks, edit, run, deploy.
 - `src/components/executions/` — live run history (polls every 5s), waterfall trace, replay.

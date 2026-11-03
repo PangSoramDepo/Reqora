@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "surface": "#031427", "on-primary": "#003640", "primary": "#4cd7f6", "on-secondary": "#1000a9", "surface-bright": "#2a3a4f", "surface-container": "#102034", "on-primary-container": "#00424f", "on-tertiary-fixed-variant": "#653e00", "secondary-container": "#3131c0", "primary-fixed-dim": "#4cd7f6", "tertiary-fixed": "#ffddb8", "tertiary-container": "#e79400", "secondary-fixed": "#e1e0ff", "surface-variant": "#26364a", "on-surface": "#d3e4fe", "primary-fixed": "#acedff", "tertiary-fixed-dim": "#ffb95f", "on-secondary-fixed-variant": "#2f2ebe", "surface-dim": "#031427", "on-tertiary-fixed": "#2a1700", "tertiary": "#ffb95f", "error-container": "#93000a", "surface-container-high": "#1b2b3f", "on-tertiary": "#472a00", "secondary": "#c0c1ff", "surface-tint": "#4cd7f6", "surface-container-highest": "#26364a", "on-surface-variant": "#bcc9cd", "on-background": "#d3e4fe", "outline-variant": "#3d494c", "on-error": "#690005", "background": "#031427", "inverse-on-surface": "#213145", "on-secondary-container": "#b0b2ff", "on-primary-fixed": "#001f26", "on-secondary-fixed": "#07006c", "error": "#ffb4ab", "surface-container-low": "#0b1c30", "on-error-container": "#ffdad6", "inverse-primary": "#00687a", "on-tertiary-container": "#563400", "on-primary-fixed-variant": "#004e5c", "outline": "#869397", "inverse-surface": "#d3e4fe", "primary-container": "#06b6d4", "secondary-fixed-dim": "#c0c1ff", "surface-container-lowest": "#000f21" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1rem", "space-2xl": "2rem", "space-xs": "0.25rem", "gutter-canvas": "1.5rem", "margin": "1rem", "space-md": "0.75rem", "space-xl": "1.5rem", "gutter": "1rem", "margin-panel": "1.5rem", "space-xxs": "0.125rem", "space-sm": "0.5rem" }, "fontFamily": { "body-md": ["JetBrains Mono"], "code-block": ["JetBrains Mono"], "headline-sm": ["Geist"], "label-md": ["JetBrains Mono"], "headline-md": ["Geist"], "body-sm": ["JetBrains Mono"], "label-sm": ["JetBrains Mono"], "display-lg": ["Geist"], "headline-lg": ["Geist"], "body-lg": ["JetBrains Mono"] }, "fontSize": { "body-md": ["13px", { "lineHeight": "18px", "fontWeight": "400" }], "code-block": ["12px", { "lineHeight": "18px", "fontWeight": "400" }], "headline-sm": ["15px", { "lineHeight": "20px", "fontWeight": "500" }], "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "500" }], "body-sm": ["11px", { "lineHeight": "16px", "fontWeight": "400" }], "label-sm": ["10px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600" }], "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "body-lg": ["14px", { "lineHeight": "22px", "fontWeight": "400" }] } } } }</script></head><body class="bg-surface font-body-md text-body-md text-on-surface antialiased min-h-screen"><aside class="fixed left-0 top-0 h-full w-64 bg-surface-container-low/95 backdrop-blur-xl z-50 flex flex-col shadow-[0_1px_8px_rgba(0,0,0,0.3)]"><div class="h-14 px-space-md flex items-center justify-between bg-surface-container-lowest/60"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary text-headline-sm">account_tree</span><span class="font-headline-sm text-headline-sm text-on-surface uppercase tracking-wider font-semibold">Node Library</span></div><button class="p-space-xs rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" title="Collapse Library Rail" type="button"><span class="material-symbols-outlined text-body-lg">first_page</span></button></div><div class="p-space-sm"><div class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-lowest text-on-surface-variant"><span class="material-symbols-outlined text-body-md">search</span><span class="font-body-sm text-body-sm text-outline">Filter nodes...</span></div></div><div class="px-space-sm pt-space-xs pb-space-sm"><div class="font-label-sm text-label-sm text-outline uppercase tracking-wider px-space-xs mb-space-xs">Core Blocks</div><div class="space-y-space-xxs"><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary text-body-lg">http</span><span class="font-body-sm text-body-sm text-on-surface">Send HTTP</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary">REST</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-tertiary text-body-lg">webhook</span><span class="font-body-sm text-body-sm text-on-surface">Webhook Trigger</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-tertiary">EVENT</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-secondary text-body-lg">transform</span><span class="font-body-sm text-body-sm text-on-surface">Data Mapping</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-secondary">TRANS</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary-fixed text-body-lg">call_split</span><span class="font-body-sm text-body-sm text-on-surface">Condition/Filter</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary-fixed">FLOW</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-outline text-body-lg">hourglass_top</span><span class="font-body-sm text-body-sm text-on-surface">Delay / Sleep</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-outline">WAIT</span></div><div class="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab"><div class="flex items-center gap-space-xs"><span class="material-symbols-outlined text-primary-container text-body-lg">output_circle</span><span class="font-body-sm text-body-sm text-on-surface">Response / Output</span></div><span class="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest text-primary-container">EXIT</span></div></div></div><div class="mt-auto p-space-sm bg-surface-container-lowest/50"><div class="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-space-xs">Navigation</div><nav class="flex flex-col gap-space-xxs" data-active-classes="bg-surface-container-high text-primary font-medium rounded"><a class="px-space-sm py-space-xs rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="interactive-visual-api-flow-canvas" href="#">Flow Canvas</a><a aria-current="page" class="px-space-sm py-space-xs transition-colors bg-surface-container-high text-primary font-medium rounded" data-path="api-collections" href="#">Collections &amp; Requests</a><a class="px-space-sm py-space-xs rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="execution-history" href="#">Execution History</a><a class="px-space-sm py-space-xs rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-secrets" href="#">Environment Secrets</a><a class="px-space-sm py-space-xs rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="pipeline-analytics" href="#">Telemetry &amp; Metrics</a></nav></div></aside><div class="pl-64 flex flex-col min-h-screen"><header class="fixed top-0 left-64 right-0 h-14 bg-surface-container-low/90 backdrop-blur-xl z-40 px-space-md flex items-center justify-between shadow-[0_1px_8px_rgba(0,0,0,0.25)]"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs"><img alt="NexusFlow Brand Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBaCg8-cxzSUXB88QbJoRQFq-IDZIHGU5SAfr7alKCfwJmy8F42O0fHExpavzTQ5nfGglyN7HNhYNLynaU4h8nVtAcOUJadFbclXW-0EsGzn5rADTDjc3Z7vXp-UvuwTOUWXY9qzGXCIZ7NAlk4gHIRwEqIh41qO8Npxfb-lQIlv3FlrLODuj_lgqnx9bEqiMAcJgaLNivNgxwKrekl1qeHrvfOswaZhSE9FHullKUDCdi0BJREkHaX9A"/><span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight">NexusFlow</span></div><div class="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant"><span class="text-outline">/</span><span>Workspaces</span><span class="text-outline">/</span><span>Payments &amp; Auth</span><span class="text-outline">/</span><span class="text-on-surface font-medium">Customer Checkout Pipeline</span></div><div class="flex items-center gap-space-xxs px-space-xs py-space-xxs rounded bg-surface-container-highest text-tertiary border border-outline-variant/30"><span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span><span class="font-label-sm text-label-sm uppercase">Production US-East</span></div></div><div class="flex items-center gap-space-sm"><div class="flex items-center rounded bg-surface-container-highest p-space-xxs"><button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" title="Zoom Out" type="button"><span class="material-symbols-outlined text-body-md">remove</span></button><span class="px-space-xs font-label-sm text-label-sm text-on-surface">100%</span><button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded" title="Zoom In" type="button"><span class="material-symbols-outlined text-body-md">add</span></button><button class="p-space-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors rounded ml-space-xxs" title="Toggle Minimap" type="button"><span class="material-symbols-outlined text-body-md">map</span></button></div><button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body-sm text-body-sm transition-colors" type="button"><span class="material-symbols-outlined text-body-md">share</span><span>Share</span></button><button class="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-secondary-container hover:bg-secondary-container/80 text-on-secondary-container font-body-sm text-body-sm transition-colors" type="button"><span class="material-symbols-outlined text-body-md">cloud_upload</span><span>Deploy</span></button><button class="flex items-center gap-space-xs px-space-md py-space-xs rounded bg-primary text-on-primary hover:bg-primary-container font-body-sm text-body-sm font-semibold transition-all" type="button"><span class="material-symbols-outlined text-body-md fill-current">play_arrow</span><span>Run Workflow</span><span class="w-2 h-2 rounded-full bg-on-primary animate-ping"></span></button><div class="flex items-center gap-space-xs pl-space-xs"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZD0UquBncGejx4cqshVayylgSV2H06HbStaaqmE0yoFTEf1P_qwchQyLx75-k7D6jEaCcIMlNTHxq7fFVFqEARUZQ6m0ftC8HeDKD4wI-qe-cjYe-GkA3JI8fQxMSC-rO-BWskFQImJnqxGecPe8_iyMkT7amnUnI7MrFcJYphr-yVTvziB2xyLuX32eQwbUZiXrDIsD9q4y2BSmvAVCWyKygKVwkX2d-MsKv-qbQESs7aHTyLL2QWA"/></div></div></header><main class="relative pt-14 bg-surface flex-1 w-full"><div class="flex flex-col w-full">
+<!-- Interactive Collections & API Studio Shell -->
+<div class="w-full flex flex-col xl:flex-row h-[calc(100vh-3.5rem-2.5rem)] overflow-hidden">
+<!-- Left Explorer Column (Hierarchical Tree) -->
+<aside class="w-full xl:w-80 flex-shrink-0 bg-surface-container-low flex flex-col overflow-hidden">
+<!-- Search & Command Header -->
+<div class="p-space-sm bg-surface-container-lowest/80 flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-primary text-headline-sm">folder_data</span>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight">API Collections</span>
+</div>
+<div class="flex items-center gap-space-xxs">
+<button class="p-space-xs rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Import cURL / OpenAPI" type="button">
+<span class="material-symbols-outlined text-body-md">publish</span>
+</button>
+<button class="p-space-xs rounded bg-primary-container/20 hover:bg-primary-container/30 text-primary transition-colors" title="New Collection" type="button">
+<span class="material-symbols-outlined text-body-md">create_new_folder</span>
+</button>
+</div>
+</div>
+<!-- Filter bar -->
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-2 text-outline text-body-md pointer-events-none">filter_list</span>
+<input class="w-full pl-7 pr-3 py-1 bg-surface-container rounded font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:outline-none focus:bg-surface-container-high transition-colors" placeholder="Filter requests, tags or methods..." type="text"/>
+<span class="absolute right-2 font-label-sm text-label-sm text-outline">⌘K</span>
+</div>
+<!-- Collection Quick Actions Pill row -->
+<div class="flex items-center gap-space-xs overflow-x-auto py-0.5">
+<button class="flex items-center gap-1 px-space-xs py-space-xxs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-label-sm font-label-sm whitespace-nowrap transition-colors">
+<span class="material-symbols-outlined text-body-sm text-primary">add</span> Collection
+          </button>
+<button class="flex items-center gap-1 px-space-xs py-space-xxs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-label-sm font-label-sm whitespace-nowrap transition-colors">
+<span class="material-symbols-outlined text-body-sm text-tertiary">create_new_folder</span> Folder
+          </button>
+<button class="flex items-center gap-1 px-space-xs py-space-xxs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-label-sm font-label-sm whitespace-nowrap transition-colors">
+<span class="material-symbols-outlined text-body-sm text-secondary">file_download</span> OpenAPI
+          </button>
+</div>
+</div>
+<!-- Nested Collections Tree Hierarchy -->
+<div class="flex-1 overflow-y-auto p-space-xs space-y-space-xs">
+<!-- Collection: E-Commerce Core API v2 (Expanded) -->
+<div class="rounded bg-surface-container/60 shadow-sm overflow-hidden">
+<div class="px-space-sm py-space-xs flex items-center justify-between hover:bg-surface-container cursor-pointer select-none group">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-primary text-body-md">arrow_drop_down</span>
+<span class="material-symbols-outlined text-primary-fixed-dim text-body-md">layers</span>
+<span class="font-headline-sm text-body-md text-on-surface truncate font-semibold">E-Commerce Core API v2</span>
+</div>
+<div class="flex items-center gap-space-xxs opacity-80 group-hover:opacity-100">
+<span class="px-1 py-0.5 rounded bg-surface-container-highest font-label-sm text-label-sm text-tertiary uppercase">Prod</span>
+</div>
+</div>
+<div class="pl-space-sm pr-space-xxs py-space-xxs space-y-space-xxs">
+<!-- Folder: Auth (Collapsed) -->
+<div class="rounded hover:bg-surface-container/80 transition-colors">
+<div class="px-space-xs py-1 flex items-center justify-between cursor-pointer group text-on-surface-variant">
+<div class="flex items-center gap-1 text-body-sm font-body-sm truncate">
+<span class="material-symbols-outlined text-outline text-body-sm">arrow_right</span>
+<span class="material-symbols-outlined text-tertiary-fixed-dim text-body-sm">folder</span>
+<span class="truncate">Authentication &amp; Tokens</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-1">2</span>
+</div>
+</div>
+<!-- Folder: Checkout & Orders (Active / Expanded) -->
+<div class="rounded bg-surface-container-lowest/50 p-space-xxs">
+<div class="px-space-xs py-1 flex items-center justify-between cursor-pointer select-none">
+<div class="flex items-center gap-1 text-body-sm font-body-sm text-on-surface font-medium truncate">
+<span class="material-symbols-outlined text-primary text-body-sm">arrow_drop_down</span>
+<span class="material-symbols-outlined text-primary text-body-sm">folder_open</span>
+<span class="truncate">Checkout &amp; Orders</span>
+</div>
+<span class="px-1 py-0.5 rounded bg-surface-container font-label-sm text-label-sm text-primary">3</span>
+</div>
+<!-- Requests inside Folder -->
+<div class="pl-4 pt-1 space-y-0.5">
+<!-- Request 1: POST /v2/orders/create (Active Highlighted) -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded bg-surface-container-high shadow-inner cursor-pointer group">
+<div class="flex items-center gap-1.5 min-w-0">
+<span class="px-1 py-0.2 rounded bg-primary-container/20 text-primary font-label-sm text-label-sm font-semibold">POST</span>
+<span class="font-body-sm text-body-sm text-on-surface font-medium truncate">/v2/orders/create</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+</div>
+<!-- Request 2: GET /v2/orders/{order_id} -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/50 cursor-pointer transition-colors group">
+<div class="flex items-center gap-1.5 min-w-0">
+<span class="px-1 py-0.2 rounded bg-surface-container-highest text-secondary font-label-sm text-label-sm font-semibold">GET</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant group-hover:text-on-surface truncate">/v2/orders/{order_id}</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline opacity-0 group-hover:opacity-100">200</span>
+</div>
+<!-- Request 3: POST /v2/orders/{id}/refund -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/50 cursor-pointer transition-colors group">
+<div class="flex items-center gap-1.5 min-w-0">
+<span class="px-1 py-0.2 rounded bg-surface-container-highest text-primary font-label-sm text-label-sm font-semibold">POST</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant group-hover:text-on-surface truncate">/v2/orders/{id}/refund</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Folder: Inventory & Warehousing -->
+<div class="rounded hover:bg-surface-container/80 transition-colors">
+<div class="px-space-xs py-1 flex items-center justify-between cursor-pointer group text-on-surface-variant">
+<div class="flex items-center gap-1 text-body-sm font-body-sm truncate">
+<span class="material-symbols-outlined text-outline text-body-sm">arrow_right</span>
+<span class="material-symbols-outlined text-tertiary text-body-sm">folder</span>
+<span class="truncate">Inventory &amp; Warehousing</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline px-1">2</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Collection: Stripe Payment Gateway Wrappers -->
+<div class="rounded bg-surface-container/40 hover:bg-surface-container/70 transition-colors">
+<div class="px-space-sm py-space-xs flex items-center justify-between cursor-pointer select-none">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-outline text-body-md">arrow_right</span>
+<span class="material-symbols-outlined text-secondary text-body-md">account_balance_wallet</span>
+<span class="font-body-md text-body-md text-on-surface-variant truncate">Stripe Payment Gateway</span>
+</div>
+<span class="font-label-sm text-label-sm text-outline">v2024-04</span>
+</div>
+</div>
+<!-- Collection: Internal Webhook Handlers -->
+<div class="rounded bg-surface-container/40 hover:bg-surface-container/70 transition-colors">
+<div class="px-space-sm py-space-xs flex items-center justify-between cursor-pointer select-none">
+<div class="flex items-center gap-space-xs min-w-0">
+<span class="material-symbols-outlined text-outline text-body-md">arrow_right</span>
+<span class="material-symbols-outlined text-tertiary text-body-md">webhook</span>
+<span class="font-body-md text-body-md text-on-surface-variant truncate">Internal Webhook Handlers</span>
+</div>
+<span class="font-label-sm text-label-sm px-1 py-0.5 rounded bg-surface-container-highest text-tertiary">ASYNC</span>
+</div>
+</div>
+<!-- Synced Visual Flow Banner -->
+<div class="p-space-sm rounded bg-surface-container-lowest shadow-sm flex flex-col gap-1">
+<div class="flex items-center justify-between text-label-sm font-label-sm text-outline uppercase tracking-wider">
+<span>Visual Canvas Bridge</span>
+<span class="text-primary font-semibold">ONLINE</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Connected to 'Customer Checkout Pipeline' on canvas node <span class="text-primary font-code-block text-code-block font-semibold">#node-http-88</span>.</p>
+<button class="mt-1 flex items-center justify-center gap-1 py-1 rounded bg-surface-container hover:bg-surface-container-high text-primary font-label-sm text-label-sm transition-colors" type="button">
+<span class="material-symbols-outlined text-body-md">account_tree</span>
+            Jump to Node in Canvas
+          </button>
+</div>
+</div>
+</aside>
+<!-- Center Stage & Lower Split (Request Builder + Execution Viewer) -->
+<section class="flex-1 flex flex-col min-w-0 bg-surface overflow-hidden">
+<!-- Top Request Command Bar -->
+<div class="p-space-sm bg-surface-container-low/60 flex flex-col gap-space-xs shadow-sm">
+<!-- Title bar + Metadata breadcrumb -->
+<div class="flex items-center justify-between flex-wrap gap-2">
+<div class="flex items-center gap-space-sm min-w-0">
+<span class="material-symbols-outlined text-primary text-headline-md">http</span>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<input class="font-headline-md text-headline-md text-on-surface font-semibold bg-transparent hover:bg-surface-container/50 focus:bg-surface-container px-1 rounded focus:outline-none transition-colors truncate max-w-xs md:max-w-md" value="Create Checkout Order"/>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high font-label-sm text-label-sm text-outline-variant">ID: ord_req_9921</span>
+</div>
+<div class="flex items-center gap-1 font-body-sm text-body-sm text-on-surface-variant">
+<span>E-Commerce Core API v2</span>
+<span class="text-outline">/</span>
+<span>Checkout &amp; Orders</span>
+<span class="text-outline">/</span>
+<span class="text-primary font-medium">orders/create</span>
+</div>
+</div>
+</div>
+<!-- Utility buttons (Sync to Flow Canvas, Mock Server) -->
+<div class="flex items-center gap-space-xs">
+<button class="flex items-center gap-1 px-space-sm py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors" title="Add request to visual workflow" type="button">
+<span class="material-symbols-outlined text-primary text-body-md">add_to_photos</span>
+<span>Add to Flow Canvas</span>
+</button>
+<button class="flex items-center gap-1 px-space-sm py-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors" title="Generate mock server payload" type="button">
+<span class="material-symbols-outlined text-secondary text-body-md">smart_toy</span>
+<span>Generate Mock</span>
+</button>
+<button class="p-1.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Save Request (⌘S)">
+<span class="material-symbols-outlined text-body-md">save</span>
+</button>
+</div>
+</div>
+<!-- URL Construction Bar (Method selector + Input + Send Split Button) -->
+<div class="flex items-center gap-space-xs w-full bg-surface-container-lowest p-space-xxs rounded shadow-inner">
+<!-- HTTP Method Dropdown Selector -->
+<div class="relative">
+<select class="appearance-none bg-primary-container text-on-primary font-label-md text-label-md font-bold px-3 py-2 pr-7 rounded cursor-pointer focus:outline-none shadow-sm">
+<option>POST</option>
+<option>GET</option>
+<option>PUT</option>
+<option>PATCH</option>
+<option>DELETE</option>
+</select>
+<span class="material-symbols-outlined pointer-events-none absolute right-1.5 top-2.5 text-on-primary text-body-sm">arrow_drop_down</span>
+</div>
+<!-- Full URL Input with Variables support -->
+<div class="flex-1 flex items-center bg-surface-container px-3 py-1.5 rounded min-w-0">
+<span class="text-tertiary font-code-block text-code-block mr-1">https://</span>
+<input class="flex-1 bg-transparent text-on-surface font-code-block text-code-block focus:outline-none truncate" type="text" value="api.internal.nexusflow.net/v2/orders/create"/>
+<div class="flex items-center gap-1 pl-2">
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-tertiary-fixed-dim font-label-sm text-label-sm" title="Active Target Environment">
+                Prod-US-East
+              </span>
+</div>
+</div>
+<!-- Split Send Action Group -->
+<div class="flex items-center rounded overflow-hidden shadow-md">
+<button class="flex items-center gap-1.5 px-space-md py-2 bg-primary hover:bg-primary-container text-on-primary font-headline-sm text-body-md font-bold transition-all" type="button">
+<span class="material-symbols-outlined text-body-md">send</span>
+<span>Send</span>
+</button>
+<button class="px-2 py-2 bg-primary hover:bg-primary-container text-on-primary transition-all border-l border-on-primary/20" title="Send Options" type="button">
+<span class="material-symbols-outlined text-body-sm">expand_more</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Request Details: Config Tabs & JSON Editor -->
+<div class="flex flex-col flex-1 min-h-0 bg-surface">
+<!-- Tab Bar -->
+<div class="flex items-center justify-between px-space-sm bg-surface-container-lowest border-b-0 shadow-sm overflow-x-auto">
+<div class="flex items-center gap-space-xxs">
+<button class="px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors">Params <span class="px-1 rounded bg-surface-container font-label-sm text-label-sm">3</span></button>
+<button class="px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors">Authorization <span class="text-tertiary font-label-sm text-label-sm">•</span></button>
+<button class="px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors">Headers <span class="px-1 rounded bg-surface-container font-label-sm text-label-sm">7</span></button>
+<button class="px-space-sm py-2 text-primary font-label-md text-label-md bg-surface-container-high rounded-t font-semibold flex items-center gap-1.5 shadow-sm">
+<span>Body</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+</button>
+<button class="px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors">Pre-request Script</button>
+<button class="px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors">Tests <span class="px-1 rounded bg-surface-container font-label-sm text-label-sm text-secondary">4</span></button>
+<button class="px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors">Settings</button>
+</div>
+<div class="flex items-center gap-space-xs py-1">
+<span class="font-label-sm text-label-sm text-outline">Format:</span>
+<span class="px-2 py-0.5 rounded bg-surface-container text-primary font-label-sm text-label-sm font-semibold">raw (JSON)</span>
+<button class="px-2 py-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-body-sm">auto_fix_high</span> Beautify
+            </button>
+</div>
+</div>
+<!-- Code Editor Panel for Request Body -->
+<div class="h-64 flex flex-col bg-surface-container-lowest overflow-hidden">
+<!-- Environment Variable Autocomplete Chip Helper -->
+<div class="px-space-sm py-1 bg-surface-container-low/70 flex items-center gap-space-xs overflow-x-auto">
+<span class="font-label-sm text-label-sm text-outline">Suggested Tokens:</span>
+<button class="px-1.5 py-0.5 rounded bg-tertiary-container/30 hover:bg-tertiary-container/50 text-tertiary font-code-block text-code-block text-body-sm transition-colors">
+              {{env.CUSTOMER_ID}}
+            </button>
+<button class="px-1.5 py-0.5 rounded bg-primary-container/20 hover:bg-primary-container/30 text-primary font-code-block text-code-block text-body-sm transition-colors">
+              {{env.SESSION_TOKEN}}
+            </button>
+<button class="px-1.5 py-0.5 rounded bg-secondary-container/20 hover:bg-secondary-container/30 text-secondary font-code-block text-code-block text-body-sm transition-colors">
+              {{node[3].payload.total}}
+            </button>
+<span class="ml-auto flex items-center gap-1 text-primary font-label-sm text-label-sm">
+<span class="material-symbols-outlined text-body-sm text-primary">verified</span> Schema Validated (v2/order_schema.json)
+            </span>
+</div>
+<!-- Code Editor Body (Monospaced with Line Numbers & Highlighting) -->
+<div class="flex-1 flex overflow-auto font-code-block text-code-block leading-relaxed">
+<!-- Line numbers -->
+<div class="w-10 py-2 select-none text-right pr-2 text-outline bg-surface-container-lowest/90 font-label-sm text-label-sm flex flex-col gap-0.5">
+<span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span>
+</div>
+<!-- Code text area mock -->
+<div class="flex-1 py-2 px-3 text-on-surface whitespace-pre overflow-x-auto flex flex-col gap-0.5">
+<div><span class="text-on-surface-variant">{</span></div>
+<div> <span class="text-primary">"customer_id"</span>: <span class="text-tertiary bg-tertiary/10 px-1 rounded">"{{env.CUSTOMER_ID}}"</span>,</div>
+<div> <span class="text-primary">"cart_items"</span>: [</div>
+<div>    { <span class="text-primary">"sku"</span>: <span class="text-secondary">"NX-FLW-990-DEV"</span>, <span class="text-primary">"qty"</span>: <span class="text-tertiary-fixed-dim">2</span>, <span class="text-primary">"unit_price"</span>: <span class="text-tertiary-fixed-dim">49.99</span> },</div>
+<div>    { <span class="text-primary">"sku"</span>: <span class="text-secondary">"NX-FLW-CLOUD-SUB"</span>, <span class="text-primary">"qty"</span>: <span class="text-tertiary-fixed-dim">1</span>, <span class="text-primary">"unit_price"</span>: <span class="text-tertiary-fixed-dim">49.52</span> }</div>
+<div>  ],</div>
+<div> <span class="text-primary">"currency"</span>: <span class="text-secondary">"USD"</span>,</div>
+<div> <span class="text-primary">"shipping_address"</span>: { <span class="text-primary">"country"</span>: <span class="text-secondary">"US"</span>, <span class="text-primary">"postal_code"</span>: <span class="text-secondary">"94107"</span> },</div>
+<div> <span class="text-primary">"payment_method_ref"</span>: <span class="text-secondary">"pm_card_visa_tok998"</span>,</div>
+<div> <span class="text-primary">"idempotency_key"</span>: <span class="text-tertiary bg-tertiary/10 px-1 rounded">"{{$guid}}"</span></div>
+<div><span class="text-on-surface-variant">}</span></div>
+</div>
+</div>
+</div>
+<!-- Lower Split Response Viewer Section -->
+<div class="flex-1 flex flex-col min-h-0 bg-surface-container-low shadow-xl">
+<!-- Execution Status Bar -->
+<div class="h-11 px-space-sm bg-surface-container flex items-center justify-between shadow-sm">
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-body-md text-on-surface font-semibold">Response</span>
+<div class="flex items-center gap-space-xs font-label-sm text-label-sm">
+<!-- Status Pill -->
+<div class="flex items-center gap-1 px-2 py-0.5 rounded bg-primary text-on-primary font-bold shadow-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-on-primary animate-pulse"></span>
+<span>201 Created</span>
+</div>
+<!-- Metrics Pills -->
+<div class="flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant">
+<span class="material-symbols-outlined text-body-sm text-tertiary">speed</span>
+<span>Time: <strong class="text-on-surface font-body-sm">142 ms</strong></span>
+</div>
+<div class="flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container-high text-on-surface-variant">
+<span class="material-symbols-outlined text-body-sm text-secondary">database</span>
+<span>Size: <strong class="text-on-surface font-body-sm">1.24 KB</strong></span>
+</div>
+</div>
+</div>
+<!-- Saved Examples selector & Response actions -->
+<div class="flex items-center gap-space-xs">
+<div class="relative flex items-center">
+<span class="font-label-sm text-label-sm text-outline mr-1">Example:</span>
+<select class="bg-surface-container-high text-on-surface font-label-sm text-label-sm px-2 py-1 pr-6 rounded focus:outline-none cursor-pointer">
+<option>201 Success Response</option>
+<option>400 Invalid Sku Payload</option>
+<option>401 Unauthorized Bearer</option>
+<option>422 Out of Stock Inventory</option>
+</select>
+<span class="material-symbols-outlined pointer-events-none absolute right-1 text-on-surface-variant text-body-sm">expand_more</span>
+</div>
+<button class="p-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors" title="Copy Response JSON">
+<span class="material-symbols-outlined text-body-sm">content_copy</span>
+</button>
+<button class="p-1 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface transition-colors" title="Download payload">
+<span class="material-symbols-outlined text-body-sm">download</span>
+</button>
+</div>
+</div>
+<!-- Response Tabs (Pretty, Raw, Preview, Headers, Tests) -->
+<div class="flex items-center justify-between px-space-sm bg-surface-container-lowest/80 text-label-md font-label-md">
+<div class="flex items-center gap-space-xxs">
+<button class="px-space-sm py-1.5 text-primary bg-surface-container-high rounded-t font-semibold">Pretty (JSON)</button>
+<button class="px-space-sm py-1.5 text-on-surface-variant hover:text-on-surface transition-colors">Raw</button>
+<button class="px-space-sm py-1.5 text-on-surface-variant hover:text-on-surface transition-colors">Preview</button>
+<button class="px-space-sm py-1.5 text-on-surface-variant hover:text-on-surface transition-colors">Headers <span class="px-1 rounded bg-surface-container font-label-sm text-label-sm">12</span></button>
+<button class="px-space-sm py-1.5 text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1">
+<span>Test Results</span>
+<span class="px-1.5 py-0.2 rounded bg-primary/20 text-primary font-label-sm text-label-sm font-semibold">4/4 Passed</span>
+</button>
+</div>
+<!-- Mini stats filter -->
+<div class="flex items-center gap-2 py-1 font-label-sm text-label-sm text-outline">
+<span>Lines: 18</span>
+<span>•</span>
+<span class="text-primary">Content-Type: application/json</span>
+</div>
+</div>
+<!-- Response Output Body with Highlighted JSON Output -->
+<div class="flex-1 bg-surface-container-lowest overflow-auto p-space-sm font-code-block text-code-block leading-relaxed">
+<div class="flex">
+<!-- Line numbers -->
+<div class="w-8 select-none text-right pr-3 text-outline/60 font-label-sm text-label-sm flex flex-col gap-0.5">
+<span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span>
+</div>
+<!-- Pretty JSON Contents -->
+<div class="flex-1 text-on-surface flex flex-col gap-0.5">
+<div><span class="text-on-surface-variant">{</span></div>
+<div> <span class="text-primary">"success"</span>: <span class="text-primary-container font-semibold">true</span>,</div>
+<div> <span class="text-primary">"order_id"</span>: <span class="text-secondary">"ord_live_89104051a89b"</span>,</div>
+<div> <span class="text-primary">"order_number"</span>: <span class="text-secondary">"NF-2025-08192"</span>,</div>
+<div> <span class="text-primary">"status"</span>: <span class="text-tertiary font-medium">"processing"</span>,</div>
+<div> <span class="text-primary">"currency"</span>: <span class="text-secondary">"USD"</span>,</div>
+<div> <span class="text-primary">"total_amount"</span>: <span class="text-tertiary-fixed-dim">149.50</span>,</div>
+<div> <span class="text-primary">"customer"</span>: {</div>
+<div> <span class="text-primary">"id"</span>: <span class="text-secondary">"usr_8831920"</span>,</div>
+<div> <span class="text-primary">"email"</span>: <span class="text-secondary">"architect@nexusflow.dev"</span>,</div>
+<div> <span class="text-primary">"loyalty_tier"</span>: <span class="text-secondary">"Enterprise_Silver"</span></div>
+<div>  },</div>
+<div> <span class="text-primary">"fulfillment_route"</span>: <span class="text-secondary">"warehouse-us-east-1"</span>,</div>
+<div> <span class="text-primary">"estimated_dispatch"</span>: <span class="text-secondary">"2025-05-18T14:30:00Z"</span>,</div>
+<div> <span class="text-primary">"flow_canvas_trace_id"</span>: <span class="text-primary bg-primary/10 px-1 rounded">"flw_trace_69a7c33190f"</span>,</div>
+<div> <span class="text-primary">"created_at"</span>: <span class="text-tertiary-fixed-dim">1716035122</span></div>
+<div><span class="text-on-surface-variant">}</span></div>
+</div>
+</div>
+</div>
+<!-- Bottom Assertion Bar Quick View -->
+<div class="px-space-sm py-1 bg-surface-container-high/80 flex items-center justify-between text-label-sm font-label-sm">
+<div class="flex items-center gap-space-sm">
+<span class="flex items-center gap-1 text-primary">
+<span class="material-symbols-outlined text-body-sm">check_circle</span>
+                Status code is 201 Created (12ms)
+              </span>
+<span class="flex items-center gap-1 text-primary">
+<span class="material-symbols-outlined text-body-sm">check_circle</span>
+                Response time &lt; 200ms (142ms)
+              </span>
+<span class="flex items-center gap-1 text-primary">
+<span class="material-symbols-outlined text-body-sm">check_circle</span>
+                Schema conforms to OrderReceipt_v2
+              </span>
+</div>
+<div class="flex items-center gap-1 text-on-surface-variant hover:text-on-surface cursor-pointer">
+<span>View Test Runner Output</span>
+<span class="material-symbols-outlined text-body-sm">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div></main><footer class="fixed bottom-0 left-64 right-0 h-10 bg-surface-container-low/95 backdrop-blur-xl z-40 px-space-md flex items-center justify-between shadow-[0_-1px_8px_rgba(0,0,0,0.3)]"><div class="flex items-center gap-space-md"><button class="flex items-center gap-space-xs text-primary font-body-sm text-body-sm hover:underline" type="button"><span class="material-symbols-outlined text-body-md">terminal</span><span>Live Execution Console &amp; Telemetry</span></button><div class="flex items-center gap-space-xs font-label-sm text-label-sm text-on-surface-variant"><span class="w-2 h-2 rounded-full bg-primary"></span><span>READY</span><span class="text-outline">|</span><span>Active Nodes: 14</span><span class="text-outline">|</span><span>Latency: 42ms</span></div></div><div class="flex items-center gap-space-sm font-label-sm text-label-sm text-outline"><span>Auto-save enabled</span><button class="text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-body-md">unfold_more</span></button></div></footer></div></body></html>

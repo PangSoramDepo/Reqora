@@ -15,12 +15,100 @@ info:
 
     Errors use `application/problem+json` (RFC 9457).
 
-    **Authentication: none yet.** Every operation is open to anyone who can reach the server, including
-    writing secrets and running workflows. Do not expose this server beyond localhost until auth exists.
-security: []
+    **Authentication.** Every operation requires the `reqora_session` cookie from `POST /api/auth/login`
+    (401 otherwise), except the ones marked `security: []`: the auth endpoints, the webhook entry point
+    (callers are external systems) and the local demo upstreams.
+security:
+  - sessionCookie: []
 servers:
   - url: http://localhost:3000
 paths:
+  /api/auth/signup:
+    post:
+      operationId: signUp
+      summary: Create an account and start a session
+      description: |
+        Open only while no accounts exist (bootstrapping the first one), or when the server sets
+        `REQORA_ALLOW_SIGNUP=true`. Otherwise 403 — admins add users with `npm run user -- create`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, maxLength: 120 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 10 }
+                remember: { type: boolean, default: false, description: 30-day persistent cookie instead of a 12h browser-session cookie }
+      responses:
+        "201":
+          description: Created; sets the session cookie
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /api/auth/login:
+    post:
+      operationId: logIn
+      summary: Start a session
+      description: After 5 failed attempts for an email from one client, further attempts get 429 for 15 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                remember: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Signed in; sets the session cookie
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "401": { $ref: "#/components/responses/Problem" }
+        "429": { $ref: "#/components/responses/Problem" }
+  /api/auth/logout:
+    post:
+      operationId: logOut
+      summary: End the current session
+      security: []
+      responses:
+        "204": { description: Signed out; clears the cookie }
+  /api/auth/session:
+    get:
+      operationId: getSession
+      summary: Current user (or null) and whether sign-up is open
+      security: []
+      responses:
+        "200":
+          description: Session status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, signupOpen, firstRun]
+                properties:
+                  user:
+                    oneOf:
+                      - $ref: "#/components/schemas/User"
+                      - type: "null"
+                  signupOpen: { type: boolean }
+                  firstRun: { type: boolean, description: No accounts exist yet }
   /api/workflows:
     get:
       operationId: listWorkflows
@@ -348,6 +436,7 @@ paths:
       - $ref: "#/components/parameters/WorkflowId"
     post:
       operationId: triggerWorkflowWebhook
+      security: []
       summary: Webhook entry point
       description: |
         Runs the workflow's **deployed** version (never the draft) with the raw request as its trigger: the
@@ -381,6 +470,11 @@ paths:
         "404": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: reqora_session
   parameters:
     Environment:
       name: environment
@@ -404,6 +498,13 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
   schemas:
+    User:
+      type: object
+      required: [id, email, name]
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
     Problem:
       type: object
       required: [title, status]

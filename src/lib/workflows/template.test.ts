@@ -56,3 +56,13 @@ describe("renderJson", () => {
     expect(() => renderJson("{ nope }", ctx)).toThrow(TemplateError);
   });
 });
+
+describe("dynamic values", () => {
+  it("generates fresh guids and timestamps", () => {
+    const a = renderString("{{$guid}}", ctx);
+    expect(a).toMatch(/^[0-9a-f-]{36}$/);
+    expect(renderString("{{$guid}}", ctx)).not.toBe(a);
+    expect(Number(renderValue("{{$timestamp}}", ctx))).toBeGreaterThan(1_700_000_000);
+    expect(() => renderString("{{$nope}}", ctx)).toThrow(/unknown dynamic value/);
+  });
+});

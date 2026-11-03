@@ -12,8 +12,20 @@ const PLACEHOLDER = /\{\{\s*([^{}]+?)\s*\}\}/g;
 const WHOLE_PLACEHOLDER = /^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$/;
 const JSON_STRING_LITERAL = /"(?:[^"\\]|\\.)*"/g;
 
+/** Dynamic values, fresh on every use: `{{$guid}}`, `{{$timestamp}}` (Unix seconds), `{{$isoTimestamp}}`. */
+const DYNAMIC: Record<string, () => string | number> = {
+  $guid: () => crypto.randomUUID(),
+  $timestamp: () => Math.floor(Date.now() / 1000),
+  $isoTimestamp: () => new Date().toISOString(),
+};
+
 export function lookup(expr: string, ctx: TemplateContext): unknown {
   const [root, ...path] = expr.split(".");
+  if (root.startsWith("$")) {
+    const dynamic = DYNAMIC[root];
+    if (!dynamic || path.length) throw new TemplateError(`unknown dynamic value "{{${expr}}}"`);
+    return dynamic();
+  }
   if (root === "env") {
     if (path.length !== 1) throw new TemplateError(`invalid env reference "{{${expr}}}"`);
     return ctx.env(path[0]);
