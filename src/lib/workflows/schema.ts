@@ -90,7 +90,22 @@ export const workflowReplaceSchema = workflowInputSchema.extend({
   version: z.number().int().min(1),
 });
 
+export const ENVIRONMENTS = ["production", "staging", "sandbox"] as const;
+export type Environment = (typeof ENVIRONMENTS)[number];
+export const environmentSchema = z.enum(ENVIRONMENTS);
+
+export const VARIABLE_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+export const variableInputSchema = z.object({
+  kind: z.enum(["secret", "plain"]),
+  value: z.string().max(10_000),
+  description: z.string().max(500).optional(),
+});
+
+export const deployInputSchema = z.object({ version: z.number().int().min(1) });
+
 export const runInputSchema = z.object({
+  environment: environmentSchema.default("production"),
   trigger: z
     .object({
       body: z.unknown().optional(),
@@ -104,11 +119,15 @@ export type NodeType = WorkflowNode["type"];
 export type WorkflowEdge = z.infer<typeof edgeSchema>;
 export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
+export type Deployment = { version: number; deployedAt: string };
+
 export type Workflow = WorkflowInput & {
   id: string;
   version: number;
   createdAt: string;
   updatedAt: string;
+  /** The version live on the webhook endpoint; absent until first deploy. */
+  deployment?: Deployment;
 };
 
 export type WorkflowSummary = {
@@ -117,6 +136,18 @@ export type WorkflowSummary = {
   description?: string;
   version: number;
   nodeCount: number;
+  updatedAt: string;
+  deployment?: Deployment;
+};
+
+export type VariableReference = { workflowId: string; workflowName: string; nodeId: string; nodeName: string };
+
+export type Variable = {
+  name: string;
+  kind: "secret" | "plain";
+  /** Plain values only; secrets are write-only and come back as null. */
+  value: string | null;
+  description?: string;
   updatedAt: string;
 };
 
@@ -146,6 +177,7 @@ export type Run = {
   id: string;
   workflowId: string;
   workflowVersion: number;
+  environment: Environment;
   status: RunStatus;
   trigger: RunTrigger;
   startedAt: string;

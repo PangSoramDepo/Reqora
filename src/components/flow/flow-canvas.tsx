@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Icon } from "@/components/icon";
+import { onCanvasCommand, publishCanvasState } from "@/lib/canvas-events";
 import { ADD_NODE_EVENT, NODE_DRAG_MIME } from "@/lib/workflows/defaults";
 import type { NodeType, Step, WorkflowEdge, WorkflowNode } from "@/lib/workflows/schema";
 import { NODE_WIDTH, edgePath, edgeStyle, portKey, type Point, type PortOffsets } from "./graph";
@@ -55,6 +56,7 @@ export function FlowCanvas({
   const [panning, setPanning] = useState(false);
   const [wire, setWire] = useState<Wire | null>(null);
   const [viewport, setViewport] = useState({ width: 1120, height: 640 });
+  const [showMinimap, setShowMinimap] = useState(true);
   const dragRef = useRef<Drag | null>(null);
   const panRef = useRef<{ pointerX: number; pointerY: number; originX: number; originY: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,20 @@ export function FlowCanvas({
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+
+  // Top-bar zoom / minimap buttons, and the zoom readout they display.
+  useEffect(
+    () =>
+      onCanvasCommand((command) => {
+        const step = (delta: number) =>
+          setZoom((z) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round((z + delta) * 10) / 10)));
+        if (command === "zoom-in") step(0.1);
+        if (command === "zoom-out") step(-0.1);
+        if (command === "toggle-minimap") setShowMinimap((v) => !v);
+      }),
+    [],
+  );
+  useEffect(() => publishCanvasState({ zoom }), [zoom]);
 
   // Double-clicking a Node Library block adds it at the centre of the current view.
   useEffect(() => {
@@ -412,7 +428,11 @@ export function FlowCanvas({
       </div>
 
       {/* Minimap */}
-      <div className="absolute bottom-space-md right-[20px] z-30 w-44 h-28 bg-surface-container-lowest/90 backdrop-blur-xl rounded-xl shadow-2xl p-space-xs flex flex-col justify-between overflow-hidden">
+      <div
+        className={`absolute bottom-space-md right-[20px] z-30 w-44 h-28 bg-surface-container-lowest/90 backdrop-blur-xl rounded-xl shadow-2xl p-space-xs flex-col justify-between overflow-hidden ${
+          showMinimap ? "flex" : "hidden"
+        }`}
+      >
         <div className="flex items-center justify-between text-[9px] text-outline font-label-sm uppercase tracking-wider">
           <span>Minimap</span>
           <span className="text-primary font-mono">{zoom.toFixed(1)}x</span>

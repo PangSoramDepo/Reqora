@@ -1,62 +1,96 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
-import { AddSecretDrawer, type NewSecret } from "./add-secret-drawer";
-import { AUTH_PRESETS, ENVIRONMENTS, VARIABLES, VISIBILITY_OPTIONS, type EnvId, type Variable } from "./data";
-import { VariablesTable, type MaskState } from "./variables-table";
+import { ENVIRONMENT_LABELS, setEnvironment, useEnvironment } from "@/lib/environment";
+import { deleteVariable, fetchVariables, type VariablesResponse } from "@/lib/workflows/client";
+import { ENVIRONMENTS, type Environment } from "@/lib/workflows/schema";
+import { AddSecretDrawer, type DrawerTarget } from "./add-secret-drawer";
+import { KpiGrid } from "./kpi-grid";
+import { UsageMatrix } from "./usage-matrix";
+import { VariablesTable } from "./variables-table";
 
-const ENV_BASE = "flex items-center gap-space-xs px-space-md py-space-xs rounded-lg font-headline-sm text-headline-sm transition-all";
+const ENV_BASE = "flex items-center whitespace-nowrap gap-space-xs px-space-md py-space-xs rounded-lg font-headline-sm text-headline-sm transition-all";
 const ENV_IDLE = `${ENV_BASE} text-on-surface-variant hover:text-on-surface`;
 
-function initialMask(vars: Variable[]): MaskState {
-  return Object.fromEntries(
-    vars.filter((v) => v.masked).map((v) => [v.id, { revealed: Boolean(v.initiallyRevealed), highlighted: false }]),
-  );
+/** Names that look like credentials default to the secret kind when set from a missing reference. */
+const SECRET_HINT = /SECRET|TOKEN|KEY|PASSWORD|PASS|CREDENTIAL|PRIVATE/;
+
+type LoadResult = { environment: Environment; data: VariablesResponse | null; error: string | null; at: number };
+
+function quoteEnvValue(value: string): string {
+  return /^[A-Za-z0-9_./:@,+-]*$/.test(value) ? value : JSON.stringify(value);
 }
 
-type SecretsWorkspaceProps = {
-  /** Server-rendered sections slotted between the interactive pieces. */
-  kpis: ReactNode;
-  connections: ReactNode;
-  matrix: ReactNode;
-};
-
 /**
- * Interactive shell of the secrets screen: environment selector, filter box,
- * variables table (masking / delete / export) and the "add secret" drawer.
+ * Interactive Environment Secrets screen: environment selector (shared with the top bar), KPIs,
+ * variables table, usage matrix and the add / edit drawer — all backed by the variables API.
  */
-export function SecretsWorkspace({ kpis, connections, matrix }: SecretsWorkspaceProps) {
-  const [env, setEnv] = useState<EnvId>("prod");
+export function SecretsWorkspace() {
+  const env = useEnvironment();
+  const [result, setResult] = useState<LoadResult | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [variables, setVariables] = useState<Variable[]>(VARIABLES);
-  const [mask, setMask] = useState<MaskState>(() => initialMask(VARIABLES));
-  const [allMasked, setAllMasked] = useState(true);
+  const [drawer, setDrawer] = useState<DrawerTarget | null>(null);
+  const [notice, setNotice] = useState<{ env: Environment; tone: "ok" | "error"; text: string } | null>(null);
+  const [busyName, setBusyName] = useState<string | null>(null);
 
-  const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  useEffect(() => {
+    let cancelled = false;
+    fetchVariables(env)
+      .then((data) => {
+        if (!cancelled) setResult({ environment: env, data, error: null, at: Date.now() });
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setResult({ environment: env, data: null, error: e.message, at: Date.now() });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [env, reloadKey]);
 
-  const toggleOne = (id: string) =>
-    setMask((m) => {
-      const revealed = !m[id]?.revealed;
-      return { ...m, [id]: { revealed, highlighted: revealed } };
+  // Results for another environment are stale: show the loading state until this one arrives.
+  const current = result?.environment === env ? result : null;
+  const data = current?.data ?? null;
+  const loading = !current;
+  const now = current?.at ?? 0;
+
+  const reload = () => setReloadKey((k) => k + 1);
+  const closeDrawer = useCallback(() => setDrawer(null), []);
+
+  const onSaved = (target: Environment, name: string, created: boolean) => {
+    setDrawer(null);
+    setNotice({
+      env,
+      tone: "ok",
+      text: `${name} ${created ? "created" : "updated"} in ${ENVIRONMENT_LABELS[target].label}.`,
     });
-
-  const toggleAll = () => {
-    const nextMasked = !allMasked;
-    setAllMasked(nextMasked);
-    setMask(
-      Object.fromEntries(
-        variables.filter((v) => v.masked).map((v) => [v.id, { revealed: !nextMasked, highlighted: !nextMasked }]),
-      ),
-    );
+    reload();
   };
 
-  const deleteVariable = (id: string) => setVariables((vs) => vs.filter((v) => v.id !== id));
+  const onDelete = (name: string) => {
+    if (!window.confirm(`Delete ${name} from ${ENVIRONMENT_LABELS[env].label}? Workflow nodes referencing {{env.${name}}} will no longer resolve it here.`)) {
+      return;
+    }
+    setBusyName(name);
+    deleteVariable(env, name)
+      .then(() => {
+        setNotice({ env, tone: "ok", text: `${name} deleted from ${ENVIRONMENT_LABELS[env].label}.` });
+        reload();
+      })
+      .catch((e: Error) => setNotice({ env, tone: "error", text: `Could not delete ${name}: ${e.message}` }))
+      .finally(() => setBusyName(null));
+  };
 
   const exportEnv = () => {
-    const body = variables.map((v) => `${v.name}=${v.masked ? "<redacted>" : v.value}`).join("\n");
-    const url = URL.createObjectURL(new Blob([`${body}\n`], { type: "text/plain" }));
+    if (!data) return;
+    const lines = [`# Reqora variables — ${ENVIRONMENT_LABELS[env].label}`];
+    for (const v of data.data) {
+      if (v.description) lines.push(`# ${v.description.replace(/\s+/g, " ")}`);
+      lines.push(v.kind === "secret" ? `# ${v.name}=<secret, not exported>` : `${v.name}=${quoteEnvValue(v.value ?? "")}`);
+    }
+    for (const m of data.missing) lines.push(`# ${m.name}=<missing: referenced by workflows but not set>`);
+    const url = URL.createObjectURL(new Blob([`${lines.join("\n")}\n`], { type: "text/plain" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = `${env}.env`;
@@ -64,124 +98,142 @@ export function SecretsWorkspace({ kpis, connections, matrix }: SecretsWorkspace
     URL.revokeObjectURL(url);
   };
 
-  const saveSecret = (secret: NewSecret) => {
-    const id = `${secret.name.toLowerCase()}-${Date.now()}`;
-    const preset = AUTH_PRESETS.find((p) => p.id === secret.preset);
-    const scope = VISIBILITY_OPTIONS.find((o) => o.value === secret.visibility);
-    const isRaw = secret.preset === "raw";
-    const value = secret.value || "(empty)";
-    setVariables((vs) => [
-      ...vs,
-      {
-        id,
-        name: secret.name,
-        nameClassName: "text-tertiary",
-        description: `${preset?.label ?? "Secret"} credential${secret.autoRotate ? " · auto-rotation enabled" : ""}`,
-        type: isRaw
-          ? { label: "String", className: "text-secondary" }
-          : { label: "Secret", icon: "lock", className: "text-tertiary" },
-        value,
-        masked: "•".repeat(36),
-        valueClassName: "text-on-surface truncate font-semibold",
-        scope: {
-          label: secret.visibility === "global" ? "Global" : (scope?.label ?? "Global"),
-          className: secret.visibility === "global" ? "text-primary" : "text-tertiary",
-        },
-        usage: { count: "0", label: "Unbound", className: "bg-surface-container-highest text-on-surface" },
-        modified: { when: "Just now", by: "you" },
-        actions: [
-          { title: "Edit Variable", icon: "edit", className: "text-on-surface-variant hover:text-on-surface" },
-          { title: "Audit Log", icon: "history", className: "text-on-surface-variant hover:text-on-surface" },
-        ],
-      },
-    ]);
-    setMask((m) => ({ ...m, [id]: { revealed: !allMasked, highlighted: !allMasked } }));
-    setDrawerOpen(false);
-  };
-
   return (
     <>
       <div className="flex flex-col w-full pb-16">
-        {/* Top environment meta header & sync status banner */}
+        {/* Environment selector & actions */}
         <div className="w-full bg-surface-container-low px-gutter-canvas py-space-lg flex flex-col xl:flex-row xl:items-center justify-between gap-space-md shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center gap-space-md">
-            <div className="flex items-center bg-surface-container-lowest p-space-xxs rounded-xl shadow-inner">
-              {ENVIRONMENTS.map((e) => (
-                <button
-                  key={e.id}
-                  aria-pressed={env === e.id}
-                  className={
-                    env === e.id ? `${ENV_BASE} bg-surface-container-high ${e.activeText} shadow-sm` : ENV_IDLE
-                  }
-                  onClick={() => setEnv(e.id)}
-                  type="button"
-                >
-                  <span className={`w-2 h-2 rounded-full ${e.dot}`} />
-                  <span>{e.label}</span>
-                  <span className="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container text-on-surface-variant ml-space-xxs">
-                    {e.region}
-                  </span>
-                </button>
-              ))}
+            <div className="flex items-center bg-surface-container-lowest p-space-xxs rounded-xl shadow-inner w-fit">
+              {ENVIRONMENTS.map((e) => {
+                const meta = ENVIRONMENT_LABELS[e];
+                return (
+                  <button
+                    key={e}
+                    aria-pressed={env === e}
+                    className={env === e ? `${ENV_BASE} bg-surface-container-high ${meta.tone} shadow-sm` : ENV_IDLE}
+                    onClick={() => setEnvironment(e)}
+                    type="button"
+                  >
+                    <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
+                    <span>{meta.label}</span>
+                    <span className="font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container text-on-surface-variant ml-space-xxs">
+                      {meta.region}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            <div className="flex items-center gap-space-sm">
-              <div className="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg bg-surface-container text-on-surface font-body-sm text-body-sm shadow-sm">
-                <Icon name="sync" className="text-primary text-body-md animate-spin" style={{ animationDuration: "6s" }} />
-                <span className="font-medium text-on-surface">KMS Enclave:</span>
-                <span className="font-label-md text-label-md text-primary">In-Sync (SHA-256: 7f8c9a)</span>
-              </div>
-              <div className="hidden sm:flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg bg-surface-container-high text-on-surface-variant font-label-sm text-label-sm">
-                <Icon name="shield_lock" className="text-body-md text-tertiary" />
-                <span>FIPS 140-2 Level 3 HSM</span>
-              </div>
+            <div className="hidden 2xl:flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg bg-surface-container text-on-surface font-body-sm text-body-sm shadow-sm w-fit whitespace-nowrap">
+              <Icon name="shield_lock" className="text-body-md text-tertiary" />
+              <span className="text-on-surface-variant">Secrets are write-only · AES-256-GCM at rest</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-space-sm">
+          <div className="flex flex-wrap items-center gap-space-sm">
             <div className="relative">
               <Icon
                 name="search"
                 className="absolute left-space-sm top-1/2 -translate-y-1/2 text-outline text-body-md pointer-events-none"
               />
               <input
-                aria-label="Filter secrets"
+                aria-label="Filter variables"
                 className="bg-surface-container-lowest text-on-surface placeholder:text-outline font-body-sm text-body-sm pl-9 pr-space-md py-space-xs rounded-lg w-56 focus:w-72 transition-all outline-none"
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filter keys, nodes, tags..."
+                placeholder="Filter keys, workflows, nodes..."
                 type="text"
                 value={filter}
               />
             </div>
             <button
               className="flex items-center gap-space-xs px-space-md py-space-xs rounded-lg bg-primary text-on-primary hover:bg-primary-container font-headline-sm text-headline-sm font-semibold transition-transform active:scale-95 shadow-md"
-              onClick={() => setDrawerOpen(true)}
+              onClick={() => setDrawer({ mode: "add" })}
               type="button"
             >
               <Icon name="key" className="text-body-lg" />
-              <span>Add Secret / Connection</span>
+              <span>Add Variable</span>
             </button>
           </div>
         </div>
 
         <div className="px-gutter-canvas py-space-xl flex flex-col gap-space-xl">
-          {kpis}
-          {connections}
-          <VariablesTable
-            allMasked={allMasked}
-            filter={filter}
-            mask={mask}
-            onDelete={deleteVariable}
-            onExport={exportEnv}
-            onToggleAll={toggleAll}
-            onToggleOne={toggleOne}
-            variables={variables}
-          />
-          {matrix}
+          {/* Notices belong to the environment they were raised in. */}
+          {notice?.env === env && (
+            <div
+              className={`flex items-center gap-space-xs px-space-md py-space-sm rounded-lg font-body-sm text-body-sm ${
+                notice.tone === "ok" ? "bg-primary/10 text-primary" : "bg-error-container/40 text-error"
+              }`}
+              role="status"
+            >
+              <Icon name={notice.tone === "ok" ? "check_circle" : "error"} className="text-body-md" />
+              <span className="flex-1">{notice.text}</span>
+              <button className="hover:text-on-surface" onClick={() => setNotice(null)} title="Dismiss" type="button">
+                <Icon name="close" className="text-body-md" />
+              </button>
+            </div>
+          )}
+
+          {current?.error ? (
+            <div className="flex flex-col items-start gap-space-sm p-space-md rounded-xl bg-error-container/30 text-error" role="alert">
+              <div className="flex items-center gap-space-xs font-headline-sm text-headline-sm font-semibold">
+                <Icon name="error" className="text-body-lg" />
+                Could not load {ENVIRONMENT_LABELS[env].label} variables
+              </div>
+              <p className="font-body-sm text-body-sm">{current.error}</p>
+              <button
+                className="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg bg-surface-container-high hover:bg-surface-bright text-on-surface font-body-sm text-body-sm"
+                onClick={() => {
+                  setResult(null);
+                  reload();
+                }}
+                type="button"
+              >
+                <Icon name="refresh" className="text-body-md" />
+                Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              <KpiGrid data={data} environment={env} />
+              <VariablesTable
+                busyName={busyName}
+                data={data}
+                filter={filter}
+                loading={loading}
+                now={now}
+                onDelete={onDelete}
+                onEdit={(v) =>
+                  setDrawer({
+                    mode: "edit",
+                    name: v.name,
+                    kind: v.kind,
+                    description: v.description ?? "",
+                    value: v.kind === "plain" ? (v.value ?? "") : "",
+                  })
+                }
+                onExport={exportEnv}
+                onRefresh={reload}
+                onSetMissing={(name) =>
+                  setDrawer({ mode: "add", name, kind: SECRET_HINT.test(name) ? "secret" : "plain" })
+                }
+              />
+              <UsageMatrix data={data} />
+            </>
+          )}
         </div>
       </div>
 
-      {drawerOpen && <AddSecretDrawer onClose={closeDrawer} onSave={saveSecret} />}
+      {drawer && (
+        <AddSecretDrawer
+          key={`${drawer.mode}:${drawer.name ?? ""}`}
+          environment={env}
+          existingNames={data?.data.map((v) => v.name) ?? []}
+          onClose={closeDrawer}
+          onSaved={onSaved}
+          target={drawer}
+        />
+      )}
     </>
   );
 }

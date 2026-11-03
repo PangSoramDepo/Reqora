@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
-import { fetchLatestRun, fetchWorkflow, startRun } from "@/lib/workflows/client";
+import { onCanvasCommand, publishCanvasState } from "@/lib/canvas-events";
+import { ENVIRONMENT_LABELS, useEnvironment } from "@/lib/environment";
+import { deployWorkflow, fetchLatestRun, fetchWorkflow, startRun } from "@/lib/workflows/client";
 import { newNode } from "@/lib/workflows/defaults";
 import { topologicalOrder } from "@/lib/workflows/graph";
 import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
-import { CHECKOUT_WORKFLOW_ID, SAMPLE_ORDER } from "@/lib/workflows/seed";
+import { SAMPLE_ORDER } from "@/lib/workflows/seed";
 import { createAutosaver, type SaveState } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
 import { FlowCanvas } from "./flow-canvas";
 import { NodeInspector } from "./node-inspector";
+import { WorkflowSwitcher } from "./workflow-switcher";
 
 /** Layered layout: each node sits one column right of its deepest predecessor. */
 function autoLayout(workflow: Workflow): WorkflowNode[] {
@@ -32,11 +35,13 @@ function autoLayout(workflow: Workflow): WorkflowNode[] {
   });
 }
 
-export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowId?: string }) {
+export function FlowWorkspace({ workflowId }: { workflowId: string }) {
+  const environment = useEnvironment();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [run, setRun] = useState<Run | undefined>();
   const [running, setRunning] = useState(false);
+  const [deploying, setDeploying] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "saved" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pulsingNodeId, setPulsingNodeId] = useState<string | null>(null);
@@ -162,6 +167,9 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
     pulseTimer.current = setTimeout(() => setPulsingNodeId(null), 300);
   };
 
+  // Re-use the last run's payload so tests match this workflow's shape; the sample order otherwise.
+  const testPayload = run?.trigger.body ?? SAMPLE_ORDER;
+
   const execute = async () => {
     if (!workflow || running) return;
     const trigger = workflow.nodes.find((n) => n.type === "webhook");
@@ -169,13 +177,47 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
     setRunning(true);
     try {
       if (saveState.kind !== "saved") await autosaver.flush(); // run what's on screen, not a stale copy
-      setRun(await startRun(workflow.id, { body: SAMPLE_ORDER }));
+      setRun(await startRun(workflow.id, { body: testPayload }, environment));
     } catch (error) {
       setSaveState({ kind: "error", message: `Run failed to start: ${(error as Error).message}` });
     } finally {
       setRunning(false);
     }
   };
+
+  const deploy = async () => {
+    if (!workflow || deploying) return;
+    setDeploying(true);
+    try {
+      await autosaver.flush(); // deploy exactly what's on screen
+      const current = autosaver.current();
+      if (!current) return;
+      const deployed = await deployWorkflow(current.id, current.version);
+      autosaver.update((wf) => ({ ...wf, deployment: deployed.deployment }), { save: false });
+      flash(`Deployed v${deployed.deployment?.version} — the webhook endpoint now runs this version.`);
+    } catch (error) {
+      flash(`Deploy failed: ${(error as Error).message}`);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  // Top-bar buttons (Run / Deploy) reach the canvas through window events; latest handlers via ref.
+  const commandsRef = useRef({ execute, deploy });
+  useEffect(() => {
+    commandsRef.current = { execute, deploy };
+  });
+  useEffect(
+    () =>
+      onCanvasCommand((command) => {
+        if (command === "run") void commandsRef.current.execute();
+        if (command === "deploy") void commandsRef.current.deploy();
+      }),
+    [],
+  );
+
+  const undeployed = !!workflow && workflow.deployment?.version !== workflow.version;
+  useEffect(() => publishCanvasState({ running, deploying, undeployed }), [running, deploying, undeployed]);
 
   if (loadError) {
     return (
@@ -205,19 +247,39 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
     <div className="flex flex-col w-full text-on-surface select-none">
       <div className="relative w-full h-[calc(100vh-3.5rem-2.5rem)] overflow-hidden flex">
         {/* Canvas context strip */}
-        <div className="absolute top-space-sm left-space-md z-30 flex items-center gap-space-xs bg-surface-container/90 backdrop-blur-md px-space-md py-space-xs rounded-xl shadow-xl max-w-[calc(100%-820px)]">
-          <div className="flex items-center gap-space-xs font-label-md text-label-md text-primary min-w-0">
+        <div className="absolute top-space-sm left-space-md z-40 flex items-center gap-space-xs bg-surface-container/90 backdrop-blur-md px-space-md py-space-xs rounded-xl shadow-xl max-w-[calc(100%-640px)]">
+          <div className="flex items-center gap-space-xs min-w-0">
             <Icon
               name="sync"
-              className={`text-body-md ${saveState.kind === "saving" || running ? "animate-spin" : ""}`}
+              className={`text-body-md text-primary shrink-0 ${saveState.kind === "saving" || running ? "animate-spin" : ""}`}
               style={{ animationDuration: "1s" }}
             />
-            <span className="truncate">FLOW GRAPH: {workflow.name.toUpperCase()}</span>
+            <WorkflowSwitcher
+              workflow={workflow}
+              onRename={(name) => autosaver.update((wf) => ({ ...wf, name }), { immediate: true })}
+              onError={flash}
+            />
           </div>
           <span className="text-outline-variant font-label-sm text-label-sm">|</span>
-          <div className="flex items-center gap-space-xxs text-on-surface-variant font-body-sm text-body-sm shrink-0">
-            <span>Version:</span>
+          <div
+            className="flex items-center gap-space-xxs text-on-surface-variant font-body-sm text-body-sm shrink-0"
+            title={
+              workflow.deployment
+                ? `Webhook runs v${workflow.deployment.version}, deployed ${new Date(workflow.deployment.deployedAt).toLocaleString()}`
+                : "Not deployed: the webhook endpoint rejects calls until you deploy"
+            }
+          >
+            <span>Draft</span>
             <span className="text-tertiary font-mono">v{workflow.version}</span>
+            <span className="text-outline">·</span>
+            {workflow.deployment ? (
+              <span className={undeployed ? "text-tertiary" : "text-primary"}>
+                live v{workflow.deployment.version}
+                {undeployed && " (changes pending)"}
+              </span>
+            ) : (
+              <span className="text-outline">not deployed</span>
+            )}
           </div>
           <span className="text-outline-variant font-label-sm text-label-sm">|</span>
           <span
@@ -235,7 +297,9 @@ export function FlowWorkspace({ workflowId = CHECKOUT_WORKFLOW_ID }: { workflowI
             type="button"
             disabled={running}
             onClick={execute}
-            title={`POST sample order ${SAMPLE_ORDER.id} to the trigger`}
+            title={`Run the draft in ${ENVIRONMENT_LABELS[environment].label} with ${
+              run ? "the last run's payload" : `sample order ${SAMPLE_ORDER.id}`
+            }`}
           >
             <Icon name={running ? "progress_activity" : "bolt"} className={`text-body-md ${running ? "animate-spin" : ""}`} />
             <span>{running ? "Running…" : "Emit Webhook Test"}</span>

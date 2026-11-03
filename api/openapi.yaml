@@ -8,12 +8,16 @@ info:
     output port (`true`/`false`) continues, and nodes on untaken branches are recorded as `skipped`.
 
     **Templates.** String fields marked *template* may contain `{{path}}` placeholders resolved at run time
-    against: `trigger.body.*`, `trigger.headers.*`, `env.NAME` (reads the server variable `REQORA_ENV_NAME`;
-    a missing variable fails the step), and `<nodeId>.*` (the output of an already-executed node, e.g.
+    against: `trigger.body.*`, `trigger.headers.*`, `env.NAME` (the run environment's stored variable, falling back to the server variable
+    `REQORA_ENV_NAME`; a missing variable fails the step; resolved values are scrubbed from stored runs), and `<nodeId>.*` (the output of an already-executed node, e.g.
     `{{node-2.body.customer_id}}`). In an HTTP `body`, a placeholder inside a JSON string literal is inserted
     as string content; a bare placeholder is inserted as a JSON value.
 
     Errors use `application/problem+json` (RFC 9457).
+
+    **Authentication: none yet.** Every operation is open to anyone who can reach the server, including
+    writing secrets and running workflows. Do not expose this server beyond localhost until auth exists.
+security: []
 servers:
   - url: http://localhost:3000
 paths:
@@ -96,6 +100,116 @@ paths:
       summary: Delete a workflow and its runs
       responses:
         "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}/deploy:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    post:
+      operationId: deployWorkflow
+      summary: Make a draft version live on the webhook endpoint
+      description: |
+        Snapshots the workflow's current definition as its deployment. `version` must equal the current
+        draft version (409 otherwise), so you deploy exactly what you last saw.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Deployed; `deployment` reflects the new live version
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/variables:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+    get:
+      operationId: listVariables
+      summary: Variables in an environment, with where each is used
+      responses:
+        "200":
+          description: |
+            `data` holds the environment's variables (secret values are null). `missing` lists names referenced
+            as `{{env.NAME}}` by some workflow draft but not set in this environment; `fromServerEnv` tells
+            whether a `REQORA_ENV_NAME` server variable will be used as a fallback.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [environment, data, missing]
+                properties:
+                  environment: { $ref: "#/components/schemas/EnvironmentName" }
+                  data:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: "#/components/schemas/Variable"
+                        - type: object
+                          required: [usage]
+                          properties:
+                            usage: { type: array, items: { $ref: "#/components/schemas/VariableReference" } }
+                  missing:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, usage, fromServerEnv]
+                      properties:
+                        name: { type: string }
+                        usage: { type: array, items: { $ref: "#/components/schemas/VariableReference" } }
+                        fromServerEnv: { type: boolean }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/variables/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[A-Z][A-Z0-9_]{0,63}$" }
+    put:
+      operationId: putVariable
+      summary: Create or replace a variable
+      description: |
+        Secret values are encrypted at rest (AES-256-GCM) and are write-only. Returns 503 when the server has
+        no `REQORA_SECRET_KEY` configured (required in production builds).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, value]
+              properties:
+                kind: { type: string, enum: [secret, plain] }
+                value: { type: string, maxLength: 10000 }
+                description: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: Replaced
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Variable" }
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Variable" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "503": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteVariable
+      summary: Delete a variable
+      responses:
+        "204": { description: Deleted }
+        "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
   /api/workflows/{workflowId}/runs:
     parameters:
@@ -236,9 +350,14 @@ paths:
       operationId: triggerWorkflowWebhook
       summary: Webhook entry point
       description: |
-        Runs the workflow with the raw request as its trigger: the JSON body becomes `trigger.body`
-        and request headers become `trigger.headers`. Responds with the workflow's Response node
-        (status and body) if one executed, otherwise 202 with the run id.
+        Runs the workflow's **deployed** version (never the draft) with the raw request as its trigger: the
+        JSON body becomes `trigger.body` and request headers become `trigger.headers`. Responds with the
+        workflow's Response node (status and body) if one executed, otherwise 202 with the run id.
+        409 if the workflow has never been deployed.
+      parameters:
+        - name: environment
+          in: query
+          schema: { $ref: "#/components/schemas/EnvironmentName" }
       requestBody:
         content:
           application/json:
@@ -260,8 +379,14 @@ paths:
                   runId: { type: string }
                   status: { $ref: "#/components/schemas/RunStatus" }
         "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
 components:
   parameters:
+    Environment:
+      name: environment
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/EnvironmentName" }
     Since:
       name: since
       in: query
@@ -447,6 +572,14 @@ components:
             version: { type: integer }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
+            deployment: { $ref: "#/components/schemas/Deployment" }
+    Deployment:
+      description: The version live on the webhook endpoint. Absent until the first deploy.
+      type: object
+      required: [version, deployedAt]
+      properties:
+        version: { type: integer }
+        deployedAt: { type: string, format: date-time }
     WorkflowSummary:
       type: object
       required: [id, name, version, nodeCount, updatedAt]
@@ -457,9 +590,31 @@ components:
         version: { type: integer }
         nodeCount: { type: integer }
         updatedAt: { type: string, format: date-time }
+    EnvironmentName:
+      type: string
+      enum: [production, staging, sandbox]
+      default: production
+    Variable:
+      type: object
+      required: [name, kind, value, updatedAt]
+      properties:
+        name: { type: string }
+        kind: { type: string, enum: [secret, plain] }
+        value: { type: [string, "null"], description: null for secrets (write-only) }
+        description: { type: string }
+        updatedAt: { type: string, format: date-time }
+    VariableReference:
+      type: object
+      required: [workflowId, workflowName, nodeId, nodeName]
+      properties:
+        workflowId: { type: string }
+        workflowName: { type: string }
+        nodeId: { type: string }
+        nodeName: { type: string }
     RunInput:
       type: object
       properties:
+        environment: { $ref: "#/components/schemas/EnvironmentName" }
         trigger:
           type: object
           properties:
@@ -492,11 +647,12 @@ components:
         error: { type: string }
     Run:
       type: object
-      required: [id, workflowId, workflowVersion, status, trigger, startedAt, finishedAt, durationMs, steps]
+      required: [id, workflowId, workflowVersion, environment, status, trigger, startedAt, finishedAt, durationMs, steps]
       properties:
         id: { type: string }
         workflowId: { type: string }
         workflowVersion: { type: integer }
+        environment: { $ref: "#/components/schemas/EnvironmentName" }
         status: { $ref: "#/components/schemas/RunStatus" }
         trigger:
           type: object

@@ -16,8 +16,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/runs/[r
   const run = await runWorkflow(
     workflow,
     { source: original.trigger.source, body: original.trigger.body },
-    request.nextUrl.origin,
-    original.id,
+    { baseUrl: request.nextUrl.origin, environment: original.environment, replayOf: original.id },
   );
   return Response.json(run, { status: 201, headers: { Location: `/api/runs/${run.id}` } });
 }

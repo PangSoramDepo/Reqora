@@ -1,4 +1,14 @@
-import type { Run, RunTrigger, RunWindow, Workflow, WorkflowSummary } from "./schema";
+import type {
+  Environment,
+  Run,
+  RunTrigger,
+  RunWindow,
+  Variable,
+  VariableReference,
+  Workflow,
+  WorkflowInput,
+  WorkflowSummary,
+} from "./schema";
 
 /** Error carrying the API's problem+json details. */
 export class ApiError extends Error {
@@ -25,6 +35,44 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const fetchWorkflow = (id: string) => request<Workflow>(`/api/workflows/${id}`);
 
+export const createWorkflow = (input: WorkflowInput) =>
+  request<Workflow>("/api/workflows", { method: "POST", body: JSON.stringify(input) });
+
+export async function deleteWorkflow(id: string) {
+  const response = await fetch(`/api/workflows/${id}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 404) throw new ApiError(response.status, response.statusText);
+}
+
+export const deployWorkflow = (id: string, version: number) =>
+  request<Workflow>(`/api/workflows/${id}/deploy`, { method: "POST", body: JSON.stringify({ version }) });
+
+export type VariableWithUsage = Variable & { usage: VariableReference[] };
+export type VariablesResponse = {
+  environment: Environment;
+  data: VariableWithUsage[];
+  missing: { name: string; usage: VariableReference[]; fromServerEnv: boolean }[];
+};
+
+export const fetchVariables = (environment: Environment) =>
+  request<VariablesResponse>(`/api/environments/${environment}/variables`);
+
+export const putVariable = (
+  environment: Environment,
+  name: string,
+  input: { kind: Variable["kind"]; value: string; description?: string },
+) =>
+  request<Variable>(`/api/environments/${environment}/variables/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+export async function deleteVariable(environment: Environment, name: string) {
+  const response = await fetch(`/api/environments/${environment}/variables/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok && response.status !== 404) throw new ApiError(response.status, response.statusText);
+}
+
 export function saveWorkflow(workflow: Workflow) {
   const { id, name, description, nodes, edges, version } = workflow;
   return request<Workflow>(`/api/workflows/${id}`, {
@@ -33,8 +81,8 @@ export function saveWorkflow(workflow: Workflow) {
   });
 }
 
-export const startRun = (workflowId: string, trigger: Omit<RunTrigger, "source">) =>
-  request<Run>(`/api/workflows/${workflowId}/runs`, { method: "POST", body: JSON.stringify({ trigger }) });
+export const startRun = (workflowId: string, trigger: Omit<RunTrigger, "source">, environment: Environment) =>
+  request<Run>(`/api/workflows/${workflowId}/runs`, { method: "POST", body: JSON.stringify({ trigger, environment }) });
 
 export type RunStatsResponse = {
   window: RunWindow;

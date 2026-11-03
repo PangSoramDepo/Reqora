@@ -27,6 +27,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const parsed = await parseBody(request, runInputSchema, { allowEmpty: true });
   if ("error" in parsed) return parsed.error;
 
-  const run = await runWorkflow(workflow, { source: "manual", ...parsed.data.trigger }, request.nextUrl.origin);
+  const { environment, trigger } = parsed.data;
+  // Manual runs execute the draft, so changes can be tested before they are deployed.
+  const run = await runWorkflow(workflow, { source: "manual", ...trigger }, { baseUrl: request.nextUrl.origin, environment });
   return Response.json(run, { status: 201, headers: { Location: `/api/runs/${run.id}` } });
 }

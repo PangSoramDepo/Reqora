@@ -1,12 +1,23 @@
 import type { NextRequest } from "next/server";
 import { notFound, problem } from "@/lib/http";
 import { runWorkflow } from "@/lib/workflows/runner";
-import { getWorkflow } from "@/lib/workflows/store";
+import { environmentSchema } from "@/lib/workflows/schema";
+import { getDeployedWorkflow, getWorkflow } from "@/lib/workflows/store";
 
+/** Live entry point: always executes the deployed snapshot, never the draft being edited. */
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/hooks/[workflowId]">) {
   const { workflowId } = await ctx.params;
-  const workflow = getWorkflow(workflowId);
-  if (!workflow) return notFound(`workflow "${workflowId}"`);
+  const workflow = getDeployedWorkflow(workflowId);
+  if (!workflow) {
+    return getWorkflow(workflowId)
+      ? problem(409, "Conflict", { detail: "workflow has not been deployed yet" })
+      : notFound(`workflow "${workflowId}"`);
+  }
+
+  const environment = environmentSchema.safeParse(request.nextUrl.searchParams.get("environment") ?? "production");
+  if (!environment.success) {
+    return problem(400, "Bad Request", { detail: "environment must be production, staging or sandbox" });
+  }
 
   const text = await request.text();
   let body: unknown = null;
@@ -21,7 +32,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/hooks/[
   const run = await runWorkflow(
     workflow,
     { source: "webhook", body, headers: Object.fromEntries(request.headers) },
-    request.nextUrl.origin,
+    { baseUrl: request.nextUrl.origin, environment: environment.data },
   );
 
   const headers = { "x-reqora-run-id": run.id };

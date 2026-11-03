@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Icon } from "@/components/icon";
+import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import type { Run, Step } from "@/lib/workflows/schema";
 import { shortId, utcTime } from "./format";
 
@@ -164,6 +165,13 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
               {run.status.toUpperCase()}
             </span>
             <span className="font-label-sm text-label-sm text-outline font-mono">{utcTime(run.startedAt)}</span>
+            <span
+              className={`px-space-xs py-space-xxs rounded bg-surface-container-highest font-label-sm text-label-sm uppercase ${
+                ENVIRONMENT_LABELS[run.environment].tone
+              }`}
+            >
+              {ENVIRONMENT_LABELS[run.environment].label}
+            </span>
           </div>
           <div className="flex items-center gap-space-xs mt-space-xxs text-on-surface-variant font-body-sm text-body-sm min-w-0">
             {run.error ? (
@@ -183,7 +191,7 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
         </div>
         <div className="flex items-center gap-space-xs flex-shrink-0">
           <Link
-            href="/flow"
+            href={`/flow/${run.workflowId}`}
             className="px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-space-xxs"
           >
             <Icon name="schema" className="text-body-md" />
@@ -380,7 +388,7 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
         </div>
         {failedStep && (
           <Link
-            href="/flow"
+            href={`/flow/${run.workflowId}`}
             className="px-space-sm py-space-xs rounded bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold transition-colors shrink-0"
           >
             Fix in Canvas

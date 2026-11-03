@@ -14,6 +14,9 @@ type WorkflowRow = {
   definition: string;
   created_at: string;
   updated_at: string;
+  deployed_version: number | null;
+  deployed_definition: string | null;
+  deployed_at: string | null;
 };
 
 function open(): DatabaseSync {
@@ -41,20 +44,51 @@ function open(): DatabaseSync {
       data TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS runs_by_workflow ON runs (workflow_id, started_at DESC);
+    CREATE TABLE IF NOT EXISTS variables (
+      environment TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      value TEXT NOT NULL,
+      description TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (environment, name)
+    );
   `);
+
+  // Columns added after the first release; ALTER only when missing so existing databases upgrade in place.
+  const columns = new Set((db.prepare("PRAGMA table_info(workflows)").all() as { name: string }[]).map((c) => c.name));
+  for (const [column, type] of [
+    ["deployed_version", "INTEGER"],
+    ["deployed_definition", "TEXT"],
+    ["deployed_at", "TEXT"],
+  ]) {
+    if (!columns.has(column)) db.exec(`ALTER TABLE workflows ADD COLUMN ${column} ${type}`);
+  }
 
   const { count } = db.prepare("SELECT COUNT(*) AS count FROM workflows").get() as { count: number };
   if (count === 0) {
     const now = new Date().toISOString();
-    for (const seed of SEED_WORKFLOWS) insertWorkflow(db, seed.id, seed.input, now);
+    for (const seed of SEED_WORKFLOWS) {
+      insertWorkflow(db, seed.id, seed.input, now);
+      db.prepare("UPDATE workflows SET deployed_version = 1, deployed_definition = definition, deployed_at = ? WHERE id = ?").run(
+        now,
+        seed.id,
+      );
+    }
   }
   return db;
 }
 
 // One connection per server process; kept on globalThis so dev-mode HMR doesn't leak handles.
 const globalForDb = globalThis as unknown as { reqoraDb?: DatabaseSync };
-function db() {
+export function db() {
   return (globalForDb.reqoraDb ??= open());
+}
+
+/** Runs stored before environments existed default to production. */
+function parseRun(data: string): Run {
+  const run = JSON.parse(data) as Omit<Run, "environment"> & { environment?: Run["environment"] };
+  return { ...run, environment: run.environment ?? "production" };
 }
 
 function insertWorkflow(conn: DatabaseSync, id: string, input: WorkflowInput, now: string) {
@@ -76,6 +110,7 @@ function toWorkflow(row: WorkflowRow): Workflow {
     edges,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.deployed_version === null ? {} : { deployment: { version: row.deployed_version, deployedAt: row.deployed_at! } }),
   };
 }
 
@@ -90,8 +125,36 @@ export function listWorkflows(): WorkflowSummary[] {
       version: wf.version,
       nodeCount: wf.nodes.length,
       updatedAt: wf.updatedAt,
+      ...(wf.deployment ? { deployment: wf.deployment } : {}),
     };
   });
+}
+
+/** Every workflow with its full draft definition (for cross-workflow scans such as variable usage). */
+export function allWorkflows(): Workflow[] {
+  return (db().prepare("SELECT * FROM workflows ORDER BY name").all() as WorkflowRow[]).map(toWorkflow);
+}
+
+/** The deployed snapshot that webhooks execute, or undefined if never deployed. */
+export function getDeployedWorkflow(id: string): Workflow | undefined {
+  const row = db().prepare("SELECT * FROM workflows WHERE id = ?").get(id) as WorkflowRow | undefined;
+  if (!row || row.deployed_definition === null) return undefined;
+  return { ...toWorkflow({ ...row, definition: row.deployed_definition }), version: row.deployed_version! };
+}
+
+export type DeployResult = { ok: true; workflow: Workflow } | { ok: false; reason: "not_found" | "conflict"; current?: number };
+
+/** Snapshots the current draft as the live version, if the caller has seen that exact version. */
+export function deployWorkflow(id: string, expectedVersion: number): DeployResult {
+  const result = db()
+    .prepare(
+      `UPDATE workflows SET deployed_version = version, deployed_definition = definition, deployed_at = ?
+       WHERE id = ? AND version = ?`,
+    )
+    .run(new Date().toISOString(), id, expectedVersion);
+  if (result.changes === 1) return { ok: true, workflow: getWorkflow(id)! };
+  const existing = getWorkflow(id);
+  return existing ? { ok: false, reason: "conflict", current: existing.version } : { ok: false, reason: "not_found" };
 }
 
 export function getWorkflow(id: string): Workflow | undefined {
@@ -139,7 +202,7 @@ export function insertRun(run: Run) {
 
 export function getRun(id: string): Run | undefined {
   const row = db().prepare("SELECT data FROM runs WHERE id = ?").get(id) as { data: string } | undefined;
-  return row && (JSON.parse(row.data) as Run);
+  return row && parseRun(row.data);
 }
 
 export type RunQuery = { limit: number; since?: string; status?: Run["status"]; workflowId?: string };
@@ -159,7 +222,7 @@ export function queryRuns({ limit, since, status, workflowId }: RunQuery): Run[]
       `SELECT data FROM runs ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY started_at DESC LIMIT ?`,
     )
     .all(...params, limit) as { data: string }[];
-  return rows.map((row) => JSON.parse(row.data) as Run);
+  return rows.map((row) => parseRun(row.data));
 }
 
 export type RunStats = {
@@ -191,5 +254,5 @@ export function listRuns(workflowId: string, limit: number): Run[] {
   const rows = db()
     .prepare("SELECT data FROM runs WHERE workflow_id = ? ORDER BY started_at DESC LIMIT ?")
     .all(workflowId, limit) as { data: string }[];
-  return rows.map((row) => JSON.parse(row.data) as Run);
+  return rows.map((row) => parseRun(row.data));
 }
