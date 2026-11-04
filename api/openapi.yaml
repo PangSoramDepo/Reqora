@@ -919,8 +919,8 @@ paths:
       summary: Recent Collections sends (newest first)
       description: >-
         Every send (saved or ad-hoc) is recorded for the Live Execution Console: status, timing, test counts and
-        script output, plus the request as sent and the response headers and body (first 256 KB), with secrets
-        already scrubbed. The newest 200 are kept.
+        script output, plus the request as sent and the response headers and body (first 256 KB). Unlike send
+        responses, records keep real env/secret values (like Postman's console). The newest 200 are kept.
       parameters:
         - name: limit
           in: query
@@ -1461,7 +1461,7 @@ components:
         sentAt: { type: string, format: date-time }
     SentRequest:
       type: object
-      description: The request as it went on the wire (after scripts, templates and auth); resolved secrets read [secret]
+      description: The request as it went on the wire (after scripts, templates and auth); in send responses resolved secrets read [secret], in send history they are kept
       required: [method, url, headers]
       properties:
         method: { type: string }

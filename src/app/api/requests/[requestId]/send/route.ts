@@ -16,18 +16,23 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/request
   if (!saved) return notFound(`request "${requestId}"`);
   const outcome = await sendRequest(
     { name: saved.name, definition: saved.definition, ...requestScopes(saved.collectionId, saved.folderId) },
-    { environment: environment.data, baseUrl: request.nextUrl.origin },
-  );
-  recordSend(
     {
-      requestId: saved.id,
-      collectionId: saved.collectionId,
-      name: saved.name,
-      method: saved.definition.method,
-      url: saved.definition.url,
       environment: environment.data,
+      baseUrl: request.nextUrl.origin,
+      // The console log keeps real values; the response here stays scrubbed.
+      onUnscrubbed: (raw) =>
+        recordSend(
+          {
+            requestId: saved.id,
+            collectionId: saved.collectionId,
+            name: saved.name,
+            method: saved.definition.method,
+            url: saved.definition.url,
+            environment: environment.data,
+          },
+          raw,
+        ),
     },
-    outcome,
   );
   return Response.json(outcome);
 }

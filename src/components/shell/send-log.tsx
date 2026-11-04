@@ -274,7 +274,6 @@ function SendDetail({ send }: { send: SendRecord }) {
           </Section>
         )}
 
-        <p className="text-outline font-body-sm text-body-sm">Resolved secret values are shown (and copied) as [secret].</p>
       </div>
     </div>
   );

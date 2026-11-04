@@ -14,8 +14,8 @@ export type LoggedResponse = { headers: Record<string, string>; body: string; tr
 
 /**
  * One Collections send, as shown in the Live Execution Console: the request as sent and the response
- * (headers and body, capped), tests and script output. Everything comes from the already-scrubbed
- * outcome, so resolved secrets are stored as [secret].
+ * (headers and body, capped), tests and script output. Like Postman's console, it is recorded
+ * before scrubbing, so resolved env/secret values appear (and copy) as their real values.
  */
 export type SendRecord = {
   id: string;

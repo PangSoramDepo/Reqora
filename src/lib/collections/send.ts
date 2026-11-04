@@ -42,6 +42,8 @@ type SendOptions = {
   fetch?: typeof fetch;
   /** Persists rq.environment.set / unset; defaults to the environment store. */
   writeEnv?: typeof setVariableValue;
+  /** Receives the outcome before secrets are scrubbed (the send history keeps real values). */
+  onUnscrubbed?: (outcome: SendOutcome) => void;
 };
 
 const sent = (p: PreparedRequest): SentRequest => ({
@@ -69,7 +71,7 @@ const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptRepor
  */
 export async function sendRequest(
   target: SendTarget,
-  { environment, baseUrl, fetch: doFetch = fetch, writeEnv = setVariableValue }: SendOptions,
+  { environment, baseUrl, fetch: doFetch = fetch, writeEnv = setVariableValue, onUnscrubbed }: SendOptions,
 ): Promise<SendOutcome> {
   const def = target.definition;
   const resolved = new Set<string>();
@@ -95,6 +97,7 @@ export async function sendRequest(
         });
       }
     }
+    onUnscrubbed?.(outcome);
     return scrub(outcome, secrets());
   };
   const effective = resolveEffective({ name: target.name, definition: def }, target.collection, target.folder);

@@ -156,7 +156,7 @@ export type ScriptReport = {
   environment?: Record<string, string | null>;
 };
 
-/** The request exactly as it went on the wire (after scripts, templates and auth); secrets are scrubbed. */
+/** The request exactly as it went on the wire (after scripts, templates and auth). Scrubbed in API responses; real values in the send history. */
 export type SentRequest = { method: string; url: string; headers: Record<string, string>; body?: string };
 
 export type SendResult = {

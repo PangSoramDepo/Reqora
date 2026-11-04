@@ -60,6 +60,7 @@ describe("sendRequest with inherited settings and scripts", () => {
     const { sendRequest } = await import("./send");
     const { emptyScopeSettings } = await import("./schema");
     const seen: { url: string; headers: Record<string, string>; body?: string }[] = [];
+    let raw: Awaited<ReturnType<typeof sendRequest>> | undefined;
     const fake = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const headers = init?.headers as Record<string, string>;
       seen.push({ url: String(url), headers, body: init?.body as string });
@@ -90,9 +91,16 @@ describe("sendRequest with inherited settings and scripts", () => {
           settings: { ...emptyScopeSettings(), preScript: `rq.variables.set("sig", "s-" + rq.variables.get("version"));` },
         },
       },
-      { environment: "production", baseUrl: "http://localhost", fetch: fake as unknown as typeof fetch },
+      {
+        environment: "production",
+        baseUrl: "http://localhost",
+        fetch: fake as unknown as typeof fetch,
+        onUnscrubbed: (o) => (raw = o),
+      },
     );
 
+    // The history copy keeps the real values; the returned result is scrubbed.
+    expect(raw && "request" in raw ? raw.request?.headers.Authorization : null).toBe("Bearer tok_super_secret");
     expect(seen[0].url).toBe("https://api.test/v2/orders");
     expect(seen[0].headers).toMatchObject({ "X-Client": "reqora", Authorization: "Bearer tok_super_secret" });
     expect(seen[0].body).toBe('{"sig":"s-v2"}');

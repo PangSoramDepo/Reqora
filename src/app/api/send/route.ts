@@ -13,11 +13,15 @@ export async function POST(request: NextRequest) {
   const parsed = await parseBody(request, sendInputSchema);
   if ("error" in parsed) return parsed.error;
   const { definition, environment, collectionId, folderId, requestId, name = "request" } = parsed.data;
+  // The Live Execution Console log keeps real values (like Postman); the response here stays scrubbed.
   const outcome = await sendRequest(
     { name, definition, ...requestScopes(collectionId, folderId) },
-    { environment, baseUrl: request.nextUrl.origin },
+    {
+      environment,
+      baseUrl: request.nextUrl.origin,
+      onUnscrubbed: (raw) =>
+        recordSend({ requestId, collectionId, name, method: definition.method, url: definition.url, environment }, raw),
+    },
   );
-  // Recorded for the Live Execution Console (status, timing, tests and script output; no body).
-  recordSend({ requestId, collectionId, name, method: definition.method, url: definition.url, environment }, outcome);
   return Response.json(outcome);
 }
