@@ -102,7 +102,11 @@ describe("sendRequest with inherited settings and scripts", () => {
     // The history copy keeps the real values; the returned result is scrubbed.
     expect(raw && "request" in raw ? raw.request?.headers.Authorization : null).toBe("Bearer tok_super_secret");
     expect(seen[0].url).toBe("https://api.test/v2/orders");
-    expect(seen[0].headers).toMatchObject({ "X-Client": "reqora", Authorization: "Bearer tok_super_secret" });
+    expect(seen[0].headers).toMatchObject({
+      "X-Client": "reqora",
+      Authorization: "Bearer tok_super_secret",
+      "User-Agent": "ReqoraRuntime/1.0", // not Node's default "node", which device detectors flag as a bot
+    });
     expect(seen[0].body).toBe('{"sig":"s-v2"}');
     if (!("status" in result)) throw new Error(result.error);
     expect(result.scripts.tests).toMatchObject([{ name: "ok", passed: true, scope: "request" }]);

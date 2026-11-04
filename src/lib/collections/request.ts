@@ -1,4 +1,5 @@
 import { renderJson, renderString, type TemplateContext } from "@/lib/workflows/template";
+import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import type { Auth, Body, KeyValue, RequestDefinition } from "./schema";
 
 /** Appends enabled, non-empty-key params to a URL as a query string (keeps any query already present). */
@@ -105,6 +106,7 @@ export function renderDraft(
     render,
   );
   const hasHeader = (name: string) => Object.keys(headers).some((k) => k.toLowerCase() === name);
+  if (!hasHeader("user-agent")) headers["User-Agent"] = DEFAULT_USER_AGENT;
 
   let body: string | undefined;
   if (draft.method !== "GET" && draft.method !== "HEAD" && draft.body !== undefined) {

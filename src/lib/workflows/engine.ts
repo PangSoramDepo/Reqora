@@ -1,3 +1,4 @@
+import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import { topologicalOrder } from "./graph";
 import type { RunStatus, RunTrigger, Step, Workflow, WorkflowNode } from "./schema";
 import { TemplateError, renderJson, renderString, renderValue, type TemplateContext } from "./template";
@@ -158,6 +159,7 @@ async function runHttp(
 
   const headers = new Headers();
   for (const [name, template] of Object.entries(config.headers)) headers.set(name, renderString(template, ctx));
+  if (!headers.has("user-agent")) headers.set("user-agent", DEFAULT_USER_AGENT);
   let body: string | undefined;
   if (config.body !== undefined && config.method !== "GET") {
     body = JSON.stringify(renderJson(config.body, ctx));
