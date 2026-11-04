@@ -28,7 +28,31 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if ("error" in parsed) return parsed.error;
 
   const { environment, trigger } = parsed.data;
+  const options = { baseUrl: request.nextUrl.origin, environment };
   // Manual runs execute the draft, so changes can be tested before they are deployed.
-  const run = await runWorkflow(workflow, { source: "manual", ...trigger }, { baseUrl: request.nextUrl.origin, environment });
-  return Response.json(run, { status: 201, headers: { Location: `/api/runs/${run.id}` } });
+  if (!request.headers.get("accept")?.includes("application/x-ndjson")) {
+    const run = await runWorkflow(workflow, { source: "manual", ...trigger }, options);
+    return Response.json(run, { status: 201, headers: { Location: `/api/runs/${run.id}` } });
+  }
+
+  // Streaming: one JSON object per line as the run progresses — {"type":"node","nodeId"} when a node starts,
+  // {"type":"step","step"} when it finishes or is skipped, then {"type":"run","run"} (or {"type":"error"}).
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}
+`));
+      try {
+        const run = await runWorkflow(workflow, { source: "manual", ...trigger }, { ...options, onProgress: send });
+        send({ type: "run", run });
+      } catch (error) {
+        send({ type: "error", message: (error as Error).message });
+      }
+      controller.close();
+    },
+  });
+  return new Response(stream, {
+    status: 201,
+    headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" },
+  });
 }

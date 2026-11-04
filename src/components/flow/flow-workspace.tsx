@@ -6,7 +6,7 @@ import { onCanvasCommand, publishCanvasState } from "@/lib/canvas-events";
 import { requestToNodeDraft } from "@/lib/collections/client";
 import { draftToNode } from "@/lib/collections/to-node";
 import { ENVIRONMENT_LABELS, useEnvironment } from "@/lib/environment";
-import { deployWorkflow, fetchLatestRun, fetchWorkflow, startRun } from "@/lib/workflows/client";
+import { deployWorkflow, fetchLatestRun, fetchWorkflow, startRunLive, type RunProgress } from "@/lib/workflows/client";
 import { newNode } from "@/lib/workflows/defaults";
 import { topologicalOrder } from "@/lib/workflows/graph";
 import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
@@ -37,12 +37,18 @@ function autoLayout(workflow: Workflow): WorkflowNode[] {
   });
 }
 
+const MIN_ACTIVE_MS = 450;
+const HANDOFF_MS = 250;
+const wait = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms)) : Promise.resolve());
+
 export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const environment = useEnvironment();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [run, setRun] = useState<Run | undefined>();
   const [running, setRunning] = useState(false);
+  // While a run executes: the steps finished so far and the node running now, replayed at a watchable pace.
+  const [live, setLive] = useState<{ steps: Step[]; activeId: string | null } | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "saved" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -195,12 +201,31 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     const trigger = workflow.nodes.find((n) => n.type === "webhook");
     if (trigger) pulse(trigger.id);
     setRunning(true);
+    setLive({ steps: [], activeId: null });
+    // Progress is applied in order; each node stays highlighted for a moment so fast steps are still visible.
+    let queue = Promise.resolve();
+    let shownAt = 0;
+    const onProgress = (event: RunProgress) => {
+      queue = queue.then(async () => {
+        if (event.type === "node") {
+          setLive((l) => l && { ...l, activeId: event.nodeId });
+          shownAt = Date.now();
+          return;
+        }
+        if (event.step.status !== "skipped") await wait(MIN_ACTIVE_MS - (Date.now() - shownAt));
+        setLive((l) => l && { steps: [...l.steps, event.step], activeId: l.activeId === event.step.nodeId ? null : l.activeId });
+        if (event.step.status === "succeeded") await wait(HANDOFF_MS); // let the wire carry the output
+      });
+    };
     try {
       if (saveState.kind !== "saved") await autosaver.flush(); // run what's on screen, not a stale copy
-      setRun(await startRun(workflow.id, { body: testPayload }, environment));
+      const finished = await startRunLive(workflow.id, { body: testPayload }, environment, onProgress);
+      await queue;
+      setRun(finished);
     } catch (error) {
-      setSaveState({ kind: "error", message: `Run failed to start: ${(error as Error).message}` });
+      setSaveState({ kind: "error", message: `Run failed: ${(error as Error).message}` });
     } finally {
+      setLive(null);
       setRunning(false);
     }
   };
@@ -257,7 +282,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     );
   }
 
-  const steps = new Map<string, Step>(run?.steps.map((s) => [s.nodeId, s]));
+  const steps = new Map<string, Step>((live ? live.steps : run?.steps)?.map((s) => [s.nodeId, s]));
+  const activeName = live?.activeId ? workflow.nodes.find((n) => n.id === live.activeId)?.name : undefined;
   const selected = workflow.nodes.find((n) => n.id === selectedId);
   const saveLabel = {
     saved: { text: "SAVED", className: "bg-primary/10 text-primary" },
@@ -351,6 +377,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           selectedId={selectedId}
           selectedEdgeId={selectedEdgeId}
           pulsingNodeId={pulsingNodeId}
+          live={live ? { activeId: live.activeId } : undefined}
           onSelect={(id) => {
             setSelectedId(id);
             setSelectedEdgeId(null);
@@ -391,7 +418,11 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           </aside>
         )}
       </div>
-      <ExecutionStream run={run} onClear={() => setRun(undefined)} />
+      <ExecutionStream
+        run={run}
+        live={live ? { steps: live.steps, activeName } : undefined}
+        onClear={() => setRun(undefined)}
+      />
     </div>
   );
 }

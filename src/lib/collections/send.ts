@@ -44,6 +44,10 @@ type SendOptions = {
   writeEnv?: typeof setVariableValue;
   /** Receives the outcome before secrets are scrubbed (the send history keeps real values). */
   onUnscrubbed?: (outcome: SendOutcome) => void;
+  /** Initial `rq.variables` (a workflow run carries them from one linked request to the next). */
+  variables?: Record<string, string>;
+  /** Workflow run context, so templates can also use `{{trigger.body.x}}` and `{{node-id.body.x}}`. */
+  context?: Pick<TemplateContext, "trigger" | "nodes">;
 };
 
 const sent = (p: PreparedRequest): SentRequest => ({
@@ -71,7 +75,7 @@ const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptRepor
  */
 export async function sendRequest(
   target: SendTarget,
-  { environment, baseUrl, fetch: doFetch = fetch, writeEnv = setVariableValue, onUnscrubbed }: SendOptions,
+  { environment, baseUrl, fetch: doFetch = fetch, writeEnv = setVariableValue, onUnscrubbed, variables = {}, context }: SendOptions,
 ): Promise<SendOutcome> {
   const def = target.definition;
   const resolved = new Set<string>();
@@ -103,7 +107,13 @@ export async function sendRequest(
   const effective = resolveEffective({ name: target.name, definition: def }, target.collection, target.folder);
 
   // 1. Pre-request scripts.
-  let state: ScriptState = { request: draftRequest(def, effective.headers), variables: {}, logs: [], tests: [], environment: {} };
+  let state: ScriptState = {
+    request: draftRequest(def, effective.headers),
+    variables: { ...variables },
+    logs: [],
+    tests: [],
+    environment: {},
+  };
   const pre = await runScripts({ phase: "pre", scripts: effective.preScripts, state, readEnv });
   state = pre.state;
   if (pre.errors.length) {
@@ -118,8 +128,8 @@ export async function sendRequest(
 
   // 2. Resolve templates (env, vars from scripts, dynamic values) and apply auth.
   const ctx: TemplateContext = {
-    trigger: {},
-    nodes: { vars: state.variables },
+    trigger: context?.trigger ?? {},
+    nodes: { ...context?.nodes, vars: state.variables },
     env: (name) => {
       const changed = state.environment[name];
       const value = changed === null ? undefined : (changed ?? readEnv(name));

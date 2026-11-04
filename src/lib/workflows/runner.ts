@@ -1,8 +1,8 @@
 import "server-only";
 
-import { linkedHttpConfig } from "@/lib/collections/linked";
+import { sendLinkedRequest } from "@/lib/collections/linked";
 import { resolveVariable } from "@/lib/secrets/variables";
-import { executeWorkflow } from "./engine";
+import { executeWorkflow, type ProgressEvent } from "./engine";
 import type { Environment, Run, RunTrigger, Workflow } from "./schema";
 import { insertRun } from "./store";
 
@@ -35,21 +35,24 @@ type RunOptions = {
   baseUrl: string;
   environment: Environment;
   replayOf?: string;
-  /** Linked http nodes use their Collections request as it is now (default); false runs their stored copy. */
-  followLinks?: boolean;
+  /** Live step progress (secrets already scrubbed), e.g. to animate the canvas while the run executes. */
+  onProgress?: (event: ProgressEvent) => void;
 };
 
 /**
  * Executes a workflow and stores the run. `{{env.NAME}}` resolves from the environment's stored
  * variables, then falls back to the server variable `REQORA_ENV_NAME` — never arbitrary server env.
- * Every resolved value is scrubbed from the stored run, even if an upstream echoes it back.
+ * Every resolved value is scrubbed from the stored run, even if an upstream echoes it back. Http nodes linked to
+ * a Collections request send it exactly like Send in Collections (scripts, tests, inherited auth).
  */
 export async function runWorkflow(
   workflow: Workflow,
   trigger: RunTrigger,
-  { baseUrl, environment, replayOf, followLinks = true }: RunOptions,
+  { baseUrl, environment, replayOf, onProgress }: RunOptions,
 ): Promise<Run> {
   const resolved = new Set<string>();
+  // rq.variables set by one linked request's scripts are visible to the next ones in this run.
+  const variables: Record<string, string> = {};
   const result = await executeWorkflow(workflow, trigger, {
     fetch,
     env: (name) => {
@@ -59,7 +62,8 @@ export async function runWorkflow(
       return value;
     },
     baseUrl,
-    ...(followLinks ? { linkedRequest: linkedHttpConfig } : {}),
+    sendLinked: (requestId, context) => sendLinkedRequest(requestId, { environment, baseUrl, variables, context }),
+    onProgress: onProgress && ((event) => onProgress(scrub(event, [...resolved]))),
   });
 
   const run: Run = {

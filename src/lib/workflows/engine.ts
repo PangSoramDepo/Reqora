@@ -7,6 +7,9 @@ const MAX_RESPONSE_BYTES = 1_000_000;
 
 type HttpConfig = Extract<WorkflowNode, { type: "http" }>["config"];
 
+export type LinkedResult = { ok: boolean; error?: string; request?: Step["request"]; output?: unknown };
+export type ProgressEvent = { type: "node"; nodeId: string } | { type: "step"; step: Step };
+
 export type EngineDeps = {
   fetch: typeof fetch;
   /** Returns the variable's value, or undefined when it is not configured. */
@@ -14,10 +17,12 @@ export type EngineDeps = {
   /** Origin that relative HTTP node URLs resolve against. */
   baseUrl: string;
   /**
-   * Rebuilds a linked http node's config from its saved Collections request. When omitted, linked nodes run
-   * their stored copy (e.g. a deployed snapshot, which was frozen at deploy time).
+   * Sends a linked http node's saved Collections request (with its scripts and tests). When omitted, linked
+   * nodes send their stored copy like any other http node.
    */
-  linkedRequest?: (requestId: string) => { ok: true; config: HttpConfig } | { ok: false; error: string };
+  sendLinked?: (requestId: string, ctx: Pick<TemplateContext, "trigger" | "nodes">) => Promise<LinkedResult>;
+  /** Live progress: a node is about to run, or a step finished (including skipped ones). */
+  onProgress?: (event: ProgressEvent) => void;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -67,6 +72,10 @@ export async function executeWorkflow(
 
   const takenPorts = new Map<string, string>();
   const steps: Step[] = [];
+  const record = (step: Step) => {
+    steps.push(step);
+    deps.onProgress?.({ type: "step", step });
+  };
   let failure: string | undefined;
   let output: ExecutionResult["output"];
 
@@ -78,17 +87,18 @@ export async function executeWorkflow(
     const base = { nodeId: node.id, nodeType: node.type, name: node.name, startedAt: new Date(stepStart).toISOString() };
 
     if (failure || !reached) {
-      steps.push({ ...base, status: "skipped", durationMs: 0 });
+      record({ ...base, status: "skipped", durationMs: 0 });
       continue;
     }
 
+    deps.onProgress?.({ type: "node", nodeId: node.id });
     try {
       const result = await runNode(node, ctx, deps, sleep);
       const port = result.port ?? "out";
       ctx.nodes[node.id] = result.output;
       takenPorts.set(node.id, port);
       if (node.type === "response") output = result.output as ExecutionResult["output"];
-      steps.push({
+      record({
         ...base,
         status: "succeeded",
         durationMs: now() - stepStart,
@@ -99,7 +109,7 @@ export async function executeWorkflow(
     } catch (error) {
       failure = `${node.name}: ${(error as Error).message}`;
       const partial = error instanceof StepError ? error.partial : {};
-      steps.push({ ...base, status: "failed", durationMs: now() - stepStart, ...partial, error: (error as Error).message });
+      record({ ...base, status: "failed", durationMs: now() - stepStart, ...partial, error: (error as Error).message });
     }
   }
 
@@ -126,10 +136,10 @@ async function runNode(
       return { output: { body: ctx.trigger.body ?? null, headers: ctx.trigger.headers ?? {} } };
 
     case "http": {
-      if (!node.config.requestId || !deps.linkedRequest) return runHttp(node.config, ctx, deps);
-      const linked = deps.linkedRequest(node.config.requestId);
-      if (!linked.ok) throw new StepError(linked.error);
-      return runHttp(linked.config, ctx, deps);
+      if (!node.config.requestId || !deps.sendLinked) return runHttp(node.config, ctx, deps);
+      const linked = await deps.sendLinked(node.config.requestId, { trigger: ctx.trigger, nodes: ctx.nodes });
+      if (!linked.ok) throw new StepError(linked.error ?? "linked request failed", { request: linked.request, output: linked.output });
+      return { output: linked.output, request: linked.request };
     }
 
     case "condition": {

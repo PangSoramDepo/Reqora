@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { executeWorkflow } from "@/lib/workflows/engine";
+import { executeWorkflow, type EngineDeps, type ProgressEvent } from "@/lib/workflows/engine";
 import type { WorkflowInput, WorkflowNode } from "@/lib/workflows/schema";
 import type { RequestDefinition } from "./schema";
 
@@ -13,96 +13,161 @@ beforeAll(async () => {
   linked = await import("./linked");
 });
 
-function savedLogin() {
-  const col = store.createCollection({ name: "Auth API" });
+function savedRequest(name: string, patch: Partial<RequestDefinition>) {
+  const col = store.createCollection({ name: `${name} API` });
   store.updateCollection(col.id, { settings: { ...col.settings, headers: [{ key: "X-Tenant", value: "acme", enabled: true }] } });
-  const created = store.createRequest(col.id, { name: "Login", folderId: null });
+  const created = store.createRequest(col.id, { name, folderId: null });
   if (!created.ok) throw new Error(created.reason);
-  const def = (patch: Partial<RequestDefinition>): RequestDefinition => ({ ...created.request.definition, ...patch });
-  const save = (patch: Partial<RequestDefinition>) => {
-    const result = store.replaceRequest(created.request.id, { name: "Login", folderId: null, definition: def(patch) });
+  const save = (next: Partial<RequestDefinition>) => {
+    const result = store.replaceRequest(created.request.id, {
+      name,
+      folderId: null,
+      definition: { ...created.request.definition, ...patch, ...next },
+    });
     if (!result.ok) throw new Error(result.reason);
   };
-  save({ method: "POST", url: "https://api.test/v1/login", body: { type: "json", text: '{ "user": "a" }' } });
+  save({});
   return { id: created.request.id, save };
 }
 
-function flowWith(requestId: string): WorkflowInput {
-  const http: WorkflowNode = {
-    id: "login",
-    name: "Login",
-    type: "http",
-    position: { x: 0, y: 0 },
-    // A stale copy, as dropped onto the canvas earlier.
-    config: { method: "POST", url: "https://api.test/v1/login", headers: {}, body: '{ "user": "a" }', timeoutMs: 10_000, requestId },
-  };
+const httpNode = (id: string, requestId: string): WorkflowNode => ({
+  id,
+  name: id,
+  type: "http",
+  position: { x: 0, y: 0 },
+  // A stale copy, as dropped onto the canvas earlier.
+  config: { method: "POST", url: "https://api.test/stale", headers: {}, timeoutMs: 10_000, requestId },
+});
+
+function chain(...requestIds: string[]): WorkflowInput {
+  const ids = requestIds.map((_, i) => `n${i + 1}`);
   return {
     name: "linked",
-    nodes: [{ id: "in", name: "In", type: "webhook", position: { x: 0, y: 0 }, config: { method: "POST", path: "/x" } }, http],
-    edges: [{ id: "a", source: "in", sourcePort: "out", target: "login" }],
+    nodes: [
+      { id: "in", name: "In", type: "webhook", position: { x: 0, y: 0 }, config: { method: "POST", path: "/x" } },
+      ...requestIds.map((rid, i) => httpNode(ids[i], rid)),
+    ],
+    edges: ids.map((id, i) => ({ id: `e${i}`, source: i === 0 ? "in" : ids[i - 1], sourcePort: "out", target: id })),
   };
 }
 
-function capture() {
+function capture(reply: (url: string) => Response = () => Response.json({ token: "tok-123" })) {
   const calls: { url: string; init: RequestInit }[] = [];
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url: String(input), init: init ?? {} });
-    return Response.json({ token: "t" });
-  });
-  return { calls, fetch: fetch as unknown as typeof globalThis.fetch };
+    return reply(String(input));
+  }) as unknown as typeof globalThis.fetch;
+  return { calls, fetch };
 }
 
+/** The runner's wiring, with a fake network. */
+function deps(fetch: typeof globalThis.fetch, extra: Partial<EngineDeps> = {}): EngineDeps {
+  const variables: Record<string, string> = {};
+  return {
+    fetch,
+    env: () => undefined,
+    baseUrl: "http://reqora.test",
+    sendLinked: (requestId, context) =>
+      linked.sendLinkedRequest(requestId, { environment: "sandbox", baseUrl: "http://reqora.test", variables, context, fetch }),
+    ...extra,
+  };
+}
+
+const header = (init: RequestInit, name: string) => new Headers(init.headers).get(name);
+
 describe("linked http nodes", () => {
-  it("runs the saved request as it is now, with collection headers", async () => {
-    const login = savedLogin();
-    login.save({ method: "PUT", url: "https://api.test/v2/login", body: { type: "json", text: '{ "user": "b" }' } });
+  it("send the saved request as it is now, with collection headers and its scripts", async () => {
+    const login = savedRequest("Login", { method: "POST", url: "https://api.test/v1/login" });
+    login.save({
+      method: "PUT",
+      url: "https://api.test/v2/login",
+      headers: [{ key: "X-Sig", value: "{{vars.sig}}", enabled: true }],
+      body: { type: "json", text: '{ "user": "{{trigger.body.user}}" }' },
+      preScript: 'rq.variables.set("sig", "signed-" + "abc");',
+      postScript: 'rq.test("has token", () => rq.expect(rq.response.json().token).toBe("tok-123")); console.log("logged in");',
+    });
 
     const { calls, fetch } = capture();
-    const result = await executeWorkflow(flowWith(login.id), { source: "manual" }, {
-      fetch,
-      env: () => undefined,
-      baseUrl: "http://reqora.test",
-      linkedRequest: linked.linkedHttpConfig,
-    });
+    const result = await executeWorkflow(chain(login.id), { source: "manual", body: { user: "ann" } }, deps(fetch));
 
     expect(result.status).toBe("succeeded");
     expect(calls[0].url).toBe("https://api.test/v2/login");
     expect(calls[0].init.method).toBe("PUT");
-    expect(calls[0].init.body).toBe('{"user":"b"}');
-    expect(new Headers(calls[0].init.headers).get("x-tenant")).toBe("acme");
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ user: "ann" });
+    expect(header(calls[0].init, "x-tenant")).toBe("acme");
+    expect(header(calls[0].init, "x-sig")).toBe("signed-abc");
+    expect(result.steps[1].output).toMatchObject({ status: 200, tests: [{ name: "has token", passed: true }], logs: ["logged in"] });
   });
 
-  it("runs the stored copy when links aren't followed (deployed snapshot)", async () => {
-    const login = savedLogin();
-    login.save({ url: "https://api.test/v2/login" });
-    const { calls, fetch } = capture();
-    await executeWorkflow(flowWith(login.id), { source: "manual" }, { fetch, env: () => undefined, baseUrl: "http://reqora.test" });
-    expect(calls[0].url).toBe("https://api.test/v1/login");
-  });
-
-  it("fails the step clearly when the linked request was deleted", async () => {
-    const login = savedLogin();
-    store.deleteRequest(login.id);
-    const { calls, fetch } = capture();
-    const result = await executeWorkflow(flowWith(login.id), { source: "manual" }, {
-      fetch,
-      env: () => undefined,
-      baseUrl: "http://reqora.test",
-      linkedRequest: linked.linkedHttpConfig,
+  it("share rq.variables between linked requests in one run", async () => {
+    const login = savedRequest("Login2", {
+      url: "https://api.test/login",
+      postScript: 'rq.variables.set("token", rq.response.json().token);',
     });
+    const me = savedRequest("Me", {
+      method: "GET",
+      url: "https://api.test/me",
+      headers: [{ key: "Authorization", value: "Bearer {{vars.token}}", enabled: true }],
+    });
+    const { calls, fetch } = capture();
+    const result = await executeWorkflow(chain(login.id, me.id), { source: "manual" }, deps(fetch));
+    expect(result.status).toBe("succeeded");
+    expect(header(calls[1].init, "authorization")).toBe("Bearer tok-123");
+    expect(result.steps[2].request?.headers.Authorization).toBe("[redacted]");
+  });
+
+  it("fail the step on a failed test or a script error, and skip what follows", async () => {
+    const check = savedRequest("Check", {
+      url: "https://api.test/check",
+      postScript: 'rq.test("is admin", () => rq.expect(rq.response.json().admin).toBe(true));',
+    });
+    const next = savedRequest("Next", { url: "https://api.test/next" });
+    const { calls, fetch } = capture();
+    const result = await executeWorkflow(chain(check.id, next.id), { source: "manual" }, deps(fetch));
+    expect(result.steps[1]).toMatchObject({ status: "failed", error: "1 test failed: is admin" });
+    expect(result.steps[2].status).toBe("skipped");
+    expect(calls).toHaveLength(1);
+
+    const broken = savedRequest("Broken", { url: "https://api.test/x", preScript: "throw new Error('nope')" });
+    const second = await executeWorkflow(chain(broken.id), { source: "manual" }, deps(capture().fetch));
+    expect(second.steps[1].error).toMatch(/pre-request script \(request “Broken”\) failed: .*nope/);
+  });
+
+  it("fail clearly when the linked request was deleted", async () => {
+    const gone = savedRequest("Gone", { url: "https://api.test/gone" });
+    store.deleteRequest(gone.id);
+    const { calls, fetch } = capture();
+    const result = await executeWorkflow(chain(gone.id), { source: "manual" }, deps(fetch));
     expect(calls).toHaveLength(0);
     expect(result.steps[1].error).toMatch(/linked Collections request was deleted/);
   });
 
+  it("send the stored copy when no linked sender is given", async () => {
+    const login = savedRequest("Copy", { url: "https://api.test/v2/login" });
+    const { calls, fetch } = capture();
+    await executeWorkflow(chain(login.id), { source: "manual" }, { fetch, env: () => undefined, baseUrl: "http://reqora.test" });
+    expect(calls[0].url).toBe("https://api.test/stale");
+  });
+
+  it("report progress: each node starts, then its step finishes", async () => {
+    const a = savedRequest("A", { url: "https://api.test/a" });
+    const events: ProgressEvent[] = [];
+    await executeWorkflow(chain(a.id), { source: "manual" }, deps(capture().fetch, { onProgress: (e) => events.push(e) }));
+    expect(events.map((e) => (e.type === "node" ? `start ${e.nodeId}` : `${e.step.status} ${e.step.nodeId}`))).toEqual([
+      "start in",
+      "succeeded in",
+      "start n1",
+      "succeeded n1",
+    ]);
+  });
+
   it("syncLinkedNodes refreshes the copy and keeps the link; unknown requests keep their last copy", () => {
-    const login = savedLogin();
-    login.save({ method: "PATCH", url: "https://api.test/v3/login" });
-    const flow = flowWith(login.id);
-    const synced = linked.syncLinkedNodes(flow);
+    const login = savedRequest("Sync", { method: "PATCH", url: "https://api.test/v3/login" });
+    const synced = linked.syncLinkedNodes(chain(login.id));
     const node = synced.nodes[1] as Extract<WorkflowNode, { type: "http" }>;
     expect(node.config).toMatchObject({ method: "PATCH", url: "https://api.test/v3/login", requestId: login.id });
 
-    const gone = linked.syncLinkedNodes(flowWith("req_missing"));
-    expect(gone.nodes[1]).toEqual(flowWith("req_missing").nodes[1]);
+    const gone = linked.syncLinkedNodes(chain("req_missing"));
+    expect(gone.nodes[1]).toEqual(chain("req_missing").nodes[1]);
   });
 });

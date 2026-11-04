@@ -121,6 +121,17 @@
   --text-code-block--font-weight: 400;
 
   --animate-dash: dash 1.5s linear infinite;
+  --animate-node-running: node-running 1.2s ease-in-out infinite;
+
+  @keyframes node-running {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgb(76 215 246 / 0.55), 0 0 18px 2px rgb(76 215 246 / 0.25);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgb(76 215 246 / 0), 0 0 32px 6px rgb(76 215 246 / 0.45);
+    }
+  }
 
   @keyframes dash {
     to {

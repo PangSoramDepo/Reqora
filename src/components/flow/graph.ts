@@ -21,14 +21,22 @@ export type EdgeStyle = {
   dash?: string;
   glow?: "primary" | "tertiary";
   animated?: boolean;
+  /** A run is carrying data along this wire right now (live run). */
+  flowing?: boolean;
   opacity: number;
 };
 
 /**
  * Wire styling from the design: trigger wires are dashed and animated, condition TRUE wires amber,
- * FALSE wires muted. After a run, wires the run didn't take are dimmed.
+ * FALSE wires muted. After a run, wires the run didn't take are dimmed; during a `live` run, wires light up and
+ * carry a moving dot as each step hands its output to the next node.
  */
-export function edgeStyle(edge: WorkflowEdge, source: WorkflowNode | undefined, steps: Map<string, Step>): EdgeStyle {
+export function edgeStyle(
+  edge: WorkflowEdge,
+  source: WorkflowNode | undefined,
+  steps: Map<string, Step>,
+  live = false,
+): EdgeStyle {
   let style: EdgeStyle;
   if (source?.type === "webhook") style = { stroke: "#4cd7f6", width: 2.5, dash: "6,4", glow: "primary", animated: true, opacity: 1 };
   else if (edge.sourcePort === "true") style = { stroke: "#ffb95f", width: 2.5, dash: "4,3", glow: "tertiary", opacity: 1 };
@@ -37,6 +45,13 @@ export function edgeStyle(edge: WorkflowEdge, source: WorkflowNode | undefined, 
   else style = { stroke: "#c0c1ff", width: 2.2, opacity: 0.85 };
 
   const sourceStep = steps.get(edge.source);
+  if (live) {
+    // While a run executes: wires light up as data passes through them; the rest wait dimmed.
+    if (!sourceStep || sourceStep.status !== "succeeded" || sourceStep.port !== edge.sourcePort) {
+      return { ...style, glow: undefined, animated: false, opacity: sourceStep ? 0.2 : 0.35 };
+    }
+    return { ...style, dash: style.dash ?? "6,4", glow: style.glow ?? "primary", animated: true, flowing: !steps.has(edge.target), opacity: 1 };
+  }
   if (sourceStep && (sourceStep.status !== "succeeded" || sourceStep.port !== edge.sourcePort)) {
     return { ...style, glow: undefined, animated: false, opacity: 0.25 };
   }

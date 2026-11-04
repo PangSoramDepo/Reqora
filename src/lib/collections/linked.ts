@@ -1,11 +1,16 @@
 import "server-only";
 
-import type { Workflow, WorkflowNode } from "@/lib/workflows/schema";
+import type { Environment, Workflow, WorkflowNode } from "@/lib/workflows/schema";
+import type { TemplateContext } from "@/lib/workflows/template";
+import { describeAssertion } from "./assertions";
 import { resolveEffective } from "./inherit";
+import { sendRequest } from "./send";
 import { getRequest, requestScopes } from "./store";
 import { requestToHttpConfig } from "./to-node";
 
 type HttpConfig = Extract<WorkflowNode, { type: "http" }>["config"];
+
+const DELETED = "the linked Collections request was deleted — unlink the node to keep its last copy";
 
 /**
  * The http node config for a saved request as it is right now, with its collection/folder auth and headers
@@ -14,13 +19,92 @@ type HttpConfig = Extract<WorkflowNode, { type: "http" }>["config"];
 export function linkedHttpConfig(requestId: string): { ok: true; config: HttpConfig } | { ok: false; error: string } {
   const saved = getRequest(requestId);
   if (!saved) {
-    return { ok: false, error: "the linked Collections request was deleted — unlink the node to keep its last copy" };
+    return { ok: false, error: DELETED };
   }
   const scopes = requestScopes(saved.collectionId, saved.folderId);
   const effective = resolveEffective({ name: saved.name, definition: saved.definition }, scopes.collection, scopes.folder);
-  const converted = requestToHttpConfig(saved.name, saved.definition, effective);
+  const converted = requestToHttpConfig(saved.name, saved.definition, effective, { linked: true });
   if (!converted.ok) return { ok: false, error: `the linked request “${saved.name}” can't run in a workflow: ${converted.error}` };
   return { ok: true, config: { ...converted.draft.config, requestId } };
+}
+
+/** Headers kept out of run history (the Collections send log is the place to see real values). */
+const REDACTED = new Set(["authorization", "cookie", "proxy-authorization", "x-api-key"]);
+const redact = (headers: Record<string, string>) =>
+  Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, REDACTED.has(k.toLowerCase()) ? "[redacted]" : v]));
+
+export type LinkedStep = {
+  ok: boolean;
+  error?: string;
+  request?: { method: string; url: string; headers: Record<string, string> };
+  output?: {
+    status: number;
+    headers: Record<string, string>;
+    body: unknown;
+    durationMs: number;
+    tests?: { name: string; passed: boolean; error?: string }[];
+    logs?: string[];
+  };
+};
+
+/**
+ * Runs a linked node exactly like Send in Collections: collection → folder → request auth, headers, pre-request
+ * scripts, assertions and post-response scripts, with `rq.environment.set` saved. `variables` is the run's shared
+ * `rq.variables` bag (updated in place), and `context` lets templates use `{{trigger.*}}` and earlier nodes.
+ * The step fails on a script error, a failed test, or a status of 400 or more.
+ */
+export async function sendLinkedRequest(
+  requestId: string,
+  options: {
+    environment: Environment;
+    baseUrl: string;
+    variables: Record<string, string>;
+    context: Pick<TemplateContext, "trigger" | "nodes">;
+    fetch?: typeof fetch;
+  },
+): Promise<LinkedStep> {
+  const saved = getRequest(requestId);
+  if (!saved) return { ok: false, error: DELETED };
+  const scopes = requestScopes(saved.collectionId, saved.folderId);
+  const outcome = await sendRequest(
+    { name: saved.name, definition: saved.definition, collection: scopes.collection, folder: scopes.folder },
+    {
+      environment: options.environment,
+      baseUrl: options.baseUrl,
+      variables: options.variables,
+      context: options.context,
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+    },
+  );
+  Object.assign(options.variables, outcome.scripts?.variables);
+
+  const request = outcome.request && { method: outcome.request.method, url: outcome.request.url, headers: redact(outcome.request.headers) };
+  if ("error" in outcome) return { ok: false, error: outcome.error, request };
+
+  const tests = [
+    ...outcome.assertions.map((a) => ({ name: describeAssertion(a.assertion), passed: a.passed, ...(a.passed ? {} : { error: `got ${a.actual ?? "nothing"}` }) })),
+    ...outcome.scripts.tests.map((t) => ({ name: t.name, passed: t.passed, ...(t.error ? { error: t.error } : {}) })),
+  ];
+  const logs = outcome.scripts.logs.map((l) => (l.level === "log" ? l.message : `[${l.level}] ${l.message}`));
+  const output = {
+    status: outcome.status,
+    headers: outcome.headers,
+    body: outcome.body,
+    durationMs: outcome.durationMs,
+    ...(tests.length ? { tests } : {}),
+    ...(logs.length ? { logs } : {}),
+  };
+
+  const scriptError = outcome.scripts.errors[0];
+  const failed = tests.filter((t) => !t.passed);
+  const error = scriptError
+    ? `${scriptError.phase === "pre" ? "pre-request" : "post-response"} script (${scriptError.scope} “${scriptError.source}”) failed: ${scriptError.message}`
+    : failed.length
+      ? `${failed.length} test${failed.length === 1 ? "" : "s"} failed: ${failed.map((t) => t.name).join(", ")}`
+      : outcome.status >= 400
+        ? `upstream responded ${outcome.status}`
+        : undefined;
+  return error ? { ok: false, error, request, output } : { ok: true, request, output };
 }
 
 /**

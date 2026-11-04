@@ -3,12 +3,22 @@
 import { Fragment, useState } from "react";
 import { urlPath } from "@/components/executions/format";
 import { Icon } from "@/components/icon";
-import type { Run } from "@/lib/workflows/schema";
+import type { Run, Step } from "@/lib/workflows/schema";
 import { TYPE_STYLE } from "./node-cards";
 
-export function ExecutionStream({ run, onClear }: { run?: Run; onClear: () => void }) {
+/** `live` is set while a run executes: the steps finished so far and the node running now. */
+export function ExecutionStream({
+  run,
+  live,
+  onClear,
+}: {
+  run?: Run;
+  live?: { steps: Step[]; activeName?: string };
+  onClear: () => void;
+}) {
   const [collapsed, setCollapsed] = useState(false);
-  const executed = run?.steps.filter((s) => s.status !== "skipped").length ?? 0;
+  const shown = live ? live.steps : run?.steps;
+  const executed = shown?.filter((s) => s.status !== "skipped").length ?? 0;
 
   return (
     <div
@@ -25,7 +35,16 @@ export function ExecutionStream({ run, onClear }: { run?: Run; onClear: () => vo
             <Icon name="terminal" className="text-body-md text-primary" />
             <span>EXECUTION STREAM</span>
           </div>
-          {run && (
+          {live && (
+            <div className="flex items-center gap-space-xs font-body-sm text-body-sm text-primary">
+              <Icon name="progress_activity" className="animate-spin text-body-sm" />
+              <span>
+                RUNNING · {executed} node{executed === 1 ? "" : "s"} executed
+                {live.activeName ? ` · now: ${live.activeName}` : ""}
+              </span>
+            </div>
+          )}
+          {run && !live && (
             <div className="flex items-center gap-space-xs font-body-sm text-body-sm text-outline">
               <span>
                 Session: <span className="text-on-surface font-mono">{run.id}</span>
@@ -59,8 +78,8 @@ export function ExecutionStream({ run, onClear }: { run?: Run; onClear: () => vo
       </div>
 
       <div className="p-space-sm flex items-center gap-space-md overflow-x-auto bg-surface-container-lowest/40 font-mono text-body-sm min-h-[46px]">
-        {!run && <span className="text-outline italic">No runs yet. Emit a webhook test to execute the flow.</span>}
-        {run?.steps.map((step, i) => {
+        {!shown && <span className="text-outline italic">No runs yet. Emit a webhook test to execute the flow.</span>}
+        {shown?.map((step, i) => {
           const style = TYPE_STYLE[step.nodeType];
           const response = step.output as { status?: number } | undefined;
           return (
@@ -102,6 +121,16 @@ export function ExecutionStream({ run, onClear }: { run?: Run; onClear: () => vo
             </Fragment>
           );
         })}
+        {live?.activeName && (
+          <>
+            {shown && shown.length > 0 && <Icon name="arrow_forward" className="text-outline text-body-sm shrink-0" />}
+            <div className="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg shrink-0 bg-primary/15 ring-1 ring-primary/40 animate-pulse">
+              <Icon name="progress_activity" className="animate-spin text-body-sm text-primary" />
+              <span className="text-primary font-bold text-label-sm">{live.activeName.toUpperCase()}</span>
+              <span className="text-on-surface-variant">running…</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

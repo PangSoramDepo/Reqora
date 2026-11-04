@@ -22,6 +22,8 @@ type FlowCanvasProps = {
   selectedId: string | null;
   selectedEdgeId: string | null;
   pulsingNodeId: string | null;
+  /** Set while a run executes: the node running right now (null between nodes). */
+  live?: { activeId: string | null };
   onSelect: (id: string | null) => void;
   onSelectEdge: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
@@ -43,6 +45,7 @@ export function FlowCanvas({
   selectedId,
   selectedEdgeId,
   pulsingNodeId,
+  live,
   onSelect,
   onSelectEdge,
   onMoveNode,
@@ -326,7 +329,7 @@ export function FlowCanvas({
             if (!from || !to || !out || !inp) return null;
             const a = { x: from.position.x + out.x, y: from.position.y + out.y };
             const b = { x: to.position.x + inp.x, y: to.position.y + inp.y };
-            const style = edgeStyle(edge, from, steps);
+            const style = edgeStyle(edge, from, steps, !!live);
             const selected = edge.id === selectedEdgeId;
             const d = edgePath(a, b);
             return (
@@ -359,7 +362,12 @@ export function FlowCanvas({
                     {edge.source}.{edge.sourcePort} → {edge.target} (select, then press Delete to remove)
                   </title>
                 </path>
-                {style.animated && (
+                {style.flowing && (
+                  <circle fill="#acedff" r="4.5" filter="url(#glow-primary)">
+                    <animateMotion dur="0.7s" path={d} repeatCount="indefinite" />
+                  </circle>
+                )}
+                {style.animated && !live && (
                   <circle
                     className="animate-ping"
                     cx={(a.x + b.x) / 2}
@@ -379,6 +387,8 @@ export function FlowCanvas({
 
         {nodes.map((node) => {
           const selected = node.id === selectedId;
+          const active = live?.activeId === node.id;
+          const waiting = !!live && !active && !steps.has(node.id);
           return (
             <div
               key={node.id}
@@ -389,14 +399,15 @@ export function FlowCanvas({
                   : "bg-surface-container-high/90 shadow-xl hover:-translate-y-0.5"
               } ${draggingId === node.id ? "z-25 cursor-grabbing" : "z-20 cursor-move"} ${
                 pulsingNodeId === node.id ? "scale-[1.02]" : ""
-              } ${wire && wire.source !== node.id ? "[&_[data-port=in]]:ring-2 [&_[data-port=in]]:ring-primary" : ""}`}
+              } ${active ? "animate-node-running ring-2 ring-primary z-25" : ""} ${waiting ? "opacity-50" : ""} ${
+                wire && wire.source !== node.id ? "[&_[data-port=in]]:ring-2 [&_[data-port=in]]:ring-primary" : ""}`}
               style={{ top: node.position.y, left: node.position.x, width: NODE_WIDTH }}
               onPointerDown={(e) => startDrag(e, node)}
               onPointerMove={moveDrag}
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
             >
-              <NodeCard node={node} step={steps.get(node.id)} selected={selected} />
+              <NodeCard node={node} step={steps.get(node.id)} selected={selected} running={active} waiting={waiting} />
             </div>
           );
         })}

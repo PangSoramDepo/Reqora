@@ -340,6 +340,10 @@ paths:
       description: |
         Executes the stored workflow and returns the completed run. A run whose steps fail still returns
         201 with `status: failed`; inspect `steps[].error`.
+
+        Send `Accept: application/x-ndjson` to follow the run live: the response streams one JSON object per
+        line — `{"type":"node","nodeId"}` when a node starts, `{"type":"step","step"}` when a step finishes or is
+        skipped, then `{"type":"run","run"}` with the stored run (or `{"type":"error","message"}`).
       requestBody:
         required: false
         content:
@@ -353,6 +357,17 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Run" }
+            application/x-ndjson:
+              schema:
+                type: object
+                description: One progress event per line (see the operation description).
+                required: [type]
+                properties:
+                  type: { type: string, enum: [node, step, run, error] }
+                  nodeId: { type: string }
+                  step: { $ref: "#/components/schemas/Step" }
+                  run: { $ref: "#/components/schemas/Run" }
+                  message: { type: string }
         "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
   /api/runs:
@@ -1127,9 +1142,12 @@ components:
                   type: string
                   description: |
                     Saved Collections request this node is linked to (set when a request is dropped onto the canvas).
-                    Manual runs and replays rebuild the config from that request as it is now, with its collection and
-                    folder auth and headers; the other fields are its last copy. Deploying freezes the copy for webhooks.
-                    The step fails if the request was deleted. Remove the field to unlink.
+                    Every run (manual, replay or webhook) sends that request as it is now, exactly like Send in
+                    Collections: collection and folder auth and headers, pre-request and post-response scripts, and tests.
+                    A script error, a failed test or a status >= 400 fails the step; `rq.variables` carry over to later
+                    linked nodes in the same run, and templates may also use `{{trigger.*}}` and earlier nodes. The
+                    other config fields are its last copy (shown on the canvas). The step fails if the request was
+                    deleted. Remove the field to unlink.
     ConditionNode:
       description: Compares two values. Output ports `true` and `false`; only the matching one continues.
       allOf:

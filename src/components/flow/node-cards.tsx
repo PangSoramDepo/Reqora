@@ -43,9 +43,17 @@ function MethodPill({ method }: { method: string }) {
   );
 }
 
-function StatusBadge({ node, step }: { node: WorkflowNode; step?: Step }) {
+function StatusBadge({ node, step, running, waiting }: { node: WorkflowNode; step?: Step; running?: boolean; waiting?: boolean }) {
   const style = TYPE_STYLE[node.type];
   const base = "font-label-sm text-label-sm px-space-xs py-space-xxs rounded font-semibold";
+  if (running) {
+    return (
+      <span className={`${base} bg-primary/20 text-primary flex items-center gap-1`}>
+        <Icon name="progress_activity" className="animate-spin text-[12px]" /> RUNNING
+      </span>
+    );
+  }
+  if (waiting) return <span className={`${base} bg-surface-container-highest text-outline`}>WAITING</span>;
   if (!step) return <span className={`${base} bg-surface-container-highest ${style.text}`}>{style.tag}</span>;
   if (step.status === "skipped") return <span className={`${base} bg-surface-container-highest text-outline`}>SKIPPED</span>;
   if (step.status === "failed") return <span className={`${base} bg-error-container text-on-error-container`}>FAILED</span>;
@@ -211,7 +219,21 @@ function NodeBody({ node, step }: { node: WorkflowNode; step?: Step }) {
   }
 }
 
-export function NodeCard({ node, step, selected }: { node: WorkflowNode; step?: Step; selected: boolean }) {
+export function NodeCard({
+  node,
+  step,
+  selected,
+  running,
+  waiting,
+}: {
+  node: WorkflowNode;
+  step?: Step;
+  selected: boolean;
+  /** This node is executing right now in a live run. */
+  running?: boolean;
+  /** A live run hasn't reached this node yet. */
+  waiting?: boolean;
+}) {
   const style = TYPE_STYLE[node.type];
   return (
     <>
@@ -227,7 +249,7 @@ export function NodeCard({ node, step, selected }: { node: WorkflowNode; step?: 
             </span>
           )}
         </div>
-        <StatusBadge node={node} step={step} />
+        <StatusBadge node={node} step={step} running={running} waiting={waiting} />
       </div>
       <NodeBody node={node} step={step} />
     </>

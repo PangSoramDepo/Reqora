@@ -98,7 +98,7 @@ function LinkedRequestBanner({ node, onChange }: { node: HttpNode; onChange: (n:
       <span className="font-label-sm text-label-sm text-outline">
         {current.missing
           ? "Runs of this node fail until you unlink it, which keeps the copy below."
-          : "Method, URL, headers, body and timeout come from Collections on every run (with its collection and folder auth). Unlink to edit them here. Webhooks use the copy from your last deploy."}
+          : "Each run sends this request exactly like Send in Collections: inherited auth and headers, pre-request and post-response scripts, and tests (a failed test fails the step). rq.variables carry over to later linked nodes. Unlink to edit a copy here instead."}
       </span>
     </div>
   );

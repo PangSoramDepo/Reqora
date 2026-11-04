@@ -10,13 +10,15 @@ const NODE_SPACING_X = 280;
 
 /**
  * Converts a request into a workflow `http` node config, applying inherited auth and headers when given.
- * Returns an error for things workflow nodes can't express (HEAD/OPTIONS, text bodies, templated basic auth);
- * scripts and assertions are dropped with a warning because workflow nodes don't run them.
+ * Returns an error for things workflow nodes can't express (HEAD/OPTIONS, text bodies, templated basic auth).
+ * An unlinked copy drops scripts and assertions with a warning; a `linked` node keeps them, because runs send
+ * the saved request itself.
  */
 export function requestToHttpConfig(
   name: string,
   def: RequestDefinition,
   effective?: Pick<EffectiveRequest, "auth" | "headers" | "preScripts" | "postScripts">,
+  { linked = false }: { linked?: boolean } = {},
 ): { ok: true; draft: HttpNodeDraft } | { ok: false; error: string } {
   const auth = effective?.auth ?? (def.auth.type === "inherit" ? { type: "none" as const } : def.auth);
   const headers = effective?.headers ?? def.headers;
@@ -25,6 +27,8 @@ export function requestToHttpConfig(
     return { ok: false, error: `Workflow HTTP nodes support GET, POST, PUT, PATCH and DELETE — change the method from ${def.method} first.` };
   }
   if (!def.url.trim()) return { ok: false, error: "The request has no URL." };
+  // A linked node sends the saved request itself, so only the unlinked copy is limited to what nodes express.
+  if (linked) return { ok: true, draft: { ...draftOf(name, def, auth, headers), warnings: [] } };
   if (def.body.type === "text" && def.method !== "GET" && def.body.text.trim()) {
     return { ok: false, error: "Workflow HTTP nodes send JSON bodies only — switch the body to JSON or clear it." };
   }
@@ -43,19 +47,24 @@ export function requestToHttpConfig(
     warnings.push("{{vars.*}} values come from scripts and won't resolve in a workflow.");
   }
 
+  return { ok: true, draft: { ...draftOf(name, def, auth, headers), warnings } };
+}
+
+function draftOf(
+  name: string,
+  def: RequestDefinition,
+  auth: EffectiveRequest["auth"],
+  headers: RequestDefinition["headers"],
+): Omit<HttpNodeDraft, "warnings"> {
   const body = def.body.type === "json" && def.method !== "GET" && def.body.text.trim() ? def.body.text : undefined;
   return {
-    ok: true,
-    draft: {
-      name: name.trim().slice(0, 120) || "Send HTTP",
-      config: {
-        method: def.method,
-        url: buildUrl(def.url, def.params).slice(0, 2000),
-        headers: headerRecord(headers, auth),
-        ...(body === undefined ? {} : { body }),
-        timeoutMs: def.settings.timeoutMs,
-      },
-      warnings,
+    name: name.trim().slice(0, 120) || "Send HTTP",
+    config: {
+      method: def.method as HttpNode["config"]["method"],
+      url: buildUrl(def.url, def.params).slice(0, 2000),
+      headers: headerRecord(headers, auth),
+      ...(body === undefined ? {} : { body }),
+      timeoutMs: def.settings.timeoutMs,
     },
   };
 }

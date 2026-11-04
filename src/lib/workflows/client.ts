@@ -84,6 +84,44 @@ export function saveWorkflow(workflow: Workflow) {
 export const startRun = (workflowId: string, trigger: Omit<RunTrigger, "source">, environment: Environment) =>
   request<Run>(`/api/workflows/${workflowId}/runs`, { method: "POST", body: JSON.stringify({ trigger, environment }) });
 
+export type RunProgress = { type: "node"; nodeId: string } | { type: "step"; step: Run["steps"][number] };
+
+/** Starts a run and reports each node as it starts and finishes; resolves with the stored run. */
+export async function startRunLive(
+  workflowId: string,
+  trigger: Omit<RunTrigger, "source">,
+  environment: Environment,
+  onProgress: (event: RunProgress) => void,
+): Promise<Run> {
+  const response = await fetch(`/api/workflows/${workflowId}/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/x-ndjson" },
+    body: JSON.stringify({ trigger, environment }),
+  });
+  if (!response.ok || !response.body) {
+    const problem = (await response.json().catch(() => ({}))) as { detail?: string; title?: string };
+    throw new ApiError(response.status, problem.detail ?? problem.title ?? response.statusText);
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += value;
+    let newline;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line) continue;
+      const event = JSON.parse(line) as RunProgress | { type: "run"; run: Run } | { type: "error"; message: string };
+      if (event.type === "run") return event.run;
+      if (event.type === "error") throw new ApiError(500, event.message);
+      onProgress(event);
+    }
+  }
+  throw new ApiError(500, "the run ended without a result");
+}
+
 export type RunStatsResponse = {
   window: RunWindow;
   since: string;
