@@ -3,14 +3,19 @@ import "server-only";
 import type { DatabaseSync } from "node:sqlite";
 import type { Environment } from "@/lib/workflows/schema";
 import { db } from "@/lib/workflows/store";
-import type { RequestMethod, ScriptReport, SendOutcome } from "./schema";
+import type { RequestMethod, ScriptReport, SendOutcome, SentRequest } from "./schema";
 
 /** How many sends are kept; older ones are pruned on insert. */
-const KEEP = 500;
+const KEEP = 200;
+/** Response bodies above this are stored truncated (the console is for inspection, not archiving). */
+const MAX_BODY_CHARS = 256 * 1024;
+
+export type LoggedResponse = { headers: Record<string, string>; body: string; truncated: boolean };
 
 /**
- * One Collections send, as shown in the Live Execution Console. Values come from the already-scrubbed
- * outcome, and the response body is not stored — only status, timing, tests and script output.
+ * One Collections send, as shown in the Live Execution Console: the request as sent and the response
+ * (headers and body, capped), tests and script output. Everything comes from the already-scrubbed
+ * outcome, so resolved secrets are stored as [secret].
  */
 export type SendRecord = {
   id: string;
@@ -27,6 +32,9 @@ export type SendRecord = {
   size: number | null;
   tests: { passed: number; total: number };
   scripts: ScriptReport | null;
+  /** null when the send failed before a request was built (e.g. a pre-request script error). */
+  request: SentRequest | null;
+  response: LoggedResponse | null;
   sentAt: string;
 };
 
@@ -46,6 +54,8 @@ type Row = {
   tests_passed: number;
   tests_total: number;
   scripts: string | null;
+  request: string | null;
+  response: string | null;
   sent_at: string;
 };
 
@@ -74,6 +84,11 @@ function conn(): DatabaseSync {
       );
       CREATE INDEX IF NOT EXISTS sends_by_time ON request_sends (sent_at);
     `);
+    // Request/response logging arrived after the first version of this table.
+    const cols = new Set((database.prepare("PRAGMA table_info(request_sends)").all() as { name: string }[]).map((c) => c.name));
+    for (const column of ["request", "response"]) {
+      if (!cols.has(column)) database.exec(`ALTER TABLE request_sends ADD COLUMN ${column} TEXT`);
+    }
     ready = true;
   }
   return database;
@@ -91,6 +106,11 @@ export type SendContext = {
 
 export function recordSend(ctx: SendContext, outcome: SendOutcome): SendRecord {
   const ok = "status" in outcome;
+  let response: LoggedResponse | null = null;
+  if (ok) {
+    const text = typeof outcome.body === "string" ? outcome.body : (JSON.stringify(outcome.body) ?? "");
+    response = { headers: outcome.headers, body: text.slice(0, MAX_BODY_CHARS), truncated: text.length > MAX_BODY_CHARS };
+  }
   const scriptTests = outcome.scripts?.tests ?? [];
   const assertions = ok ? outcome.assertions : [];
   const passed = assertions.filter((a) => a.passed).length + scriptTests.filter((t) => t.passed).length;
@@ -110,13 +130,16 @@ export function recordSend(ctx: SendContext, outcome: SendOutcome): SendRecord {
     size: ok ? outcome.size : null,
     tests: { passed, total },
     scripts: outcome.scripts ?? null,
+    request: outcome.request ?? null,
+    response,
     sentAt: new Date().toISOString(),
   };
   const database = conn();
   database
     .prepare(
       `INSERT INTO request_sends (id, request_id, collection_id, name, method, url, environment, status, status_text, error,
-         duration_ms, size, tests_passed, tests_total, scripts, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         duration_ms, size, tests_passed, tests_total, scripts, request, response, sent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       record.id,
@@ -134,6 +157,8 @@ export function recordSend(ctx: SendContext, outcome: SendOutcome): SendRecord {
       passed,
       total,
       record.scripts ? JSON.stringify(record.scripts) : null,
+      record.request ? JSON.stringify(record.request) : null,
+      record.response ? JSON.stringify(record.response) : null,
       record.sentAt,
     );
   database
@@ -161,6 +186,8 @@ export function listSends(limit = 25): SendRecord[] {
     size: r.size,
     tests: { passed: r.tests_passed, total: r.tests_total },
     scripts: r.scripts ? (JSON.parse(r.scripts) as ScriptReport) : null,
+    request: r.request ? (JSON.parse(r.request) as SentRequest) : null,
+    response: r.response ? (JSON.parse(r.response) as LoggedResponse) : null,
     sentAt: r.sent_at,
   }));
 }

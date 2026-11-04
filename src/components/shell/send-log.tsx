@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ago, shortId, utcTime } from "@/components/executions/format";
 import { Icon } from "@/components/icon";
+import { toCurl } from "@/lib/collections/curl";
 import type { SendRecord } from "@/lib/collections/history";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
 
@@ -86,12 +87,85 @@ export function SendLog({ sends, now, loading }: { sends: SendRecord[]; now: num
   );
 }
 
+/** JSON pretty-printed when it parses, otherwise the text as-is. */
+function pretty(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return text;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return text;
+  }
+}
+
+/** Plain-text log of one send (request, then response), for "Copy". */
+function logText(send: SendRecord): string {
+  const lines: string[] = [];
+  const req = send.request;
+  lines.push(`${req?.method ?? send.method} ${req?.url ?? send.url}`);
+  for (const [k, v] of Object.entries(req?.headers ?? {})) lines.push(`${k}: ${v}`);
+  if (req?.body) lines.push("", pretty(req.body));
+  lines.push("");
+  if (send.response) {
+    lines.push(`HTTP ${send.status} ${send.statusText ?? ""}`.trim() + `  (${send.durationMs} ms)`);
+    for (const [k, v] of Object.entries(send.response.headers)) lines.push(`${k}: ${v}`);
+    if (send.response.body) lines.push("", pretty(send.response.body));
+    if (send.response.truncated) lines.push("", "[body truncated]");
+  } else if (send.error) {
+    lines.push(`Error: ${send.error}`);
+  }
+  return lines.join("\n");
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // The Clipboard API needs a secure context; fall back to a hidden textarea.
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+}
+
+const ACTION =
+  "flex items-center gap-space-xxs px-space-xs py-0.5 rounded font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors disabled:opacity-40 disabled:pointer-events-none";
+
+function CopyButton({ label, icon, text, title }: { label: string; icon: string; text: string | null; title: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className={ACTION}
+      disabled={text === null}
+      onClick={() => {
+        if (text === null) return;
+        void copyText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      title={title}
+      type="button"
+    >
+      <Icon name={copied ? "check" : icon} className={`text-body-md ${copied ? "text-primary" : ""}`} />
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
 function SendDetail({ send }: { send: SendRecord }) {
   const tone = statusTone(send);
   const env = ENVIRONMENT_LABELS[send.environment];
   const scripts = send.scripts;
   const envChanges = Object.entries(scripts?.environment ?? {});
   const vars = Object.entries(scripts?.variables ?? {});
+  const req = send.request;
+  const res = send.response;
 
   return (
     <div className="flex-1 min-w-0 flex flex-col">
@@ -105,27 +179,54 @@ function SendDetail({ send }: { send: SendRecord }) {
         <span className="font-mono">{utcTime(send.sentAt)}</span>
         <span className="font-mono text-on-surface-variant">{send.durationMs}ms</span>
         {send.size !== null && <span className="font-mono">{send.size} B</span>}
-        {send.requestId && send.collectionId && (
-          <Link className="text-primary hover:underline flex items-center gap-space-xxs" href={`/collections?request=${send.requestId}`}>
-            Open request <Icon name="open_in_new" className="text-body-sm" />
-          </Link>
-        )}
+        <span className="ml-auto flex items-center gap-space-xxs">
+          <CopyButton icon="content_copy" label="Copy" text={logText(send)} title="Copy the request and response as text" />
+          <CopyButton
+            icon="terminal"
+            label="Copy as cURL"
+            text={req ? toCurl(req) : null}
+            title={req ? "Copy a cURL command that repeats this request" : "Nothing was sent (the send failed before the request was built)"}
+          />
+          {send.requestId && send.collectionId && (
+            <Link className={ACTION} href={`/collections?request=${send.requestId}`}>
+              <Icon name="open_in_new" className="text-body-md" /> Open request
+            </Link>
+          )}
+        </span>
       </div>
       <div className="flex-1 min-h-0 overflow-auto overscroll-contain px-space-md pb-space-sm flex flex-col gap-space-sm font-mono font-label-sm text-label-sm">
-        <div className="text-on-surface-variant break-all">
-          <span className="text-secondary font-bold">{send.method}</span> {send.url}
-        </div>
         {send.error && (
           <div role="alert" className="p-space-xs rounded bg-error-container/30 text-on-error-container break-all">
             {send.error}
           </div>
         )}
-
         {scripts?.errors.map((e, i) => (
           <div key={`e${i}`} className="p-space-xs rounded bg-error-container/20 text-error break-all">
             {e.phase === "pre" ? "Pre-request" : "Post-response"} script error ({e.scope} “{e.source}”): {e.message}
           </div>
         ))}
+
+        <Fold title="Request" summary={`${req?.method ?? send.method} ${req?.url ?? send.url}`}>
+          {req ? (
+            <>
+              <HeaderTable title="Request Headers" headers={req.headers} />
+              <BodyView title="Request Body" text={req.body} />
+            </>
+          ) : (
+            <span className="text-outline">Not sent — the send failed before the request was built.</span>
+          )}
+        </Fold>
+
+        <Fold title="Response" summary={res ? `${send.status} ${send.statusText ?? ""} · ${send.durationMs} ms` : "no response"}>
+          {res ? (
+            <>
+              <HeaderTable title="Response Headers" headers={res.headers} />
+              <BodyView title="Response Body" text={res.body} truncated={res.truncated} />
+            </>
+          ) : (
+            <span className="text-outline">No response was received.</span>
+          )}
+        </Fold>
 
         {(scripts?.tests.length ?? 0) > 0 && (
           <Section title={`Script tests ${scripts!.tests.filter((t) => t.passed).length}/${scripts!.tests.length}`}>
@@ -173,10 +274,65 @@ function SendDetail({ send }: { send: SendRecord }) {
           </Section>
         )}
 
-        {!send.error && !scripts?.errors.length && !scripts?.logs.length && !scripts?.tests.length && send.tests.total === 0 && (
-          <span className="text-outline font-body-sm text-body-sm">No tests or script output for this send.</span>
-        )}
+        <p className="text-outline font-body-sm text-body-sm">Resolved secret values are shown (and copied) as [secret].</p>
       </div>
+    </div>
+  );
+}
+
+function Fold({ title, summary, children }: { title: string; summary: string; children: React.ReactNode }) {
+  return (
+    <details open className="group rounded bg-surface-container/50">
+      <summary className="cursor-pointer select-none list-none flex items-center gap-space-xs px-space-xs py-1">
+        <Icon name="chevron_right" className="text-body-md text-outline transition-transform group-open:rotate-90" />
+        <span className="uppercase tracking-wider text-outline shrink-0">{title}</span>
+        <span className="truncate text-on-surface-variant">{summary}</span>
+      </summary>
+      <div className="px-space-sm pb-space-xs flex flex-col gap-space-xs">{children}</div>
+    </details>
+  );
+}
+
+function HeaderTable({ title, headers }: { title: string; headers: Record<string, string> }) {
+  const entries = Object.entries(headers);
+  return (
+    <div>
+      <div className="text-outline mb-0.5">
+        {title} <span className="opacity-70">({entries.length})</span>
+      </div>
+      {entries.length === 0 ? (
+        <span className="text-outline">none</span>
+      ) : (
+        <table className="w-full">
+          <tbody>
+            {entries.map(([k, v]) => (
+              <tr key={k} className="align-top">
+                <td className="pr-space-md text-tertiary whitespace-nowrap w-0">{k}</td>
+                <td className="text-on-surface break-all">{v}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function BodyView({ title, text, truncated = false }: { title: string; text: string | undefined; truncated?: boolean }) {
+  return (
+    <div>
+      <div className="flex items-center gap-space-xs text-outline mb-0.5">
+        <span>{title}</span>
+        {text ? <CopyButton icon="content_copy" label="Copy" text={pretty(text)} title={`Copy the ${title.toLowerCase()}`} /> : null}
+      </div>
+      {text ? (
+        <pre className="max-h-72 overflow-auto p-space-xs rounded bg-surface-container-lowest text-on-surface whitespace-pre-wrap break-all">
+          {pretty(text)}
+          {truncated && <span className="block text-tertiary mt-1">… truncated (first 256 KB kept)</span>}
+        </pre>
+      ) : (
+        <span className="text-outline">empty</span>
+      )}
     </div>
   );
 }

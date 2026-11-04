@@ -233,3 +233,14 @@ export function parseCurl(command: string): { name: string; definition: RequestD
 
   return { name: requestNameFor(def.method, def.url), definition: def };
 }
+
+/** POSIX shell single-quoting: wraps in '…' and writes embedded quotes as '\''. */
+const shellQuote = (value: string) => `'${value.replaceAll("'", String.raw`'\''`)}'`;
+
+/** A runnable cURL command (bash/zsh) for a request as it was sent. */
+export function toCurl(request: { method: string; url: string; headers: Record<string, string>; body?: string }): string {
+  const parts = [`curl -X ${request.method.toUpperCase()} ${shellQuote(request.url)}`];
+  for (const [name, value] of Object.entries(request.headers)) parts.push(`-H ${shellQuote(`${name}: ${value}`)}`);
+  if (request.body !== undefined && request.body !== "") parts.push(`--data-raw ${shellQuote(request.body)}`);
+  return parts.join(" \\\n  ");
+}

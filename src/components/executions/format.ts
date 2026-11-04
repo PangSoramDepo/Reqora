@@ -25,3 +25,12 @@ export function stepCounts(run: Run) {
   const executed = run.steps.filter((s) => s.status !== "skipped").length;
   return `${executed}/${run.steps.length} ${run.status === "failed" ? "broken" : "complete"}`;
 }
+
+/** Path of a step's request URL; failed steps may record a relative or unresolved URL, shown as-is. */
+export function urlPath(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return url;
+  }
+}

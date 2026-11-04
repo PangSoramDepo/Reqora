@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
+import { urlPath } from "@/components/executions/format";
 import { Icon } from "@/components/icon";
 import type { Run } from "@/lib/workflows/schema";
 import { TYPE_STYLE } from "./node-cards";
@@ -83,7 +84,7 @@ export function ExecutionStream({ run, onClear }: { run?: Run; onClear: () => vo
                 )}
                 {step.request && step.status === "succeeded" && (
                   <span className="text-on-surface">
-                    {step.request.method} {new URL(step.request.url).pathname}
+                    {step.request.method} {urlPath(step.request.url)}
                   </span>
                 )}
                 {step.nodeType === "webhook" && step.status === "succeeded" && <span className="text-on-surface">received</span>}

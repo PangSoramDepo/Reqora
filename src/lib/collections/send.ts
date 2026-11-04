@@ -6,8 +6,8 @@ import type { Environment } from "@/lib/workflows/schema";
 import { TemplateError, type TemplateContext } from "@/lib/workflows/template";
 import { evaluateAssertions } from "./assertions";
 import { resolveEffective } from "./inherit";
-import { draftRequest, renderDraft } from "./request";
-import type { RequestDefinition, ScopeSettings, ScriptReport, SendOutcome } from "./schema";
+import { draftRequest, renderDraft, type PreparedRequest } from "./request";
+import type { RequestDefinition, ScopeSettings, ScriptReport, SendOutcome, SentRequest } from "./schema";
 import { runScripts, type ScriptState } from "./scripts";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -43,6 +43,13 @@ type SendOptions = {
   /** Persists rq.environment.set / unset; defaults to the environment store. */
   writeEnv?: typeof setVariableValue;
 };
+
+const sent = (p: PreparedRequest): SentRequest => ({
+  method: p.method,
+  url: p.url,
+  headers: { ...p.headers },
+  ...(p.body === undefined ? {} : { body: p.body }),
+});
 
 const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptReport => ({
   logs: state.logs,
@@ -141,7 +148,7 @@ export async function sendRequest(
     const reason =
       err.name === "TimeoutError" ? `timed out after ${def.settings.timeoutMs}ms` : (err.cause?.message ?? err.message);
     return finish(
-      { error: `request failed: ${reason}`, url: prepared.url, durationMs: Date.now() - started, scripts: report(state, []) },
+      { error: `request failed: ${reason}`, url: prepared.url, request: sent(prepared), durationMs: Date.now() - started, scripts: report(state, []) },
     );
   }
 
@@ -150,7 +157,7 @@ export async function sendRequest(
     bytes = await readCapped(response);
   } catch (error) {
     return finish(
-      { error: (error as Error).message, url: prepared.url, durationMs: Date.now() - started, scripts: report(state, []) },
+      { error: (error as Error).message, url: prepared.url, request: sent(prepared), durationMs: Date.now() - started, scripts: report(state, []) },
     );
   }
   const durationMs = Date.now() - started;
@@ -184,6 +191,7 @@ export async function sendRequest(
       size: bytes.byteLength,
       durationMs,
       url: prepared.url,
+      request: sent(prepared),
       assertions,
       scripts: report(post.state, post.errors),
     },

@@ -919,7 +919,8 @@ paths:
       summary: Recent Collections sends (newest first)
       description: >-
         Every send (saved or ad-hoc) is recorded for the Live Execution Console: status, timing, test counts and
-        script output, with secrets already scrubbed. Response bodies are not stored. The newest 500 are kept.
+        script output, plus the request as sent and the response headers and body (first 256 KB), with secrets
+        already scrubbed. The newest 200 are kept.
       parameters:
         - name: limit
           in: query
@@ -1419,7 +1420,7 @@ components:
           description: "Changes from rq.environment.set / unset (null = unset), saved to the environment the request was sent in"
     SendRecord:
       type: object
-      required: [id, requestId, collectionId, name, method, url, environment, status, statusText, error, durationMs, size, tests, scripts, sentAt]
+      required: [id, requestId, collectionId, name, method, url, environment, status, statusText, error, durationMs, size, tests, scripts, request, response, sentAt]
       properties:
         id: { type: string }
         requestId: { type: [string, "null"] }
@@ -1444,7 +1445,29 @@ components:
           oneOf:
             - { $ref: "#/components/schemas/ScriptReport" }
             - { type: "null" }
+        request:
+          oneOf:
+            - { $ref: "#/components/schemas/SentRequest" }
+            - { type: "null" }
+        response:
+          oneOf:
+            - type: object
+              required: [headers, body, truncated]
+              properties:
+                headers: { type: object, additionalProperties: { type: string } }
+                body: { type: string, description: "Response body text (first 256 KB)" }
+                truncated: { type: boolean }
+            - { type: "null" }
         sentAt: { type: string, format: date-time }
+    SentRequest:
+      type: object
+      description: The request as it went on the wire (after scripts, templates and auth); resolved secrets read [secret]
+      required: [method, url, headers]
+      properties:
+        method: { type: string }
+        url: { type: string }
+        headers: { type: object, additionalProperties: { type: string } }
+        body: { type: string }
     RequestSummary:
       type: object
       required: [id, name, method, url, folderId]
@@ -1545,8 +1568,9 @@ components:
         updatedAt: { type: string, format: date-time }
     SendResult:
       type: object
-      required: [status, statusText, headers, body, size, durationMs, url, assertions, scripts]
+      required: [request, status, statusText, headers, body, size, durationMs, url, assertions, scripts]
       properties:
+        request: { $ref: "#/components/schemas/SentRequest" }
         status: { type: integer }
         statusText: { type: string }
         headers: { type: object, additionalProperties: { type: string } }
@@ -1563,6 +1587,7 @@ components:
       description: No HTTP response was received (including when a pre-request script fails)
       required: [error, durationMs]
       properties:
+        request: { $ref: "#/components/schemas/SentRequest" }
         error: { type: string }
         url: { type: string }
         durationMs: { type: integer }

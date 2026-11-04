@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import type { Run, Step } from "@/lib/workflows/schema";
-import { shortId, utcTime } from "./format";
+import { shortId, urlPath, utcTime } from "./format";
 
 type Tab = "payloads" | "headers" | "logs";
 type StepTone = "tertiary" | "primary" | "secondary" | "error" | "skipped";
@@ -80,7 +80,7 @@ function toneOf(step: Step): StepTone {
 const responseOf = (step: Step) => step.output as { status?: number; headers?: Record<string, string>; body?: unknown } | undefined;
 
 function stepDetail(step: Step) {
-  if (step.request) return `${step.request.method} ${new URL(step.request.url).pathname}`;
+  if (step.request) return `${step.request.method} ${urlPath(step.request.url)}`;
   if (step.nodeType === "webhook") return "trigger payload";
   return step.nodeType;
 }

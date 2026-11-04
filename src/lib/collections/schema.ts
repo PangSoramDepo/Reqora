@@ -156,7 +156,11 @@ export type ScriptReport = {
   environment?: Record<string, string | null>;
 };
 
+/** The request exactly as it went on the wire (after scripts, templates and auth); secrets are scrubbed. */
+export type SentRequest = { method: string; url: string; headers: Record<string, string>; body?: string };
+
 export type SendResult = {
+  request: SentRequest;
   status: number;
   statusText: string;
   headers: Record<string, string>;
@@ -170,7 +174,7 @@ export type SendResult = {
 };
 
 /** Network failure, timeout, or template error — no HTTP response was received. */
-export type SendFailure = { error: string; url?: string; durationMs: number; scripts?: ScriptReport };
+export type SendFailure = { error: string; url?: string; request?: SentRequest; durationMs: number; scripts?: ScriptReport };
 export type SendOutcome = SendResult | SendFailure;
 
 export type RequestSummary = { id: string; name: string; method: RequestMethod; url: string; folderId: string | null };
