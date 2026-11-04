@@ -32,7 +32,8 @@ type Props = {
 
 type Problems = { errors: number; warnings: number; first: { line: number; message: string; from: number } | null };
 
-const theme = EditorView.theme(
+/** Shared by the script and body editors. */
+export const theme = EditorView.theme(
   {
     "&": { height: "100%", backgroundColor: "var(--color-surface-container-lowest)", color: "var(--color-on-surface)", fontSize: "12px" },
     "&.cm-focused": { outline: "none" },
@@ -89,7 +90,7 @@ const theme = EditorView.theme(
   { dark: true },
 );
 
-const highlight = HighlightStyle.define([
+export const highlight = HighlightStyle.define([
   { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--color-secondary)" },
   { tag: [t.string, t.special(t.string), t.regexp], color: "var(--color-tertiary)" },
   { tag: [t.number, t.bool, t.null, t.atom], color: "var(--color-secondary-fixed)" },

@@ -2,35 +2,46 @@
 
 import { createContext, useContext, useRef, type ComponentProps, type ReactNode } from "react";
 
-type Target = { el: HTMLInputElement | HTMLTextAreaElement; set: (value: string) => void };
-type TokenApi = { focus: (target: Target) => void; insert: (token: string) => void };
+/** Where a token goes: inserts at that field's cursor; `alive` is false once the field left the page. */
+export type TokenTarget = { insert: (token: string) => void; alive: () => boolean };
+type TokenApi = { focus: (target: TokenTarget) => void; insert: (token: string) => void };
 
-const TokenContext = createContext<TokenApi | null>(null);
-
-/** Tracks the last focused template field so "Suggested Tokens" chips can insert at its cursor. */
-export function TokenProvider({ children }: { children: ReactNode }) {
-  const last = useRef<Target | null>(null);
-  const api: TokenApi = {
-    focus: (target) => {
-      last.current = target;
-    },
+/** Token target for a plain <input> / <textarea>. */
+function fieldTarget(el: HTMLInputElement | HTMLTextAreaElement, set: (value: string) => void): TokenTarget {
+  return {
+    alive: () => el.isConnected,
     insert: (token) => {
-      const target = last.current;
-      if (!target || !target.el.isConnected) return;
-      const { el } = target;
       const start = el.selectionStart ?? el.value.length;
       const end = el.selectionEnd ?? start;
-      target.set(el.value.slice(0, start) + token + el.value.slice(end));
+      set(el.value.slice(0, start) + token + el.value.slice(end));
       requestAnimationFrame(() => {
         el.focus();
         el.setSelectionRange(start + token.length, start + token.length);
       });
     },
   };
+}
+
+const TokenContext = createContext<TokenApi | null>(null);
+
+/** Tracks the last focused template field so "Suggested Tokens" chips can insert at its cursor. */
+export function TokenProvider({ children }: { children: ReactNode }) {
+  const last = useRef<TokenTarget | null>(null);
+  const api: TokenApi = {
+    focus: (target) => {
+      last.current = target;
+    },
+    insert: (token) => {
+      const target = last.current;
+      if (target?.alive()) target.insert(token);
+    },
+  };
   return <TokenContext.Provider value={api}>{children}</TokenContext.Provider>;
 }
 
 export const useTokenInsert = () => useContext(TokenContext)?.insert;
+/** For custom editors: call with a target when the editor gains focus. */
+export const useTokenFocus = () => useContext(TokenContext)?.focus;
 
 type InputProps = Omit<ComponentProps<"input">, "value" | "onChange"> & { value: string; onValue: (value: string) => void };
 
@@ -44,7 +55,7 @@ export function TemplateInput({ value, onValue, onFocus, ...rest }: InputProps) 
       spellCheck={false}
       onChange={(e) => onValue(e.target.value)}
       onFocus={(e) => {
-        tokens?.focus({ el: e.currentTarget, set: onValue });
+        tokens?.focus(fieldTarget(e.currentTarget, onValue));
         onFocus?.(e);
       }}
     />
@@ -62,7 +73,7 @@ export function TemplateTextarea({ value, onValue, onFocus, ...rest }: TextareaP
       spellCheck={false}
       onChange={(e) => onValue(e.target.value)}
       onFocus={(e) => {
-        tokens?.focus({ el: e.currentTarget, set: onValue });
+        tokens?.focus(fieldTarget(e.currentTarget, onValue));
         onFocus?.(e);
       }}
     />

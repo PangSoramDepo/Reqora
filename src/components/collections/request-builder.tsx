@@ -9,7 +9,7 @@ import type { Environment } from "@/lib/workflows/schema";
 import { AddToFlow } from "./add-to-flow";
 import { AssertionsEditor } from "./assertions-editor";
 import { AuthPanel, type InheritSource } from "./auth-panel";
-import { CodeEditor } from "./code-editor";
+import { BodyCodeEditor } from "./body-code-editor";
 import { inheritanceFor, InheritedHeaders } from "./inherited";
 import { KeyValueEditor } from "./key-value-editor";
 import { PHASE_LABEL, ScriptEditor } from "./script-editor";
@@ -387,7 +387,9 @@ export function RequestBuilder({
                   {def.method} requests are sent without a body.
                 </div>
               )}
-              <CodeEditor
+              <BodyCodeEditor
+                key={def.body.type}
+                language={def.body.type === "json" ? "json" : "text"}
                 label="Request body"
                 value={def.body.text}
                 placeholder={def.body.type === "json" ? '{\n  "id": "{{$guid}}"\n}' : "text body"}
