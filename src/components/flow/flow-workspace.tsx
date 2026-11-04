@@ -14,6 +14,7 @@ import { SAMPLE_ORDER } from "@/lib/workflows/seed";
 import { createAutosaver, type SaveState } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
 import { FlowCanvas } from "./flow-canvas";
+import { LoadTestPanel } from "./load-test-panel";
 import { NodeInspector } from "./node-inspector";
 import { WorkflowSwitcher } from "./workflow-switcher";
 
@@ -47,6 +48,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [run, setRun] = useState<Run | undefined>();
   const [running, setRunning] = useState(false);
+  const [loadTesting, setLoadTesting] = useState(false);
   // While a run executes: the steps finished so far and the node running now, replayed at a watchable pace.
   const [live, setLive] = useState<{ steps: Step[]; activeId: string | null } | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -342,6 +344,15 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
         {/* Simulation actions */}
         <div className="absolute top-space-sm right-[390px] z-30 flex items-center gap-space-xs">
           <button
+            className="flex items-center gap-space-xs px-space-md py-space-xs bg-surface-container-high text-on-surface rounded-xl shadow-lg transition-all hover:bg-surface-container-highest active:scale-95 font-body-sm text-body-sm font-semibold"
+            type="button"
+            onClick={() => setLoadTesting(true)}
+            title="Run this flow with many concurrent virtual users and measure throughput, errors and latency"
+          >
+            <Icon name="speed" className="text-body-md text-primary" />
+            <span>Load Test</span>
+          </button>
+          <button
             className="flex items-center gap-space-xs px-space-md py-space-xs bg-primary text-on-primary rounded-xl shadow-lg transition-all hover:bg-primary-container active:scale-95 font-body-sm text-body-sm font-semibold disabled:opacity-60"
             type="button"
             disabled={running}
@@ -368,6 +379,19 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
               </div>
             )}
           </div>
+        )}
+
+        {loadTesting && (
+          <LoadTestPanel
+            workflowId={workflow.id}
+            workflowName={workflow.name}
+            environment={environment}
+            defaultPayload={testPayload}
+            beforeStart={async () => {
+              if (saveState.kind !== "saved") await autosaver.flush(); // test what's on screen
+            }}
+            onClose={() => setLoadTesting(false)}
+          />
         )}
 
         <FlowCanvas

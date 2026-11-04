@@ -2,7 +2,7 @@ import "server-only";
 
 import { sendLinkedRequest } from "@/lib/collections/linked";
 import { resolveVariable } from "@/lib/secrets/variables";
-import { executeWorkflow, type ProgressEvent } from "./engine";
+import { executeWorkflow, type ExecutionResult, type ProgressEvent } from "./engine";
 import type { Environment, Run, RunTrigger, Workflow } from "./schema";
 import { insertRun } from "./store";
 
@@ -39,22 +39,31 @@ type RunOptions = {
   onProgress?: (event: ProgressEvent) => void;
 };
 
+type ExecuteOptions = {
+  baseUrl: string;
+  environment: Environment;
+  /** Live step progress (secrets already scrubbed). */
+  onProgress?: (event: ProgressEvent) => void;
+  /** Network override (tests). */
+  fetch?: typeof fetch;
+};
+
 /**
- * Executes a workflow and stores the run. `{{env.NAME}}` resolves from the environment's stored
- * variables, then falls back to the server variable `REQORA_ENV_NAME` — never arbitrary server env.
- * Every resolved value is scrubbed from the stored run, even if an upstream echoes it back. Http nodes linked to
- * a Collections request send it exactly like Send in Collections (scripts, tests, inherited auth).
+ * Executes a workflow without storing anything. `{{env.NAME}}` resolves from the environment's stored variables,
+ * then falls back to the server variable `REQORA_ENV_NAME` — never arbitrary server env. Every resolved value is
+ * scrubbed from the result, even if an upstream echoes it back. Http nodes linked to a Collections request send
+ * it exactly like Send in Collections (scripts, tests, inherited auth).
  */
-export async function runWorkflow(
-  workflow: Workflow,
+export async function executeScrubbed(
+  workflow: Pick<Workflow, "nodes" | "edges">,
   trigger: RunTrigger,
-  { baseUrl, environment, replayOf, onProgress }: RunOptions,
-): Promise<Run> {
+  { baseUrl, environment, onProgress, fetch: doFetch = fetch }: ExecuteOptions,
+): Promise<ExecutionResult> {
   const resolved = new Set<string>();
   // rq.variables set by one linked request's scripts are visible to the next ones in this run.
   const variables: Record<string, string> = {};
   const result = await executeWorkflow(workflow, trigger, {
-    fetch,
+    fetch: doFetch,
     env: (name) => {
       const value = resolveVariable(environment, name) ?? process.env[`${ENV_PREFIX}${name}`];
       // Short values (e.g. "1", "true") would scrub unrelated text; only treat longer ones as sensitive.
@@ -62,17 +71,27 @@ export async function runWorkflow(
       return value;
     },
     baseUrl,
-    sendLinked: (requestId, context) => sendLinkedRequest(requestId, { environment, baseUrl, variables, context }),
+    sendLinked: (requestId, context) =>
+      sendLinkedRequest(requestId, { environment, baseUrl, variables, context, ...(doFetch === fetch ? {} : { fetch: doFetch }) }),
     onProgress: onProgress && ((event) => onProgress(scrub(event, [...resolved]))),
   });
+  return scrub(result, [...resolved]);
+}
 
+/** Executes a workflow (see `executeScrubbed`) and stores the run in Execution History. */
+export async function runWorkflow(
+  workflow: Workflow,
+  trigger: RunTrigger,
+  { baseUrl, environment, replayOf, onProgress }: RunOptions,
+): Promise<Run> {
+  const result = await executeScrubbed(workflow, trigger, { baseUrl, environment, onProgress });
   const run: Run = {
     id: `run_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`,
     workflowId: workflow.id,
     workflowVersion: workflow.version,
     environment,
     trigger: { ...trigger, headers: redact(trigger.headers) },
-    ...scrub(result, [...resolved]),
+    ...result,
     ...(replayOf ? { replayOf } : {}),
   };
   insertRun(run);

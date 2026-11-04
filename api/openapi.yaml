@@ -370,6 +370,81 @@ paths:
                   message: { type: string }
         "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}/load-tests:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    get:
+      operationId: listLoadTests
+      summary: List the workflow's load tests (newest first)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Load test summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/LoadTestSummary" } }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: startLoadTest
+      summary: Start a load test of the workflow's draft
+      description: |
+        Runs the flow with `virtualUsers` concurrent loops on the server, each running it back to back (with
+        `thinkTimeMs` between runs, users started evenly over `rampUpSec`) until `iterations` runs are done or
+        `durationSec` has passed. Runs are not stored in Execution History; poll `GET /api/load-tests/{id}` for the
+        live report. At most 3 tests run at once on a server.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoadTestConfig" }
+      responses:
+        "202":
+          description: Started; the initial report
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoadTest" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /api/load-tests/{loadTestId}:
+    parameters:
+      - $ref: "#/components/parameters/LoadTestId"
+    get:
+      operationId: getLoadTest
+      summary: Get a load test report (live while running)
+      description: A `running` test whose server restarted is reported as `interrupted`.
+      responses:
+        "200":
+          description: The report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoadTest" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/load-tests/{loadTestId}/stop:
+    parameters:
+      - $ref: "#/components/parameters/LoadTestId"
+    post:
+      operationId: stopLoadTest
+      summary: Stop a running load test
+      description: Requests in flight are cancelled and left out of the report. Returns the final report.
+      responses:
+        "200":
+          description: The final report (status `stopped`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoadTest" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
   /api/runs:
     get:
       operationId: listRuns
@@ -1069,6 +1144,11 @@ components:
       in: path
       required: true
       schema: { type: string }
+    LoadTestId:
+      name: loadTestId
+      in: path
+      required: true
+      schema: { type: string }
     CollectionId:
       name: collectionId
       in: path
@@ -1086,6 +1166,141 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
   schemas:
+    LoadTestConfig:
+      type: object
+      required: [virtualUsers]
+      properties:
+        environment: { $ref: "#/components/schemas/EnvironmentName" }
+        virtualUsers: { type: integer, minimum: 1, maximum: 200, description: Concurrent runs of the flow }
+        mode: { type: string, enum: [iterations, duration], default: iterations }
+        iterations:
+          type: integer
+          minimum: 1
+          maximum: 100000
+          default: 100
+          description: Total runs (mode iterations); at least virtualUsers
+        durationSec:
+          type: integer
+          minimum: 1
+          maximum: 1800
+          default: 60
+          description: Seconds of load (mode duration); runs in flight at the end still finish
+        rampUpSec: { type: integer, minimum: 0, maximum: 600, default: 0 }
+        thinkTimeMs: { type: integer, minimum: 0, maximum: 60000, default: 0 }
+        trigger:
+          type: object
+          properties:
+            body: { description: Webhook payload every run receives }
+            headers: { type: object, additionalProperties: { type: string } }
+        thresholds:
+          type: object
+          description: The test fails (verdict) when any is exceeded.
+          properties:
+            maxErrorRatePct: { type: number, minimum: 0, maximum: 100 }
+            p95Ms: { type: integer, minimum: 1 }
+    LatencyStats:
+      type: object
+      description: Milliseconds; percentiles are nearest-rank (sampled beyond 20,000 runs).
+      required: [min, avg, p50, p90, p95, p99, max]
+      properties:
+        min: { type: number }
+        avg: { type: number }
+        p50: { type: number }
+        p90: { type: number }
+        p95: { type: number }
+        p99: { type: number }
+        max: { type: number }
+    LoadTestVerdict:
+      type: object
+      required: [passed, reasons]
+      properties:
+        passed: { type: boolean }
+        reasons: { type: array, items: { type: string } }
+    LoadTestIterations:
+      type: object
+      required: [completed, succeeded, failed]
+      properties:
+        completed: { type: integer }
+        succeeded: { type: integer }
+        failed: { type: integer }
+    LoadTest:
+      type: object
+      required:
+        [id, workflowId, workflowName, workflowVersion, environment, config, status, startedAt, elapsedMs, activeVirtualUsers, iterations, throughput, errorRatePct, latency, nodes, timeline, errors]
+      properties:
+        id: { type: string }
+        workflowId: { type: string }
+        workflowName: { type: string }
+        workflowVersion: { type: integer }
+        environment: { $ref: "#/components/schemas/EnvironmentName" }
+        config: { $ref: "#/components/schemas/LoadTestConfig" }
+        status: { type: string, enum: [running, completed, stopped, interrupted] }
+        verdict: { $ref: "#/components/schemas/LoadTestVerdict" }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        elapsedMs: { type: integer }
+        activeVirtualUsers: { type: integer }
+        iterations: { $ref: "#/components/schemas/LoadTestIterations" }
+        throughput: { type: number, description: Completed runs per second }
+        errorRatePct: { type: number }
+        latency:
+          description: End-to-end run duration; null before the first run finishes.
+          oneOf:
+            - $ref: "#/components/schemas/LatencyStats"
+            - type: "null"
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [nodeId, name, type, calls, failed, latency]
+            properties:
+              nodeId: { type: string }
+              name: { type: string }
+              type: { type: string }
+              calls: { type: integer }
+              failed: { type: integer }
+              latency:
+                oneOf:
+                  - $ref: "#/components/schemas/LatencyStats"
+                  - type: "null"
+        timeline:
+          type: array
+          description: One point per second since the start.
+          items:
+            type: object
+            required: [second, succeeded, failed, p95Ms, activeVirtualUsers]
+            properties:
+              second: { type: integer }
+              succeeded: { type: integer }
+              failed: { type: integer }
+              p95Ms: { type: [number, "null"] }
+              activeVirtualUsers: { type: integer }
+        errors:
+          type: array
+          description: Most frequent failure messages (top 10)
+          items:
+            type: object
+            required: [message, count]
+            properties:
+              message: { type: string }
+              count: { type: integer }
+    LoadTestSummary:
+      type: object
+      required: [id, workflowId, status, startedAt, elapsedMs, iterations, throughput, errorRatePct, environment, virtualUsers, p95Ms]
+      properties:
+        id: { type: string }
+        workflowId: { type: string }
+        status: { type: string, enum: [running, completed, stopped, interrupted] }
+        verdict: { $ref: "#/components/schemas/LoadTestVerdict" }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        elapsedMs: { type: integer }
+        iterations: { $ref: "#/components/schemas/LoadTestIterations" }
+        throughput: { type: number }
+        errorRatePct: { type: number }
+        environment: { $ref: "#/components/schemas/EnvironmentName" }
+        virtualUsers: { type: integer }
+        p95Ms: { type: [number, "null"] }
     User:
       type: object
       required: [id, email, name]
