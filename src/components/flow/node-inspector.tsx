@@ -214,6 +214,21 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {node.type !== "webhook" && (
+            <button
+              className={`flex items-center gap-1 px-space-xs py-1 rounded font-label-md text-label-md ${
+                node.disabled
+                  ? "bg-primary/15 text-primary hover:bg-primary/25"
+                  : "bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
+              }`}
+              title={node.disabled ? "Enable this node (D)" : "Disable this node: runs skip it and continue to the next nodes (D)"}
+              type="button"
+              onClick={() => onChange({ ...node, disabled: !node.disabled || undefined })}
+            >
+              <Icon name={node.disabled ? "play_circle" : "block"} className="text-body-sm" />
+              {node.disabled ? "Enable" : "Disable"}
+            </button>
+          )}
           <button className={ICON_BUTTON} title="Node Documentation" type="button">
             <Icon name="help_outline" className="text-body-md" />
           </button>
@@ -224,6 +239,19 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
       </div>
 
       <div className="p-space-md flex flex-col gap-space-md flex-1">
+        {node.disabled && (
+          <div
+            data-testid="node-disabled"
+            className="flex items-start gap-space-xs p-space-sm rounded-lg bg-surface-container-highest/70 font-body-sm text-body-sm text-on-surface-variant"
+          >
+            <Icon name="block" className="text-body-md text-outline mt-0.5" />
+            <span>
+              <span className="text-on-surface font-semibold">Disabled.</span> Runs skip this node and continue through it to the next
+              nodes{node.type === "condition" ? " — both the TRUE and FALSE branches" : ""}. Later nodes that reference{" "}
+              <span className="font-mono text-tertiary">{`{{${node.id}.…}}`}</span> will fail, since it has no output.
+            </span>
+          </div>
+        )}
         <div className="flex flex-col gap-space-xs">
           <label className={SECTION_LABEL} htmlFor="node-name">
             Name
@@ -331,7 +359,7 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
                     step.status === "failed" ? "text-error" : step.status === "skipped" ? "text-outline" : "text-primary"
                   }`}
                 >
-                  {step.status.toUpperCase()}
+                  {step.disabled ? "DISABLED" : step.status.toUpperCase()}
                   {response?.status !== undefined && ` • ${response.status}`}
                   {step.status !== "skipped" && ` • ${step.durationMs}ms`}
                 </span>
@@ -347,7 +375,9 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
             {step?.output !== undefined
               ? JSON.stringify(step.output, null, 2)
               : step
-                ? "// Node was skipped in the last run"
+                ? step.disabled
+                  ? "// Node was disabled in the last run; the run passed through it"
+                  : "// Node was skipped in the last run"
                 : "// Run the flow to see this node's output"}
           </div>
         </div>

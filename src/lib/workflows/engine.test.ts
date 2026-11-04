@@ -154,3 +154,82 @@ describe("executeWorkflow", () => {
     expect(result.output).toEqual({ status: 202, body: { total: 749.5, label: "order ord_9941a" } });
   });
 });
+
+describe("disabled nodes", () => {
+  const node = (id: string, type: "transform" | "condition" | "response", config: object, extra: object = {}) =>
+    ({ id, name: id, type, position: { x: 0, y: 0 }, config, ...extra }) as WorkflowInput["nodes"][number];
+  const flow = (nodes: WorkflowInput["nodes"], edges: [string, string, string][]): WorkflowInput => ({
+    name: "d",
+    nodes: [{ id: "in", name: "In", type: "webhook", position: { x: 0, y: 0 }, config: { method: "POST", path: "/d" } }, ...nodes],
+    edges: edges.map(([source, sourcePort, target], i) => ({ id: `e${i}`, source, sourcePort, target })),
+  });
+
+  it("are bypassed: not executed, and the run continues to the next nodes", async () => {
+    const wf = flow(
+      [
+        node("a", "transform", { output: { x: "{{in.body.amount}}" } }, { disabled: true }),
+        node("b", "transform", { output: { y: "{{in.body.id}}" } }),
+      ],
+      [
+        ["in", "out", "a"],
+        ["a", "out", "b"],
+      ],
+    );
+    expect(validateGraph(wf)).toEqual([]);
+    const result = await executeWorkflow(wf, { source: "manual", body: SAMPLE_ORDER }, deps());
+    expect(result.status).toBe("succeeded");
+    expect(result.steps.map((s) => [s.nodeId, s.status, s.disabled ?? false])).toEqual([
+      ["in", "succeeded", false],
+      ["a", "skipped", true],
+      ["b", "succeeded", false],
+    ]);
+    expect(result.steps[1].output).toBeUndefined();
+  });
+
+  it("a disabled condition continues down both branches", async () => {
+    const wf = flow(
+      [
+        node("check", "condition", { left: "{{in.body.amount}}", operator: ">", right: "1000000" }, { disabled: true }),
+        node("yes", "transform", { output: { a: "1" } }),
+        node("no", "transform", { output: { b: "2" } }),
+      ],
+      [
+        ["in", "out", "check"],
+        ["check", "true", "yes"],
+        ["check", "false", "no"],
+      ],
+    );
+    const result = await executeWorkflow(wf, { source: "manual", body: SAMPLE_ORDER }, deps());
+    expect(statuses(result.steps)).toEqual({ in: "succeeded", check: "skipped", yes: "succeeded", no: "succeeded" });
+  });
+
+  it("a disabled http node sends nothing; a disabled response gives no output", async () => {
+    const fetch = fakeFetch(() => Response.json({}));
+    const wf = flow(
+      [
+        {
+          id: "call",
+          name: "call",
+          type: "http",
+          position: { x: 0, y: 0 },
+          disabled: true,
+          config: { method: "POST", url: "https://x.test", headers: {}, timeoutMs: 1000 },
+        },
+        node("out", "response", { status: 201, body: "{}" }, { disabled: true }),
+      ],
+      [
+        ["in", "out", "call"],
+        ["call", "out", "out"],
+      ],
+    );
+    const result = await executeWorkflow(wf, { source: "manual" }, deps({ fetch: fetch as unknown as typeof globalThis.fetch }));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result.output).toBeUndefined();
+  });
+
+  it("the trigger can't be disabled", () => {
+    const wf = flow([], []);
+    wf.nodes[0] = { ...wf.nodes[0], disabled: true };
+    expect(validateGraph(wf)).toEqual([{ path: "nodes.0.disabled", message: "the webhook trigger can't be disabled" }]);
+  });
+});

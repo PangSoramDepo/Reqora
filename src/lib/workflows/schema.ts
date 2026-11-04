@@ -10,6 +10,11 @@ const nodeBase = {
   id: nodeId,
   name: z.string().min(1).max(120),
   position,
+  /**
+   * A disabled node is bypassed: it doesn't execute, and the run continues through all of its outputs to the
+   * next nodes. The webhook trigger can't be disabled.
+   */
+  disabled: z.boolean().optional(),
 };
 
 export const webhookNodeSchema = z.object({
@@ -171,6 +176,8 @@ export type Step = {
   request?: { method: string; url: string; headers: Record<string, string> };
   output?: unknown;
   error?: string;
+  /** Skipped because the node is disabled (the run went on through it). */
+  disabled?: boolean;
 };
 
 export type RunTrigger = {

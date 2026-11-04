@@ -53,6 +53,13 @@ function StatusBadge({ node, step, running, waiting }: { node: WorkflowNode; ste
       </span>
     );
   }
+  if (node.disabled) {
+    return (
+      <span className={`${base} bg-surface-container-highest text-outline flex items-center gap-1`}>
+        <Icon name="block" className="text-[12px]" /> DISABLED
+      </span>
+    );
+  }
   if (waiting) return <span className={`${base} bg-surface-container-highest text-outline`}>WAITING</span>;
   if (!step) return <span className={`${base} bg-surface-container-highest ${style.text}`}>{style.tag}</span>;
   if (step.status === "skipped") return <span className={`${base} bg-surface-container-highest text-outline`}>SKIPPED</span>;

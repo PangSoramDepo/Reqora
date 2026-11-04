@@ -172,16 +172,37 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     setSelectedId(null);
   };
 
-  // Delete / Backspace removes the selected edge or node, unless the user is typing.
+  /** Disables (bypasses) or re-enables the selected node; the trigger always runs. */
+  const toggleSelectedDisabled = () => {
+    const current = autosaver.current();
+    const node = current?.nodes.find((n) => n.id === selectedId);
+    if (!node) return;
+    if (node.type === "webhook") {
+      flash("The webhook trigger can't be disabled.");
+      return;
+    }
+    updateNode({ ...node, disabled: !node.disabled || undefined });
+    flash(node.disabled ? `Enabled “${node.name}”.` : `Disabled “${node.name}” — runs pass through it. Press D again to enable.`);
+  };
+
+  // Delete / Backspace removes the selected edge or node, and D disables/enables the selected node, unless the
+  // user is typing.
   const deleteRef = useRef(deleteSelection);
+  const toggleRef = useRef(toggleSelectedDisabled);
   useEffect(() => {
     deleteRef.current = deleteSelection;
+    toggleRef.current = toggleSelectedDisabled;
   });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
       const el = event.target as HTMLElement;
       if (el.closest("input, textarea, select, [contenteditable=true]")) return;
+      if ((event.key === "d" || event.key === "D") && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        toggleRef.current();
+        return;
+      }
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
       event.preventDefault();
       deleteRef.current();
     };

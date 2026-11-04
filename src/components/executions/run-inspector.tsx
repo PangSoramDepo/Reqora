@@ -86,7 +86,7 @@ function stepDetail(step: Step) {
 }
 
 function stepResult(step: Step) {
-  if (step.status === "skipped") return "SKIPPED (branch not taken or upstream error)";
+  if (step.status === "skipped") return step.disabled ? "DISABLED (passed through)" : "SKIPPED (branch not taken or upstream error)";
   const status = responseOf(step)?.status;
   if (step.status === "failed") return status ? `${status} FAILED` : "FAILED";
   if (step.nodeType === "condition") return step.port?.toUpperCase();
@@ -107,7 +107,7 @@ function logLines(run: Run) {
   return run.steps.map((step) => {
     const at = `+${Math.max(0, Date.parse(step.startedAt) - start)}ms`.padStart(7);
     const what = `${step.nodeId} (${step.name})`;
-    if (step.status === "skipped") return { text: `[${at}] SKIP  ${what}`, className: "text-outline" };
+    if (step.status === "skipped") return { text: `[${at}] ${step.disabled ? "OFF " : "SKIP"}  ${what}`, className: "text-outline" };
     if (step.status === "failed") return { text: `[${at}] FAIL  ${what} — ${step.error}`, className: "text-error" };
     const extra = step.request ? ` ${step.request.method} ${step.request.url} → ${responseOf(step)?.status}` : step.port ? ` → ${step.port}` : "";
     return { text: `[${at}] OK    ${what}${extra} (${step.durationMs}ms)`, className: "text-on-surface-variant" };
@@ -343,7 +343,11 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
               </div>
               {viewing.error && <div className="text-error font-mono mb-space-xs">{viewing.error}</div>}
               <pre className={`${CODE} text-on-surface`}>
-                {viewing.status === "skipped" ? "// skipped — not executed in this run" : json(viewing.output ?? null)}
+                {viewing.status === "skipped"
+                  ? viewing.disabled
+                    ? "// disabled — not executed; the run continued through it"
+                    : "// skipped — not executed in this run"
+                  : json(viewing.output ?? null)}
               </pre>
             </div>
           </div>

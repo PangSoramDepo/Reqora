@@ -1338,6 +1338,9 @@ components:
         id: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$" }
         name: { type: string, minLength: 1, maxLength: 120 }
         position: { $ref: "#/components/schemas/Position" }
+        disabled:
+          type: boolean
+          description: Bypassed when true - not executed, and the run continues through all of its outputs. Not allowed on the webhook trigger.
     HttpMethod:
       type: string
       enum: [GET, POST, PUT, PATCH, DELETE]
@@ -1559,6 +1562,7 @@ components:
             headers: { type: object, additionalProperties: { type: string } }
         output: {}
         error: { type: string }
+        disabled: { type: boolean, description: "Skipped because the node is disabled (the run continued through it)" }
     Run:
       type: object
       required: [id, workflowId, workflowVersion, environment, status, trigger, startedAt, finishedAt, durationMs, steps]

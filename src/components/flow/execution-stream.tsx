@@ -96,7 +96,9 @@ export function ExecutionStream({
                   #{i + 1} {step.name.toUpperCase()}
                 </span>
                 <span className="text-outline">→</span>
-                {step.status === "skipped" && <span className="text-on-surface-variant italic">skipped</span>}
+                {step.status === "skipped" && (
+                  <span className="text-on-surface-variant italic">{step.disabled ? "disabled — passed through" : "skipped"}</span>
+                )}
                 {step.status === "failed" && <span className="text-error max-w-72 truncate">{step.error}</span>}
                 {step.status === "succeeded" && step.port && step.nodeType === "condition" && (
                   <span className="text-tertiary">Condition {step.port.toUpperCase()}</span>

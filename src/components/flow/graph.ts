@@ -44,15 +44,17 @@ export function edgeStyle(
   else if (source?.type === "http") style = { stroke: "#4cd7f6", width: 2.5, glow: "primary", opacity: 1 };
   else style = { stroke: "#c0c1ff", width: 2.2, opacity: 0.85 };
 
+  if (source?.disabled) style = { stroke: "#869397", width: 2, dash: "3,4", opacity: 0.6 };
   const sourceStep = steps.get(edge.source);
+  const passed = !!sourceStep && (sourceStep.disabled || (sourceStep.status === "succeeded" && sourceStep.port === edge.sourcePort));
   if (live) {
     // While a run executes: wires light up as data passes through them; the rest wait dimmed.
-    if (!sourceStep || sourceStep.status !== "succeeded" || sourceStep.port !== edge.sourcePort) {
+    if (!sourceStep || !passed) {
       return { ...style, glow: undefined, animated: false, opacity: sourceStep ? 0.2 : 0.35 };
     }
     return { ...style, dash: style.dash ?? "6,4", glow: style.glow ?? "primary", animated: true, flowing: !steps.has(edge.target), opacity: 1 };
   }
-  if (sourceStep && (sourceStep.status !== "succeeded" || sourceStep.port !== edge.sourcePort)) {
+  if (sourceStep && !passed) {
     return { ...style, glow: undefined, animated: false, opacity: 0.25 };
   }
   return style;

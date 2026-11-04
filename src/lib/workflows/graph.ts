@@ -20,6 +20,12 @@ export function validateGraph({ nodes, edges }: Pick<WorkflowInput, "nodes" | "e
     issues.push({ path: "nodes", message: `expected exactly one webhook trigger node, found ${triggers.length}` });
   }
 
+  nodes.forEach((node, i) => {
+    if (node.type === "webhook" && node.disabled) {
+      issues.push({ path: `nodes.${i}.disabled`, message: "the webhook trigger can't be disabled" });
+    }
+  });
+
   const edgeIds = new Set<string>();
   edges.forEach((edge, i) => {
     if (edgeIds.has(edge.id)) issues.push({ path: `edges.${i}.id`, message: `duplicate edge id "${edge.id}"` });

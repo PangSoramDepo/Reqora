@@ -70,6 +70,7 @@ export async function executeWorkflow(
     },
   };
 
+  // Output port each executed node took; "*" = every port (a disabled node passes the run through).
   const takenPorts = new Map<string, string>();
   const steps: Step[] = [];
   const record = (step: Step) => {
@@ -82,12 +83,21 @@ export async function executeWorkflow(
   for (const node of order) {
     const incoming = workflow.edges.filter((e) => e.target === node.id);
     const reached =
-      node.type === "webhook" || incoming.some((e) => takenPorts.get(e.source) === e.sourcePort);
+      node.type === "webhook" ||
+      incoming.some((e) => {
+        const taken = takenPorts.get(e.source);
+        return taken === e.sourcePort || taken === "*";
+      });
     const stepStart = now();
     const base = { nodeId: node.id, nodeType: node.type, name: node.name, startedAt: new Date(stepStart).toISOString() };
 
     if (failure || !reached) {
       record({ ...base, status: "skipped", durationMs: 0 });
+      continue;
+    }
+    if (node.disabled && node.type !== "webhook") {
+      takenPorts.set(node.id, "*");
+      record({ ...base, status: "skipped", durationMs: 0, disabled: true });
       continue;
     }
 

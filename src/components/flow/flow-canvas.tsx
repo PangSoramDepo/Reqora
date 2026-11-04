@@ -388,7 +388,7 @@ export function FlowCanvas({
         {nodes.map((node) => {
           const selected = node.id === selectedId;
           const active = live?.activeId === node.id;
-          const waiting = !!live && !active && !steps.has(node.id);
+          const waiting = !!live && !active && !steps.has(node.id) && !node.disabled;
           return (
             <div
               key={node.id}
@@ -400,6 +400,8 @@ export function FlowCanvas({
               } ${draggingId === node.id ? "z-25 cursor-grabbing" : "z-20 cursor-move"} ${
                 pulsingNodeId === node.id ? "scale-[1.02]" : ""
               } ${active ? "animate-node-running ring-2 ring-primary z-25" : ""} ${waiting ? "opacity-50" : ""} ${
+                node.disabled ? "opacity-45 grayscale [background-image:repeating-linear-gradient(135deg,transparent_0_10px,rgb(255_255_255/0.035)_10px_20px)]" : ""
+              } ${
                 wire && wire.source !== node.id ? "[&_[data-port=in]]:ring-2 [&_[data-port=in]]:ring-primary" : ""}`}
               style={{ top: node.position.y, left: node.position.x, width: NODE_WIDTH }}
               onPointerDown={(e) => startDrag(e, node)}
