@@ -11,7 +11,9 @@
     "user": "node scripts/users.mjs"
   },
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "^0.32.0",
     "next": "16.4.3",
+    "quickjs-emscripten-core": "^0.32.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",

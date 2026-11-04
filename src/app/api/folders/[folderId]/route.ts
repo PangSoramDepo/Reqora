@@ -1,14 +1,15 @@
 import { notFound, parseBody } from "@/lib/http";
 import { folderPatchSchema } from "@/lib/collections/schema";
-import { deleteFolder, renameFolder } from "@/lib/collections/store";
+import { deleteFolder, updateFolder } from "@/lib/collections/store";
 
 type Ctx = RouteContext<"/api/folders/[folderId]">;
 
+/** Renames the folder and/or replaces its inherited settings (auth, headers, scripts). */
 export async function PATCH(request: Request, ctx: Ctx) {
   const { folderId } = await ctx.params;
   const parsed = await parseBody(request, folderPatchSchema);
   if ("error" in parsed) return parsed.error;
-  const folder = renameFolder(folderId, parsed.data.name);
+  const folder = updateFolder(folderId, parsed.data);
   return folder ? Response.json(folder) : notFound(`folder "${folderId}"`);
 }
 

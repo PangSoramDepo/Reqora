@@ -35,5 +35,11 @@ export function newNode(type: NodeType, position: { x: number; y: number }, take
 /** MIME type used when dragging a node type from the Node Library onto the canvas. */
 export const NODE_DRAG_MIME = "application/x-reqora-node-type";
 
+/** MIME type carrying a saved request id when dragging a request (explorer reorder, or onto the Flow Canvas). */
+export const REQUEST_DRAG_MIME = "application/x-reqora-request";
+
+/** Window event the sidebar fires to add a saved request to the canvas without dragging (e.g. double-click). */
+export const ADD_REQUEST_EVENT = "reqora:add-request";
+
 /** Window event the Node Library fires to add a node without dragging (e.g. double-click). */
 export const ADD_NODE_EVENT = "reqora:add-node";

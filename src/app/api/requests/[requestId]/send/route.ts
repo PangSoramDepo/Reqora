@@ -1,10 +1,10 @@
 import type { NextRequest } from "next/server";
 import { notFound, problem } from "@/lib/http";
-import { sendDefinition } from "@/lib/collections/send";
-import { getRequest } from "@/lib/collections/store";
+import { sendRequest } from "@/lib/collections/send";
+import { getRequest, requestScopes } from "@/lib/collections/store";
 import { environmentSchema } from "@/lib/workflows/schema";
 
-/** Sends the request's saved definition. Upstream failures are a 200 with `{ error }` (see the API spec). */
+/** Sends the saved request with its collection/folder settings. Upstream failures are a 200 with `{ error }`. */
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/requests/[requestId]/send">) {
   const { requestId } = await ctx.params;
   const environment = environmentSchema.safeParse(request.nextUrl.searchParams.get("environment") ?? "production");
@@ -14,6 +14,9 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/request
   const saved = getRequest(requestId);
   if (!saved) return notFound(`request "${requestId}"`);
   return Response.json(
-    await sendDefinition(saved.definition, { environment: environment.data, baseUrl: request.nextUrl.origin }),
+    await sendRequest(
+      { name: saved.name, definition: saved.definition, ...requestScopes(saved.collectionId, saved.folderId) },
+      { environment: environment.data, baseUrl: request.nextUrl.origin },
+    ),
   );
 }

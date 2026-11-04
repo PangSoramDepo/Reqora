@@ -41,7 +41,7 @@ describe("sendDefinition", () => {
       { ...emptyDefinition(), url: "https://x.dev/{{env.NOPE}}" },
       { environment: "sandbox", baseUrl: "http://localhost", fetch: vi.fn() as unknown as typeof fetch },
     );
-    expect(missing).toEqual({ error: expect.stringContaining('"NOPE"'), durationMs: 0 });
+    expect(missing).toMatchObject({ error: expect.stringContaining('"NOPE"'), durationMs: 0 });
 
     const failing = vi.fn(async () => {
       throw new TypeError("fetch failed", { cause: new Error("ECONNREFUSED") });
@@ -51,5 +51,66 @@ describe("sendDefinition", () => {
       { environment: "sandbox", baseUrl: "http://localhost", fetch: failing as unknown as typeof fetch },
     );
     expect(down).toMatchObject({ error: "request failed: ECONNREFUSED", url: "http://127.0.0.1:1/x" });
+  });
+});
+
+describe("sendRequest with inherited settings and scripts", () => {
+  it("applies collection auth/headers, runs scripts outermost first, and scrubs secrets from logs and output", async () => {
+    const { sendRequest } = await import("./send");
+    const { emptyScopeSettings } = await import("./schema");
+    const seen: { url: string; headers: Record<string, string>; body?: string }[] = [];
+    const fake = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      seen.push({ url: String(url), headers, body: init?.body as string });
+      return Response.json({ echo: headers.Authorization, id: "o-7" });
+    });
+
+    const result = await sendRequest(
+      {
+        name: "Create order",
+        definition: {
+          ...emptyDefinition(),
+          method: "POST",
+          url: "https://api.test/{{vars.version}}/orders",
+          body: { type: "json", text: '{"sig":"{{vars.sig}}"}' },
+          postScript: `rq.test("ok", () => rq.expect(rq.response.json().id).toBe("o-7"));`,
+        },
+        collection: {
+          name: "Shop API",
+          settings: {
+            ...emptyScopeSettings(),
+            auth: { type: "bearer", token: "{{env.TOKEN}}" },
+            headers: [{ key: "X-Client", value: "reqora", enabled: true }],
+            preScript: `rq.variables.set("version", "v2"); console.log("token", rq.environment.get("TOKEN"));`,
+          },
+        },
+        folder: {
+          name: "Orders",
+          settings: { ...emptyScopeSettings(), preScript: `rq.variables.set("sig", "s-" + rq.variables.get("version"));` },
+        },
+      },
+      { environment: "production", baseUrl: "http://localhost", fetch: fake as unknown as typeof fetch },
+    );
+
+    expect(seen[0].url).toBe("https://api.test/v2/orders");
+    expect(seen[0].headers).toMatchObject({ "X-Client": "reqora", Authorization: "Bearer tok_super_secret" });
+    expect(seen[0].body).toBe('{"sig":"s-v2"}');
+    if (!("status" in result)) throw new Error(result.error);
+    expect(result.scripts.tests).toMatchObject([{ name: "ok", passed: true, scope: "request" }]);
+    expect(result.scripts.variables).toEqual({ version: "v2", sig: "s-v2" });
+    expect(result.scripts.logs[0].message).toBe("token [secret]");
+    expect((result.body as { echo: string }).echo).toBe("Bearer [secret]");
+    expect(JSON.stringify(result)).not.toContain("tok_super_secret");
+  });
+
+  it("aborts the send when a pre-request script fails", async () => {
+    const { sendRequest } = await import("./send");
+    const fake = vi.fn();
+    const result = await sendRequest(
+      { name: "r", definition: { ...emptyDefinition(), url: "https://x.test", preScript: "throw new Error('nope')" } },
+      { environment: "production", baseUrl: "http://localhost", fetch: fake as unknown as typeof fetch },
+    );
+    expect(fake).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ error: "pre-request script (request “r”) failed: Error: nope" });
   });
 });

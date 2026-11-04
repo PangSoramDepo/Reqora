@@ -3,18 +3,21 @@
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { beautifyJson } from "@/lib/collections/beautify";
-import { REQUEST_METHODS, type Auth, type Collection, type RequestDefinition, type RequestMethod } from "@/lib/collections/schema";
+import { REQUEST_METHODS, type Collection, type RequestDefinition, type RequestMethod } from "@/lib/collections/schema";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import type { Environment } from "@/lib/workflows/schema";
 import { AddToFlow } from "./add-to-flow";
 import { AssertionsEditor } from "./assertions-editor";
+import { AuthPanel, type InheritSource } from "./auth-panel";
 import { CodeEditor } from "./code-editor";
+import { inheritanceFor, InheritedHeaders } from "./inherited";
 import { KeyValueEditor } from "./key-value-editor";
+import { PHASE_LABEL, ScriptEditor } from "./script-editor";
 import { TemplateInput, useTokenInsert } from "./template-field";
 import { FIELD, GHOST_BUTTON, LABEL, METHOD_SELECT_TONE, SELECT } from "./ui";
 
 export type Draft = { name: string; folderId: string | null; definition: RequestDefinition };
-type Tab = "params" | "auth" | "headers" | "body" | "tests" | "settings";
+type Tab = "params" | "auth" | "headers" | "body" | "pre" | "post" | "tests" | "settings";
 
 type Props = {
   requestId: string;
@@ -28,6 +31,8 @@ type Props = {
   sending: boolean;
   onSave: () => void;
   onSend: () => void;
+  /** Opens a collection's or folder's settings (from "inherited from …" links). */
+  onOpenScope: (source: InheritSource) => void;
 };
 
 const TAB_IDLE = "px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors flex items-center gap-1.5";
@@ -66,64 +71,6 @@ function SuggestedTokens({ names }: { names: string[] }) {
   );
 }
 
-function AuthPanel({ auth, set }: { auth: Auth; set: (fn: (auth: Auth) => Auth) => void }) {
-  const field = (label: string, value: string, onValue: (v: string) => void, placeholder = "{{env.NAME}}") => (
-    <label className="flex flex-col gap-space-xxs">
-      <span className={LABEL}>{label}</span>
-      <TemplateInput aria-label={label} className={FIELD} value={value} onValue={onValue} placeholder={placeholder} />
-    </label>
-  );
-  return (
-    <div className="flex-1 overflow-auto p-space-sm grid grid-cols-1 md:grid-cols-[200px_1fr] gap-space-md">
-      <label className="flex flex-col gap-space-xxs">
-        <span className={LABEL}>Type</span>
-        <select
-          aria-label="Auth type"
-          className={`${SELECT} py-1.5`}
-          value={auth.type}
-          onChange={(e) => {
-            const type = e.target.value as Auth["type"];
-            set(() =>
-              type === "bearer"
-                ? { type, token: "" }
-                : type === "basic"
-                  ? { type, username: "", password: "" }
-                  : type === "apiKey"
-                    ? { type, header: "X-API-Key", value: "" }
-                    : { type: "none" },
-            );
-          }}
-        >
-          <option value="none">No auth</option>
-          <option value="bearer">Bearer token</option>
-          <option value="basic">Basic auth</option>
-          <option value="apiKey">API key header</option>
-        </select>
-        <span className="font-body-sm text-body-sm text-outline mt-space-xs">
-          Use <code className="text-tertiary">{"{{env.NAME}}"}</code> to reference a secret — the value never reaches the browser.
-        </span>
-      </label>
-      <div className="flex flex-col gap-space-sm">
-        {auth.type === "none" && <p className="font-body-sm text-body-sm text-on-surface-variant">This request sends no authorization.</p>}
-        {auth.type === "bearer" &&
-          field("Token", auth.token, (token) => set((a) => (a.type === "bearer" ? { ...a, token } : a)))}
-        {auth.type === "basic" && (
-          <>
-            {field("Username", auth.username, (username) => set((a) => (a.type === "basic" ? { ...a, username } : a)), "username")}
-            {field("Password", auth.password, (password) => set((a) => (a.type === "basic" ? { ...a, password } : a)))}
-          </>
-        )}
-        {auth.type === "apiKey" && (
-          <>
-            {field("Header", auth.header, (header) => set((a) => (a.type === "apiKey" ? { ...a, header } : a)), "X-API-Key")}
-            {field("Value", auth.value, (value) => set((a) => (a.type === "apiKey" ? { ...a, value } : a)))}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function RequestBuilder({
   requestId,
   draft,
@@ -136,6 +83,7 @@ export function RequestBuilder({
   sending,
   onSave,
   onSend,
+  onOpenScope,
 }: Props) {
   const [tab, setTab] = useState<Tab>(draft.definition.body.type !== "none" ? "body" : "params");
   const [beautifyHint, setBeautifyHint] = useState<string | null>(null);
@@ -143,13 +91,30 @@ export function RequestBuilder({
   const setDef = (fn: (d: RequestDefinition) => RequestDefinition) => update((d) => ({ ...d, definition: fn(d.definition) }));
   const env = ENVIRONMENT_LABELS[environment];
   const folder = collection?.folders.find((f) => f.id === draft.folderId);
+  const inherited = inheritanceFor(draft.name, def, collection, draft.folderId);
+  const scriptDot = (code: string) => (code.trim() ? <span className="w-1.5 h-1.5 rounded-full bg-tertiary" title="Script set" /> : null);
 
   const enabled = (rows: { enabled: boolean; key: string }[]) => rows.filter((r) => r.enabled && r.key.trim()).length;
   const tabs: { id: Tab; label: string; badge?: ReactNode }[] = [
     { id: "params", label: "Params", badge: enabled(def.params) ? <span className={COUNT}>{enabled(def.params)}</span> : null },
-    { id: "auth", label: "Authorization", badge: def.auth.type !== "none" ? <span className="text-tertiary font-label-sm text-label-sm">•</span> : null },
+    {
+      id: "auth",
+      label: "Authorization",
+      badge:
+        def.auth.type === "inherit" ? (
+          inherited.effective.auth.type !== "none" ? (
+            <span className="text-outline font-label-sm text-label-sm" title="Inherited from parent">
+              ↳
+            </span>
+          ) : null
+        ) : def.auth.type !== "none" ? (
+          <span className="text-tertiary font-label-sm text-label-sm">•</span>
+        ) : null,
+    },
     { id: "headers", label: "Headers", badge: enabled(def.headers) ? <span className={COUNT}>{enabled(def.headers)}</span> : null },
     { id: "body", label: "Body", badge: def.body.type !== "none" ? <span className="w-1.5 h-1.5 rounded-full bg-primary" /> : null },
+    { id: "pre", label: PHASE_LABEL.pre, badge: scriptDot(def.preScript) },
+    { id: "post", label: PHASE_LABEL.post, badge: scriptDot(def.postScript) },
     { id: "tests", label: "Tests", badge: def.assertions.length ? <span className={`${COUNT} text-secondary`}>{def.assertions.length}</span> : null },
     { id: "settings", label: "Settings" },
   ];
@@ -222,7 +187,7 @@ export function RequestBuilder({
             </div>
           </div>
           <div className="flex items-center gap-space-xs">
-            <AddToFlow name={draft.name} definition={def} />
+            <AddToFlow name={draft.name} definition={def} collectionId={collection?.id} folderId={draft.folderId} />
             <button
               type="button"
               onClick={onSave}
@@ -342,8 +307,8 @@ export function RequestBuilder({
       </div>
 
       {/* Editor panel */}
-      <div className="h-64 flex flex-col bg-surface-container-lowest overflow-hidden shrink-0">
-        {tab !== "settings" && tab !== "tests" && <SuggestedTokens names={variableNames} />}
+      <div className="h-72 flex flex-col bg-surface-container-lowest overflow-hidden shrink-0">
+        {(tab === "params" || tab === "auth" || tab === "headers" || tab === "body") && <SuggestedTokens names={variableNames} />}
         {tab === "params" && (
           <KeyValueEditor
             label="Query params"
@@ -352,6 +317,7 @@ export function RequestBuilder({
             onRows={(fn) => setDef((d) => ({ ...d, params: fn(d.params) }))}
           />
         )}
+        {tab === "headers" && <InheritedHeaders inherited={inherited.headers} own={def.headers} />}
         {tab === "headers" && (
           <KeyValueEditor
             label="Headers"
@@ -360,7 +326,26 @@ export function RequestBuilder({
             onRows={(fn) => setDef((d) => ({ ...d, headers: fn(d.headers) }))}
           />
         )}
-        {tab === "auth" && <AuthPanel auth={def.auth} set={(fn) => setDef((d) => ({ ...d, auth: fn(d.auth) }))} />}
+        {tab === "auth" && (
+          <AuthPanel
+            auth={def.auth}
+            set={(fn) => setDef((d) => ({ ...d, auth: fn(d.auth) }))}
+            level="request"
+            allowInherit
+            inherited={{ auth: inherited.effective.auth, source: inherited.authSource }}
+            onOpenSource={onOpenScope}
+          />
+        )}
+        {(tab === "pre" || tab === "post") && (
+          <ScriptEditor
+            key={tab}
+            phase={tab}
+            value={tab === "pre" ? def.preScript : def.postScript}
+            onValue={(code) => setDef((d) => (tab === "pre" ? { ...d, preScript: code } : { ...d, postScript: code }))}
+            self="this request"
+            inherited={tab === "pre" ? inherited.pre : inherited.post}
+          />
+        )}
         {tab === "body" &&
           (def.body.type === "none" ? (
             <div className="flex-1 flex items-center justify-center font-body-sm text-body-sm text-on-surface-variant">

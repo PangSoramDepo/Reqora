@@ -34,6 +34,11 @@ In production set `REQORA_SECRET_KEY` (32 bytes, hex or base64) — the server r
   `REQORA_ENV_NAME`. Secret values are AES-256-GCM encrypted at rest, write-only through the API, and scrubbed
   from stored run history even if an upstream echoes them.
 
+- **Collections inherit like Postman.** Collections and folders carry auth, headers and pre-request /
+  post-response scripts; requests use "Inherit auth from parent" by default. Scripts are JavaScript run in a QuickJS
+  WebAssembly sandbox (no network, files or timers; 1 s / 32 MB each) with an `rq` API — see the API description.
+  Drag requests to reorder them, or drag a saved request from the sidebar onto the canvas to make an HTTP node.
+
 ## API
 
 The contract is [`api/openapi.yaml`](api/openapi.yaml). Summary:

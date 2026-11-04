@@ -15,6 +15,15 @@ info:
 
     Errors use `application/problem+json` (RFC 9457).
 
+    **Scripts (collections).** Pre-request and post-response scripts are JavaScript run in a QuickJS sandbox
+    (WebAssembly; no network, files, timers or Node APIs; 1 s CPU and 32 MB per script). They get `rq`:
+    `rq.request` (method, url, params, headers, body — templates unresolved, auth not yet applied; editable in
+    pre-request scripts), `rq.response` (status, statusText, headers, body text, responseTime, json(); post only),
+    `rq.variables.get/set/unset/toObject` (usable in templates as `{{vars.NAME}}`),
+    `rq.environment.get("NAME")` (only names written literally are available), `rq.test(name, fn)`,
+    `rq.expect(value)` (toBe, toEqual, toContain, toBeTruthy, toBeFalsy, toBeGreaterThan, toBeLessThan,
+    toHaveProperty, toMatch) and `console`. Resolved environment values are scrubbed from everything returned.
+
     **Authentication.** Every operation requires the `reqora_session` cookie from `POST /api/auth/login`
     (401 otherwise), except the ones marked `security: []`: the auth endpoints, the webhook entry point
     (callers are external systems) and the local demo upstreams.
@@ -553,7 +562,7 @@ paths:
         "404": { $ref: "#/components/responses/Problem" }
     patch:
       operationId: updateCollection
-      summary: Rename a collection or change its description
+      summary: Rename a collection, change its description, or replace its inherited settings
       requestBody:
         required: true
         content:
@@ -564,6 +573,7 @@ paths:
               properties:
                 name: { type: string, minLength: 1, maxLength: 120 }
                 description: { type: [string, "null"], maxLength: 2000 }
+                settings: { $ref: "#/components/schemas/ScopeSettings" }
       responses:
         "200":
           description: Updated
@@ -634,16 +644,21 @@ paths:
         required: true
         schema: { type: string }
     patch:
-      operationId: renameFolder
-      summary: Rename a folder
+      operationId: updateFolder
+      summary: Rename a folder and/or replace its inherited settings
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/NameInput" }
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                settings: { $ref: "#/components/schemas/ScopeSettings" }
       responses:
         "200":
-          description: Renamed
+          description: Updated
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Folder" }
@@ -655,6 +670,100 @@ paths:
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/Problem" }
+  /api/folders/{folderId}/move:
+    parameters:
+      - name: folderId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: moveFolder
+      summary: Reorder a folder within its collection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [index]
+              properties:
+                index: { type: integer, minimum: 0, description: Zero-based position among the collection's folders }
+      responses:
+        "200":
+          description: Moved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Folder" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/requests/{requestId}/move:
+    parameters:
+      - $ref: "#/components/parameters/RequestId"
+    post:
+      operationId: moveRequest
+      summary: Move or reorder a request
+      description: |
+        Places the request at `index` among the requests directly in `folderId` (or the collection root when null),
+        possibly in another collection. The remaining siblings are renumbered.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [collectionId, folderId, index]
+              properties:
+                collectionId: { type: string }
+                folderId: { type: [string, "null"] }
+                index: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: Moved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedRequest" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+  /api/requests/to-node:
+    post:
+      operationId: requestToWorkflowNode
+      summary: Convert a request into a workflow http node config
+      description: |
+        Applies the request's collection/folder auth and headers. Scripts and tests are not carried over
+        (listed in `warnings`). The caller chooses where to place the node.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [requestId]
+                  properties:
+                    requestId: { type: string }
+                - type: object
+                  required: [name, definition]
+                  properties:
+                    name: { type: string }
+                    definition: { $ref: "#/components/schemas/RequestDefinition" }
+                    collectionId: { type: string }
+                    folderId: { type: [string, "null"] }
+      responses:
+        "200":
+          description: Node draft
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [name, config, warnings]
+                properties:
+                  name: { type: string }
+                  config: { description: "An http node config (see HttpNode)" }
+                  warnings: { type: array, items: { type: string } }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
   /api/requests/{requestId}:
     parameters:
       - $ref: "#/components/parameters/RequestId"
@@ -739,6 +848,8 @@ paths:
               properties:
                 definition: { $ref: "#/components/schemas/RequestDefinition" }
                 environment: { $ref: "#/components/schemas/EnvironmentName" }
+                collectionId: { type: string, description: "Inherit this collection's auth, headers and scripts" }
+                folderId: { type: [string, "null"], description: "Inherit this folder's settings too" }
       responses:
         "200":
           description: The upstream response, or a SendFailure
@@ -1129,13 +1240,14 @@ components:
         description: { type: string, maxLength: 2000 }
     Collection:
       type: object
-      required: [id, name, createdAt, updatedAt, folders, requests]
+      required: [id, name, createdAt, updatedAt, settings, folders, requests]
       properties:
         id: { type: string }
         name: { type: string }
         description: { type: string }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        settings: { $ref: "#/components/schemas/ScopeSettings" }
         folders:
           type: array
           items: { $ref: "#/components/schemas/Folder" }
@@ -1144,12 +1256,83 @@ components:
           items: { $ref: "#/components/schemas/RequestSummary" }
     Folder:
       type: object
-      required: [id, collectionId, name, position]
+      required: [id, collectionId, name, position, settings]
       properties:
         id: { type: string }
         collectionId: { type: string }
         name: { type: string }
         position: { type: integer }
+        settings: { $ref: "#/components/schemas/ScopeSettings" }
+    Auth:
+      description: |
+        `inherit` (the default for requests and folders) uses the nearest parent's auth: request → folder →
+        collection; an inheriting collection means no auth. Adds an Authorization (or API key) header unless a
+        header of that name is set explicitly or by a pre-request script.
+      oneOf:
+        - type: object
+          required: [type]
+          properties: { type: { enum: [inherit, none] } }
+        - type: object
+          required: [type, token]
+          properties: { type: { const: bearer }, token: { type: string } }
+        - type: object
+          required: [type, username, password]
+          properties: { type: { const: basic }, username: { type: string }, password: { type: string } }
+        - type: object
+          required: [type, header, value]
+          properties: { type: { const: apiKey }, header: { type: string }, value: { type: string } }
+    ScopeSettings:
+      type: object
+      description: |
+        Shared by every request in a collection or folder. Headers merge collection → folder → request (the more
+        specific level wins on the same name); scripts run collection → folder → request in both phases.
+      properties:
+        auth: { $ref: "#/components/schemas/Auth" }
+        headers:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/KeyValue" }
+        preScript: { type: string, maxLength: 50000, description: "Pre-request script (see Scripts in the API description)" }
+        postScript: { type: string, maxLength: 50000, description: Post-response script }
+    ScriptReport:
+      type: object
+      required: [logs, tests, errors, variables]
+      properties:
+        logs:
+          type: array
+          items:
+            type: object
+            required: [level, message, scope, source]
+            properties:
+              level: { type: string, enum: [log, info, warn, error] }
+              message: { type: string }
+              scope: { type: string, enum: [collection, folder, request] }
+              source: { type: string, description: "Name of the collection, folder or request" }
+        tests:
+          type: array
+          items:
+            type: object
+            required: [name, passed, scope, source]
+            properties:
+              name: { type: string }
+              passed: { type: boolean }
+              error: { type: string }
+              scope: { type: string, enum: [collection, folder, request] }
+              source: { type: string }
+        errors:
+          type: array
+          items:
+            type: object
+            required: [phase, scope, source, message]
+            properties:
+              phase: { type: string, enum: [pre, post] }
+              scope: { type: string, enum: [collection, folder, request] }
+              source: { type: string }
+              message: { type: string }
+        variables:
+          type: object
+          additionalProperties: { type: string }
+          description: "Values set with rq.variables.set, available to templates as {{vars.NAME}}"
     RequestSummary:
       type: object
       required: [id, name, method, url, folderId]
@@ -1184,21 +1367,9 @@ components:
           type: array
           maxItems: 100
           items: { $ref: "#/components/schemas/KeyValue" }
-        auth:
-          description: Adds an Authorization (or API key) header unless an enabled header of that name is set explicitly
-          oneOf:
-            - type: object
-              required: [type]
-              properties: { type: { const: none } }
-            - type: object
-              required: [type, token]
-              properties: { type: { const: bearer }, token: { type: string } }
-            - type: object
-              required: [type, username, password]
-              properties: { type: { const: basic }, username: { type: string }, password: { type: string } }
-            - type: object
-              required: [type, header, value]
-              properties: { type: { const: apiKey }, header: { type: string }, value: { type: string } }
+        auth: { $ref: "#/components/schemas/Auth" }
+        preScript: { type: string, maxLength: 50000, default: "", description: "Runs after the collection's and folder's pre-request scripts" }
+        postScript: { type: string, maxLength: 50000, default: "", description: "Runs after the collection's and folder's post-response scripts" }
         body:
           description: Ignored for GET and HEAD. `json` text is a JSON template (see the API description); `text` is sent as-is.
           oneOf:
@@ -1262,7 +1433,7 @@ components:
         updatedAt: { type: string, format: date-time }
     SendResult:
       type: object
-      required: [status, statusText, headers, body, size, durationMs, url, assertions]
+      required: [status, statusText, headers, body, size, durationMs, url, assertions, scripts]
       properties:
         status: { type: integer }
         statusText: { type: string }
@@ -1274,14 +1445,16 @@ components:
         assertions:
           type: array
           items: { $ref: "#/components/schemas/AssertionResult" }
+        scripts: { $ref: "#/components/schemas/ScriptReport" }
     SendFailure:
       type: object
-      description: No HTTP response was received
+      description: No HTTP response was received (including when a pre-request script fails)
       required: [error, durationMs]
       properties:
         error: { type: string }
         url: { type: string }
         durationMs: { type: integer }
+        scripts: { $ref: "#/components/schemas/ScriptReport" }
     SendOutcome:
       oneOf:
         - $ref: "#/components/schemas/SendResult"

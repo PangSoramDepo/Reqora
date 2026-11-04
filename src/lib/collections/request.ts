@@ -1,5 +1,5 @@
 import { renderJson, renderString, type TemplateContext } from "@/lib/workflows/template";
-import type { Auth, KeyValue, RequestDefinition } from "./schema";
+import type { Auth, Body, KeyValue, RequestDefinition } from "./schema";
 
 /** Appends enabled, non-empty-key params to a URL as a query string (keeps any query already present). */
 export function buildUrl(url: string, params: KeyValue[]): string {
@@ -20,9 +20,10 @@ export function base64(text: string): string {
   return btoa(binary);
 }
 
-/** The header an auth setting produces, or undefined for `none` / incomplete settings. */
+/** The header an auth setting produces, or undefined for `none` / `inherit` / incomplete settings. */
 export function authHeader(auth: Auth): [string, string] | undefined {
   switch (auth.type) {
+    case "inherit":
     case "none":
       return undefined;
     case "bearer":
@@ -53,33 +54,72 @@ export function headerRecord(headers: KeyValue[], auth: Auth, render: (s: string
   return Object.fromEntries(out.values());
 }
 
+/**
+ * The request as pre-request scripts see it: templates not yet resolved (so a script can set variables the
+ * templates then use), query params separate, and no auth header yet — auth is applied after the scripts
+ * unless a script sets that header itself.
+ */
+export type DraftRequest = {
+  method: string;
+  url: string;
+  params: { key: string; value: string }[];
+  headers: Record<string, string>;
+  body?: string;
+};
+
+export function draftRequest(def: RequestDefinition, headers: KeyValue[] = def.headers): DraftRequest {
+  const hasBody = def.method !== "GET" && def.method !== "HEAD" && def.body.type !== "none";
+  return {
+    method: def.method,
+    url: def.url,
+    params: def.params.filter((p) => p.enabled && p.key.trim()).map(({ key, value }) => ({ key, value })),
+    headers: headerRecord(headers, { type: "none" }),
+    ...(hasBody && def.body.type !== "none" ? { body: def.body.text } : {}),
+  };
+}
+
 export type PreparedRequest = {
-  method: RequestDefinition["method"];
+  method: string;
   url: string;
   headers: Record<string, string>;
   body?: string;
 };
 
-/** Renders every template in a definition. Throws TemplateError for missing variables or invalid JSON bodies. */
-export function prepareRequest(def: RequestDefinition, ctx: TemplateContext, baseUrl: string): PreparedRequest {
+/** Renders every template in a draft and applies auth. Throws TemplateError for missing variables or invalid JSON. */
+export function renderDraft(
+  draft: DraftRequest,
+  auth: Auth,
+  bodyType: Body["type"],
+  ctx: TemplateContext,
+  baseUrl: string,
+): PreparedRequest {
   const render = (s: string) => renderString(s, ctx);
   const rawUrl = buildUrl(
-    render(def.url),
-    def.params.map((p) => ({ ...p, key: render(p.key), value: render(p.value) })),
+    render(draft.url),
+    draft.params.map((p) => ({ key: render(p.key), value: render(p.value), enabled: true })),
   );
   const url = new URL(rawUrl, baseUrl).toString();
-  const headers = headerRecord(def.headers, def.auth, render);
+  const headers = headerRecord(
+    Object.entries(draft.headers).map(([key, value]) => ({ key, value, enabled: true })),
+    auth,
+    render,
+  );
   const hasHeader = (name: string) => Object.keys(headers).some((k) => k.toLowerCase() === name);
 
   let body: string | undefined;
-  if (def.method !== "GET" && def.method !== "HEAD" && def.body.type !== "none") {
-    if (def.body.type === "json") {
-      body = def.body.text.trim() === "" ? undefined : JSON.stringify(renderJson(def.body.text, ctx));
+  if (draft.method !== "GET" && draft.method !== "HEAD" && draft.body !== undefined) {
+    if (bodyType === "json") {
+      body = draft.body.trim() === "" ? undefined : JSON.stringify(renderJson(draft.body, ctx));
       if (body !== undefined && !hasHeader("content-type")) headers["Content-Type"] = "application/json";
     } else {
-      body = render(def.body.text);
+      body = render(draft.body);
       if (!hasHeader("content-type")) headers["Content-Type"] = "text/plain";
     }
   }
-  return { method: def.method, url, headers, body };
+  return { method: draft.method, url, headers, body };
+}
+
+/** Renders a definition on its own (no inherited settings, no scripts). */
+export function prepareRequest(def: RequestDefinition, ctx: TemplateContext, baseUrl: string): PreparedRequest {
+  return renderDraft(draftRequest(def), def.auth, def.body.type, ctx, baseUrl);
 }

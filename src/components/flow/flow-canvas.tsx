@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Icon } from "@/components/icon";
 import { onCanvasCommand, publishCanvasState } from "@/lib/canvas-events";
-import { ADD_NODE_EVENT, NODE_DRAG_MIME } from "@/lib/workflows/defaults";
+import { ADD_NODE_EVENT, ADD_REQUEST_EVENT, NODE_DRAG_MIME, REQUEST_DRAG_MIME } from "@/lib/workflows/defaults";
 import type { NodeType, Step, WorkflowEdge, WorkflowNode } from "@/lib/workflows/schema";
 import { NODE_WIDTH, edgePath, edgeStyle, portKey, type Point, type PortOffsets } from "./graph";
 import { NodeCard, TYPE_STYLE } from "./node-cards";
@@ -28,6 +28,8 @@ type FlowCanvasProps = {
   onMoveEnd: () => void;
   onAutoLayout: () => void;
   onAddNode: (type: NodeType, position: Point) => void;
+  /** A saved request from Collections dropped (or double-clicked) onto the canvas. */
+  onAddRequest: (requestId: string, position: Point) => void;
   onConnect: (source: string, sourcePort: string, target: string) => void;
 };
 
@@ -47,6 +49,7 @@ export function FlowCanvas({
   onMoveEnd,
   onAutoLayout,
   onAddNode,
+  onAddRequest,
   onConnect,
 }: FlowCanvasProps) {
   const [zoom, setZoom] = useState(1);
@@ -94,19 +97,21 @@ export function FlowCanvas({
   );
   useEffect(() => publishCanvasState({ zoom }), [zoom]);
 
-  // Double-clicking a Node Library block adds it at the centre of the current view.
+  // Double-clicking a Node Library block or saved request adds it at the centre of the current view.
   useEffect(() => {
-    const add = (event: Event) => {
+    const centre = () => {
       const { pan: p, zoom: z, viewport: v } = viewRef.current;
-      const type = (event as CustomEvent<NodeType>).detail;
-      onAddNode(type, {
-        x: Math.round((v.width / 2 - p.x) / z - NODE_WIDTH / 2),
-        y: Math.round((v.height / 2 - p.y) / z - 80),
-      });
+      return { x: Math.round((v.width / 2 - p.x) / z - NODE_WIDTH / 2), y: Math.round((v.height / 2 - p.y) / z - 80) };
     };
-    window.addEventListener(ADD_NODE_EVENT, add);
-    return () => window.removeEventListener(ADD_NODE_EVENT, add);
-  }, [onAddNode]);
+    const addNode = (event: Event) => onAddNode((event as CustomEvent<NodeType>).detail, centre());
+    const addRequest = (event: Event) => onAddRequest((event as CustomEvent<string>).detail, centre());
+    window.addEventListener(ADD_NODE_EVENT, addNode);
+    window.addEventListener(ADD_REQUEST_EVENT, addRequest);
+    return () => {
+      window.removeEventListener(ADD_NODE_EVENT, addNode);
+      window.removeEventListener(ADD_REQUEST_EVENT, addRequest);
+    };
+  }, [onAddNode, onAddRequest]);
 
   // Edge endpoints come from the rendered port dots, so wires stay attached whatever the card layout.
   useEffect(() => {
@@ -226,14 +231,18 @@ export function FlowCanvas({
     setPanning(false);
   };
 
-  const acceptsDrop = (event: DragEvent) => event.dataTransfer.types.includes(NODE_DRAG_MIME);
+  const acceptsDrop = (event: DragEvent) =>
+    event.dataTransfer.types.includes(NODE_DRAG_MIME) || event.dataTransfer.types.includes(REQUEST_DRAG_MIME);
 
   const drop = (event: DragEvent<HTMLDivElement>) => {
     const type = event.dataTransfer.getData(NODE_DRAG_MIME) as NodeType;
-    if (!type) return;
+    const requestId = event.dataTransfer.getData(REQUEST_DRAG_MIME);
+    if (!type && !requestId) return;
     event.preventDefault();
     const point = toCanvas(event.clientX, event.clientY);
-    onAddNode(type, { x: Math.round(point.x - NODE_WIDTH / 2), y: Math.round(point.y - 20) });
+    const position = { x: Math.round(point.x - NODE_WIDTH / 2), y: Math.round(point.y - 20) };
+    if (type) onAddNode(type, position);
+    else onAddRequest(requestId, position);
   };
 
   /** Zooms and pans so every node is visible (never zooming in past 100%). */

@@ -15,6 +15,8 @@ export const keyValueSchema = z.object({
 });
 
 export const authSchema = z.discriminatedUnion("type", [
+  /** Use the folder's auth, else the collection's (Postman's "Inherit auth from parent"). */
+  z.object({ type: z.literal("inherit") }),
   z.object({ type: z.literal("none") }),
   z.object({ type: z.literal("bearer"), token: template() }),
   z.object({ type: z.literal("basic"), username: template(), password: template() }),
@@ -36,6 +38,8 @@ export const assertionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("jsonPathExists"), path: z.string().min(1).max(500) }),
 ]);
 
+const script = z.string().max(50_000);
+
 export const settingsSchema = z.object({
   timeoutMs: z.number().int().min(100).max(30_000).default(10_000),
   followRedirects: z.boolean().default(true),
@@ -46,11 +50,25 @@ export const requestDefinitionSchema = z.object({
   url: template(2000).default(""),
   params: z.array(keyValueSchema).max(100).default([]),
   headers: z.array(keyValueSchema).max(100).default([]),
-  auth: authSchema.default({ type: "none" }),
+  auth: authSchema.default({ type: "inherit" }),
   body: bodySchema.default({ type: "none" }),
   assertions: z.array(assertionSchema).max(50).default([]),
+  /** JavaScript run in a sandbox before sending (after the collection's and folder's scripts). */
+  preScript: script.default(""),
+  /** JavaScript run after the response arrives (after the collection's and folder's scripts). */
+  postScript: script.default(""),
   settings: settingsSchema.default({ timeoutMs: 10_000, followRedirects: true }),
 });
+
+/** Auth, headers and scripts shared by every request in a collection or folder. */
+export const scopeSettingsSchema = z.object({
+  auth: authSchema.default({ type: "inherit" }),
+  headers: z.array(keyValueSchema).max(100).default([]),
+  preScript: script.default(""),
+  postScript: script.default(""),
+});
+export type ScopeSettings = z.infer<typeof scopeSettingsSchema>;
+export const emptyScopeSettings = (): ScopeSettings => scopeSettingsSchema.parse({});
 
 export type KeyValue = z.infer<typeof keyValueSchema>;
 export type Auth = z.infer<typeof authSchema>;
@@ -66,11 +84,25 @@ const id = z.string().min(1).max(100);
 
 export const collectionInputSchema = z.object({ name, description: z.string().max(2000).optional() });
 export const collectionPatchSchema = z
-  .object({ name: name.optional(), description: z.string().max(2000).nullable().optional() })
-  .refine((v) => v.name !== undefined || v.description !== undefined, "provide name and/or description");
+  .object({
+    name: name.optional(),
+    description: z.string().max(2000).nullable().optional(),
+    settings: scopeSettingsSchema.optional(),
+  })
+  .refine((v) => v.name !== undefined || v.description !== undefined || v.settings !== undefined, "provide name, description and/or settings");
 
 export const folderInputSchema = z.object({ name });
-export const folderPatchSchema = z.object({ name });
+export const folderPatchSchema = z
+  .object({ name: name.optional(), settings: scopeSettingsSchema.optional() })
+  .refine((v) => v.name !== undefined || v.settings !== undefined, "provide name and/or settings");
+
+/** Move a request to a position within a collection (root when folderId is null) or a folder. */
+export const requestMoveSchema = z.object({
+  collectionId: id,
+  folderId: id.nullable(),
+  index: z.number().int().min(0),
+});
+export const folderMoveSchema = z.object({ index: z.number().int().min(0) });
 
 export const requestCreateSchema = z.object({
   name,
@@ -86,7 +118,16 @@ export const requestReplaceSchema = z.object({
 export const sendInputSchema = z.object({
   definition: requestDefinitionSchema,
   environment: environmentSchema.default("production"),
+  /** Where the (possibly unsaved) request lives, so collection/folder auth, headers and scripts apply. */
+  collectionId: id.optional(),
+  folderId: id.nullable().optional(),
 });
+
+/** Convert a request into a workflow http node config, saved (requestId) or unsaved (definition + location). */
+export const toNodeInputSchema = z.union([
+  z.object({ requestId: id }),
+  z.object({ name, definition: requestDefinitionSchema, collectionId: id.optional(), folderId: id.nullable().optional() }),
+]);
 
 export const importInputSchema = z.object({
   format: z.enum(["curl", "openapi"]),
@@ -96,6 +137,19 @@ export const importInputSchema = z.object({
 });
 
 export type AssertionResult = { assertion: Assertion; passed: boolean; actual?: string };
+
+export type ScriptLog = { level: "log" | "info" | "warn" | "error"; message: string; scope: "collection" | "folder" | "request"; source: string };
+export type ScriptTestResult = { name: string; passed: boolean; error?: string; scope: "collection" | "folder" | "request"; source: string };
+export type ScriptErrorInfo = { phase: "pre" | "post"; scope: "collection" | "folder" | "request"; source: string; message: string };
+
+/** What the scripts did during a send. */
+export type ScriptReport = {
+  logs: ScriptLog[];
+  tests: ScriptTestResult[];
+  errors: ScriptErrorInfo[];
+  /** Variables after all scripts ran (usable as {{vars.NAME}} in this request). */
+  variables: Record<string, string>;
+};
 
 export type SendResult = {
   status: number;
@@ -107,14 +161,15 @@ export type SendResult = {
   durationMs: number;
   url: string;
   assertions: AssertionResult[];
+  scripts: ScriptReport;
 };
 
 /** Network failure, timeout, or template error — no HTTP response was received. */
-export type SendFailure = { error: string; url?: string; durationMs: number };
+export type SendFailure = { error: string; url?: string; durationMs: number; scripts?: ScriptReport };
 export type SendOutcome = SendResult | SendFailure;
 
 export type RequestSummary = { id: string; name: string; method: RequestMethod; url: string; folderId: string | null };
-export type Folder = { id: string; collectionId: string; name: string; position: number };
+export type Folder = { id: string; collectionId: string; name: string; position: number; settings: ScopeSettings };
 
 export type Collection = {
   id: string;
@@ -122,6 +177,7 @@ export type Collection = {
   description?: string;
   createdAt: string;
   updatedAt: string;
+  settings: ScopeSettings;
   folders: Folder[];
   requests: RequestSummary[];
 };

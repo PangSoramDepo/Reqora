@@ -15,19 +15,24 @@ import {
   fetchCollections,
   fetchExamples,
   fetchRequest,
+  moveFolder,
+  moveRequest,
   renameFolder,
   saveRequest,
   sendAdHoc,
   updateCollection,
+  updateFolderSettings,
 } from "@/lib/collections/client";
-import type { Collection, Example, SavedRequest, SendOutcome } from "@/lib/collections/schema";
+import type { Collection, Example, SavedRequest, ScopeSettings, SendOutcome } from "@/lib/collections/schema";
 import { useEnvironment } from "@/lib/environment";
 import { fetchVariables } from "@/lib/workflows/client";
 import type { Environment } from "@/lib/workflows/schema";
-import { Explorer, type NodeKind, type Renaming } from "./explorer";
+import type { InheritSource } from "./auth-panel";
+import { Explorer, type NodeKind, type Renaming, type RequestTarget, type ScopeRef } from "./explorer";
 import { ImportDialog } from "./import-dialog";
 import { RequestBuilder, type Draft } from "./request-builder";
 import { ResponseViewer } from "./response-viewer";
+import { ScopeSettingsPanel } from "./scope-settings";
 import { TokenProvider } from "./template-field";
 
 /** Key-order independent JSON, so "dirty" survives the server re-serialising a definition. */
@@ -44,9 +49,48 @@ function stable(value: unknown): string {
 
 const toDraft = (r: SavedRequest): Draft => ({ name: r.name, folderId: r.folderId, definition: r.definition });
 
+/** Optimistically applies a request move to the explorer tree (the server renumbers positions the same way). */
+function applyRequestMove(collections: Collection[], id: string, t: RequestTarget): Collection[] {
+  const moving = collections.flatMap((c) => c.requests).find((r) => r.id === id);
+  if (!moving) return collections;
+  const moved = { ...moving, folderId: t.folderId };
+  return collections.map((c) => {
+    let requests = c.requests.filter((r) => r.id !== id);
+    if (c.id === t.collectionId) {
+      const container = requests.filter((r) => r.folderId === t.folderId);
+      const before = container[t.index];
+      const at = before ? requests.indexOf(before) : container.length ? requests.indexOf(container[container.length - 1]) + 1 : requests.length;
+      requests = [...requests.slice(0, at), moved, ...requests.slice(at)];
+    }
+    return requests.length === c.requests.length && requests.every((r, i) => r === c.requests[i]) ? c : { ...c, requests };
+  });
+}
+
+function applyFolderMove(collections: Collection[], id: string, index: number): Collection[] {
+  return collections.map((c) => {
+    const folder = c.folders.find((f) => f.id === id);
+    if (!folder) return c;
+    const folders = c.folders.filter((f) => f.id !== id);
+    folders.splice(Math.min(index, folders.length), 0, folder);
+    return { ...c, folders };
+  });
+}
+
+type Target = { request: string } | ScopeRef | null;
+
 export function CollectionsWorkspace() {
   const router = useRouter();
-  const selectedId = useSearchParams().get("request");
+  const params = useSearchParams();
+  const selectedId = params.get("request");
+  const folderParam = params.get("folder");
+  const collectionParam = params.get("collection");
+  const selectedScope: ScopeRef | null = selectedId
+    ? null
+    : folderParam
+      ? { kind: "folder", id: folderParam }
+      : collectionParam
+        ? { kind: "collection", id: collectionParam }
+        : null;
   const environment = useEnvironment();
 
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -64,6 +108,10 @@ export function CollectionsWorkspace() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<{ id: string; text: string; tone: "error" | "ok" } | null>(null);
   const [vars, setVars] = useState<{ env: Environment; names: string[] } | null>(null);
+  // Collection / folder settings being edited, tagged with "kind:id".
+  const [scopeEdit, setScopeEdit] = useState<{ key: string; settings: ScopeSettings } | null>(null);
+  const [scopeSaving, setScopeSaving] = useState(false);
+  const [scopeError, setScopeError] = useState<{ key: string; text: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +167,15 @@ export function CollectionsWorkspace() {
   const sending = sendingId !== null && sendingId === selectedId;
   const currentNotice = notice?.id === selectedId ? notice : null;
 
+  const scopeKey = selectedScope ? `${selectedScope.kind}:${selectedScope.id}` : null;
+  const scopeCollection = selectedScope
+    ? collections.find((c) => (selectedScope.kind === "collection" ? c.id === selectedScope.id : c.folders.some((f) => f.id === selectedScope.id)))
+    : undefined;
+  const scopeFolder = selectedScope?.kind === "folder" ? scopeCollection?.folders.find((f) => f.id === selectedScope.id) : undefined;
+  const scopeBase = selectedScope?.kind === "folder" ? scopeFolder?.settings : scopeCollection?.settings;
+  const scopeDraft = scopeKey && scopeEdit?.key === scopeKey ? scopeEdit.settings : scopeBase;
+  const scopeDirty = Boolean(scopeDraft && scopeBase && stable(scopeDraft) !== stable(scopeBase));
+
   const refresh = () =>
     fetchCollections()
       .then((list) => {
@@ -126,6 +183,8 @@ export function CollectionsWorkspace() {
         setListError(null);
       })
       .catch((e: Error) => setListError(e.message));
+
+  const fail = (e: Error) => setListError(e.message);
 
   const update = (fn: (d: Draft) => Draft) => {
     if (!selectedId) return;
@@ -135,11 +194,92 @@ export function CollectionsWorkspace() {
     });
   };
 
-  const navigate = (id: string | null, { force = false } = {}) => {
-    if (!force && dirty && id !== selectedId && !window.confirm("Discard unsaved changes to this request?")) return false;
-    if (dirty && id !== selectedId) setEdit(null);
-    router.push(id ? `/collections?request=${encodeURIComponent(id)}` : "/collections", { scroll: false });
+  /** Opens a request, a collection's or folder's settings, or nothing; confirms before dropping unsaved edits. */
+  const go = (target: Target, { force = false } = {}) => {
+    const same = !target
+      ? !selectedId && !selectedScope
+      : "request" in target
+        ? target.request === selectedId
+        : selectedScope?.kind === target.kind && selectedScope.id === target.id;
+    if (same) return true;
+    if (!force && dirty && !window.confirm("Discard unsaved changes to this request?")) return false;
+    if (!force && scopeDirty && !window.confirm("Discard unsaved changes to these settings?")) return false;
+    if (dirty) setEdit(null);
+    if (scopeDirty) setScopeEdit(null);
+    const query = !target ? "" : "request" in target ? `?request=${encodeURIComponent(target.request)}` : `?${target.kind}=${encodeURIComponent(target.id)}`;
+    router.push(`/collections${query}`, { scroll: false });
     return true;
+  };
+  const navigate = (id: string | null, options?: { force?: boolean }) => go(id ? { request: id } : null, options);
+  const openScope = (source: InheritSource | ScopeRef) => go("scope" in source ? { kind: source.scope, id: source.id } : source);
+
+  const updateScope = (fn: (s: ScopeSettings) => ScopeSettings) => {
+    if (!scopeKey) return;
+    setScopeEdit((e) => {
+      const start = e?.key === scopeKey ? e.settings : scopeBase;
+      return start ? { key: scopeKey, settings: fn(start) } : e;
+    });
+  };
+
+  const saveScope = () => {
+    if (!selectedScope || !scopeKey || !scopeDraft || scopeSaving) return;
+    const scope = selectedScope;
+    const key = scopeKey;
+    const settings = scopeDraft;
+    setScopeSaving(true);
+    const op =
+      scope.kind === "collection"
+        ? updateCollection(scope.id, { settings }).then((c) => c.settings)
+        : updateFolderSettings(scope.id, settings).then((f) => f.settings);
+    op.then((saved) => {
+      setCollections((cs) =>
+        cs.map((c) =>
+          scope.kind === "collection"
+            ? c.id === scope.id
+              ? { ...c, settings: saved }
+              : c
+            : { ...c, folders: c.folders.map((f) => (f.id === scope.id ? { ...f, settings: saved } : f)) },
+        ),
+      );
+      setScopeEdit((e) => (e?.key === key ? null : e));
+      setScopeError(null);
+      void refresh();
+    })
+      .catch((e: Error) => setScopeError({ key, text: `Save failed: ${e.message}` }))
+      .finally(() => setScopeSaving(false));
+  };
+
+  const moveRequestTo = (id: string, target: RequestTarget) => {
+    const from = collections.find((c) => c.requests.some((r) => r.id === id));
+    const request = from?.requests.find((r) => r.id === id);
+    if (from && request && from.id === target.collectionId && request.folderId === target.folderId) {
+      const index = from.requests.filter((r) => r.folderId === request.folderId).findIndex((r) => r.id === id);
+      if (index === target.index) return;
+    }
+    setCollections((cs) => applyRequestMove(cs, id, target));
+    moveRequest(id, target)
+      .then((moved) => {
+        // Keep unsaved edits of the open request, but at its new location so a later Save doesn't move it back.
+        setLoaded((l) => (l?.id === id && l.request ? { id, request: moved } : l));
+        setEdit((e) => (e?.id === id ? { id, draft: { ...e.draft, folderId: moved.folderId } } : e));
+        return refresh();
+      })
+      .catch((e: Error) => {
+        fail(e);
+        void refresh();
+      });
+  };
+
+  const moveFolderTo = (id: string, index: number) => {
+    const from = collections.find((c) => c.folders.some((f) => f.id === id));
+    if (from && from.folders.findIndex((f) => f.id === id) === index) return;
+    setCollections((cs) => applyFolderMove(cs, id, index));
+    moveFolder(id, index)
+      .then(refresh)
+      .catch((e: Error) => {
+        fail(e);
+        void refresh();
+      });
   };
 
   const save = () => {
@@ -161,7 +301,8 @@ export function CollectionsWorkspace() {
     if (!selectedId || !draft || sendingId) return;
     const id = selectedId;
     setSendingId(id);
-    sendAdHoc(draft.definition, environment)
+    // The location makes the collection's and folder's auth, headers and scripts apply (folder as currently edited).
+    sendAdHoc(draft.definition, environment, collection ? { collectionId: collection.id, folderId: draft.folderId } : undefined)
       .then((o) => setResult({ id, outcome: o }))
       .catch((e: Error) => setResult({ id, outcome: { error: e.message, durationMs: 0 } }))
       .finally(() => setSendingId(null));
@@ -194,20 +335,20 @@ export function CollectionsWorkspace() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        save();
+        if (selectedScope) saveScope();
+        else save();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+  const unsaved = dirty || scopeDirty;
   useEffect(() => {
-    if (!dirty) return;
+    if (!unsaved) return;
     const onUnload = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", onUnload);
     return () => window.removeEventListener("beforeunload", onUnload);
-  }, [dirty]);
-
-  const fail = (e: Error) => setListError(e.message);
+  }, [unsaved]);
 
   const newCollection = () =>
     createCollection("New Collection")
@@ -255,10 +396,16 @@ export function CollectionsWorkspace() {
       kind === "request" ? `request “${name}”` : kind === "folder" ? `folder “${name}” and all requests in it` : `collection “${name}” with all its folders and requests`;
     if (!window.confirm(`Delete ${what}? This cannot be undone.`)) return;
     const op = kind === "request" ? deleteRequest(id) : kind === "folder" ? deleteFolder(id) : deleteCollection(id);
+    const containsScope =
+      selectedScope !== null &&
+      (kind === selectedScope.kind
+        ? id === selectedScope.id
+        : kind === "collection" && selectedScope.kind === "folder" && collections.some((c) => c.id === id && c.folders.some((f) => f.id === selectedScope.id)));
     op.then(() => {
-      if (containsSelected) {
+      if (containsSelected || containsScope) {
         setEdit(null);
-        navigate(null, { force: true });
+        setScopeEdit(null);
+        go(null, { force: true });
       }
       return refresh();
     }).catch(fail);
@@ -273,9 +420,13 @@ export function CollectionsWorkspace() {
           error={listError}
           selectedId={selectedId}
           selectedDirty={dirty}
+          selectedScope={selectedScope}
           renaming={renaming}
           setRenaming={setRenaming}
           onSelect={(id) => navigate(id)}
+          onOpenSettings={openScope}
+          onMoveRequest={moveRequestTo}
+          onMoveFolder={moveFolderTo}
           onNewCollection={newCollection}
           onNewFolder={newFolder}
           onNewRequest={newRequest}
@@ -284,7 +435,36 @@ export function CollectionsWorkspace() {
           onImport={setImporting}
         />
         <section className="flex-1 flex flex-col min-w-0 bg-surface overflow-hidden">
-          {selectedId && draft && current?.request ? (
+          {selectedScope && scopeCollection && scopeDraft ? (
+            <ScopeSettingsPanel
+              key={scopeKey}
+              collection={scopeCollection}
+              folder={scopeFolder}
+              settings={scopeDraft}
+              update={updateScope}
+              dirty={scopeDirty}
+              saving={scopeSaving}
+              error={scopeError?.key === scopeKey ? scopeError.text : null}
+              onSave={saveScope}
+              onOpenSource={openScope}
+            />
+          ) : selectedScope ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-space-sm p-space-xl text-center">
+              {loading ? (
+                <p className="font-body-sm text-body-sm text-on-surface-variant flex items-center gap-1">
+                  <Icon name="progress_activity" className="text-body-md animate-spin" /> Loading settings…
+                </p>
+              ) : (
+                <>
+                  <Icon name="link_off" className="text-display-lg text-outline" />
+                  <p className="font-headline-sm text-headline-sm text-on-surface">{selectedScope.kind === "folder" ? "Folder" : "Collection"} not found</p>
+                  <button type="button" onClick={() => go(null, { force: true })} className="text-primary font-label-md text-label-md hover:underline">
+                    Back to collections
+                  </button>
+                </>
+              )}
+            </div>
+          ) : selectedId && draft && current?.request ? (
             <>
               <RequestBuilder
                 key={selectedId}
@@ -299,6 +479,7 @@ export function CollectionsWorkspace() {
                 sending={sending}
                 onSave={save}
                 onSend={send}
+                onOpenScope={openScope}
               />
               {currentNotice && (
                 <div
@@ -345,7 +526,7 @@ export function CollectionsWorkspace() {
                   <p className="font-headline-sm text-headline-sm text-on-surface">No request selected</p>
                   <p className="font-body-sm text-body-sm text-on-surface-variant max-w-md">
                     {collections.length
-                      ? "Pick a request in the explorer, or hover a collection or folder and press + to create one."
+                      ? "Pick a request in the explorer, or hover a collection or folder and press + to create one. The gear opens its shared auth, headers and scripts."
                       : "Create a collection, or import a cURL command or OpenAPI spec, to start building requests."}
                   </p>
                 </>

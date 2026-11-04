@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
 import { onCanvasCommand, publishCanvasState } from "@/lib/canvas-events";
+import { requestToNodeDraft } from "@/lib/collections/client";
+import { draftToNode } from "@/lib/collections/to-node";
 import { ENVIRONMENT_LABELS, useEnvironment } from "@/lib/environment";
 import { deployWorkflow, fetchLatestRun, fetchWorkflow, startRun } from "@/lib/workflows/client";
 import { newNode } from "@/lib/workflows/defaults";
@@ -82,7 +84,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const flash = useCallback((message: string) => {
     clearTimeout(noticeTimer.current);
     setNotice(message);
-    noticeTimer.current = setTimeout(() => setNotice(null), 3500);
+    noticeTimer.current = setTimeout(() => setNotice(null), Math.max(3500, message.length * 60));
   }, []);
 
   const addNode = useCallback(
@@ -97,6 +99,24 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
       autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true });
       setSelectedId(node.id);
       setSelectedEdgeId(null);
+    },
+    [autosaver, flash],
+  );
+
+  /** A saved request dropped from the sidebar becomes an http node with its collection/folder auth and headers. */
+  const addRequest = useCallback(
+    (requestId: string, position: { x: number; y: number }) => {
+      requestToNodeDraft({ requestId })
+        .then((draft) => {
+          const current = autosaver.current();
+          if (!current) return;
+          const node = draftToNode(draft, current, position);
+          autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true });
+          setSelectedId(node.id);
+          setSelectedEdgeId(null);
+          flash([`Added “${draft.name}” as an HTTP node.`, ...draft.warnings].join(" "));
+        })
+        .catch((error: Error) => flash(`Couldn't add that request: ${error.message}`));
     },
     [autosaver, flash],
   );
@@ -340,6 +360,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           onMoveEnd={() => autosaver.update((wf) => wf, { immediate: true })}
           onAutoLayout={() => autosaver.update((wf) => ({ ...wf, nodes: autoLayout(wf) }), { immediate: true })}
           onAddNode={addNode}
+          onAddRequest={addRequest}
           onConnect={connect}
         />
         {selected ? (

@@ -5,7 +5,10 @@ import { db } from "@/lib/workflows/store";
 import type { ImportedCollection } from "./openapi";
 import {
   emptyDefinition,
+  emptyScopeSettings,
   requestDefinitionSchema,
+  scopeSettingsSchema,
+  type ScopeSettings,
   type Collection,
   type Example,
   type ExampleResponse,
@@ -57,6 +60,11 @@ function conn(): DatabaseSync {
       CREATE INDEX IF NOT EXISTS requests_by_collection ON requests (collection_id, position);
       CREATE INDEX IF NOT EXISTS examples_by_request ON request_examples (request_id, created_at);
     `);
+    // Inherited auth/headers/scripts arrived later; add the column to databases created before it.
+    for (const table of ["collections", "collection_folders"]) {
+      const cols = database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+      if (!cols.some((c) => c.name === "settings")) database.exec(`ALTER TABLE ${table} ADD COLUMN settings TEXT`);
+    }
     ready = true;
   }
   return database;
@@ -65,8 +73,21 @@ function conn(): DatabaseSync {
 const newId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
 const now = () => new Date().toISOString();
 
-type CollectionRow = { id: string; name: string; description: string | null; created_at: string; updated_at: string };
-type FolderRow = { id: string; collection_id: string; name: string; position: number };
+type CollectionRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+  settings: string | null;
+};
+type FolderRow = { id: string; collection_id: string; name: string; position: number; settings: string | null };
+
+function parseSettings(json: string | null): ScopeSettings {
+  if (!json) return emptyScopeSettings();
+  const parsed = scopeSettingsSchema.safeParse(JSON.parse(json));
+  return parsed.success ? parsed.data : emptyScopeSettings();
+}
 type RequestRow = {
   id: string;
   collection_id: string;
@@ -84,7 +105,13 @@ function parseDefinition(json: string): RequestDefinition {
   return parsed.success ? parsed.data : emptyDefinition();
 }
 
-const toFolder = (r: FolderRow): Folder => ({ id: r.id, collectionId: r.collection_id, name: r.name, position: r.position });
+const toFolder = (r: FolderRow): Folder => ({
+  id: r.id,
+  collectionId: r.collection_id,
+  name: r.name,
+  position: r.position,
+  settings: parseSettings(r.settings),
+});
 
 function toSummary(r: RequestRow): RequestSummary {
   const def = parseDefinition(r.definition);
@@ -114,6 +141,7 @@ function assemble(rows: CollectionRow[]): Collection[] {
     ...(row.description === null ? {} : { description: row.description }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    settings: parseSettings(row.settings),
     folders: folders.filter((f) => f.collection_id === row.id).map(toFolder),
     requests: requests.filter((r) => r.collection_id === row.id).map(toSummary),
   }));
@@ -137,14 +165,18 @@ export function createCollection(input: { name: string; description?: string }):
   return getCollection(id)!;
 }
 
-export function updateCollection(id: string, patch: { name?: string; description?: string | null }): Collection | undefined {
+export function updateCollection(
+  id: string,
+  patch: { name?: string; description?: string | null; settings?: ScopeSettings },
+): Collection | undefined {
   const existing = getCollection(id);
   if (!existing) return undefined;
   conn()
-    .prepare("UPDATE collections SET name = ?, description = ?, updated_at = ? WHERE id = ?")
+    .prepare("UPDATE collections SET name = ?, description = ?, settings = ?, updated_at = ? WHERE id = ?")
     .run(
       patch.name ?? existing.name,
       patch.description === undefined ? (existing.description ?? null) : patch.description,
+      JSON.stringify(patch.settings ?? existing.settings),
       now(),
       id,
     );
@@ -180,12 +212,91 @@ export function getFolder(id: string): Folder | undefined {
   return row && toFolder(row);
 }
 
-export function renameFolder(id: string, name: string): Folder | undefined {
+export function updateFolder(id: string, patch: { name?: string; settings?: ScopeSettings }): Folder | undefined {
   const folder = getFolder(id);
   if (!folder) return undefined;
-  conn().prepare("UPDATE collection_folders SET name = ? WHERE id = ?").run(name, id);
+  conn()
+    .prepare("UPDATE collection_folders SET name = ?, settings = ? WHERE id = ?")
+    .run(patch.name ?? folder.name, JSON.stringify(patch.settings ?? folder.settings), id);
   touch(folder.collectionId);
   return getFolder(id);
+}
+
+/** Runs fn in a transaction (node:sqlite has no helper for it). */
+function transaction<T>(fn: () => T): T {
+  const c = conn();
+  c.exec("BEGIN");
+  try {
+    const result = fn();
+    c.exec("COMMIT");
+    return result;
+  } catch (error) {
+    c.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/** Moves a folder to `index` among its collection's folders and renumbers them 0..n. */
+export function moveFolder(id: string, index: number): Folder | undefined {
+  const folder = getFolder(id);
+  if (!folder) return undefined;
+  transaction(() => {
+    const c = conn();
+    const ids = (c.prepare("SELECT id FROM collection_folders WHERE collection_id = ? ORDER BY position, name").all(folder.collectionId) as { id: string }[])
+      .map((r) => r.id)
+      .filter((x) => x !== id);
+    ids.splice(Math.min(index, ids.length), 0, id);
+    const set = c.prepare("UPDATE collection_folders SET position = ? WHERE id = ?");
+    ids.forEach((fid, i) => set.run(i, fid));
+  });
+  touch(folder.collectionId);
+  return getFolder(id);
+}
+
+export type MoveResult =
+  | { ok: true; request: SavedRequest }
+  | { ok: false; reason: "request_not_found" | "collection_not_found" | "folder_mismatch" };
+
+/**
+ * Moves a request into a collection's root (folderId null) or one of its folders, at `index` among that
+ * container's requests. Siblings are renumbered so positions stay dense.
+ */
+export function moveRequest(id: string, target: { collectionId: string; folderId: string | null; index: number }): MoveResult {
+  const existing = getRequest(id);
+  if (!existing) return { ok: false, reason: "request_not_found" };
+  if (!getCollection(target.collectionId)) return { ok: false, reason: "collection_not_found" };
+  if (!folderOk(target.collectionId, target.folderId)) return { ok: false, reason: "folder_mismatch" };
+
+  transaction(() => {
+    const c = conn();
+    const siblings = (
+      c
+        .prepare("SELECT id FROM requests WHERE collection_id = ? AND folder_id IS ? AND id != ? ORDER BY position, name")
+        .all(target.collectionId, target.folderId, id) as { id: string }[]
+    ).map((r) => r.id);
+    siblings.splice(Math.min(target.index, siblings.length), 0, id);
+    c.prepare("UPDATE requests SET collection_id = ?, folder_id = ?, updated_at = ? WHERE id = ?").run(
+      target.collectionId,
+      target.folderId,
+      now(),
+      id,
+    );
+    const set = c.prepare("UPDATE requests SET position = ? WHERE id = ?");
+    siblings.forEach((rid, i) => set.run(i, rid));
+  });
+  touch(existing.collectionId);
+  if (target.collectionId !== existing.collectionId) touch(target.collectionId);
+  return { ok: true, request: getRequest(id)! };
+}
+
+/** The collection and folder a request inherits from, as names + settings. */
+export function requestScopes(collectionId: string | undefined, folderId: string | null | undefined) {
+  const collection = collectionId ? getCollection(collectionId) : undefined;
+  const folder = folderId ? getFolder(folderId) : undefined;
+  return {
+    collection: collection && { name: collection.name, settings: collection.settings },
+    folder: folder && folder.collectionId === collection?.id ? { name: folder.name, settings: folder.settings } : undefined,
+  };
 }
 
 /** Deletes the folder and the requests inside it. */

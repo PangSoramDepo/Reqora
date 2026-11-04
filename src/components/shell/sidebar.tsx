@@ -22,9 +22,11 @@ export function Sidebar() {
         </button>
       </div>
 
-      <NodeLibrary />
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <NodeLibrary />
+      </div>
 
-      <div className="mt-auto p-space-sm bg-surface-container-lowest/50">
+      <div className="shrink-0 p-space-sm bg-surface-container-lowest/50">
         <div className="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-space-xs">
           Navigation
         </div>

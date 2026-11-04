@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { ADD_NODE_EVENT, NODE_DRAG_MIME } from "@/lib/workflows/defaults";
 import type { NodeType } from "@/lib/workflows/schema";
+import { SavedRequests } from "./saved-requests";
 
 const CORE_BLOCKS: { type: NodeType; icon: string; label: string; tag: string; tone: string }[] = [
   { type: "http", icon: "http", label: "Send HTTP", tag: "REST", tone: "text-primary" },
@@ -27,7 +28,7 @@ export function NodeLibrary() {
           <Icon name="search" className="text-body-md" />
           <input
             className="w-full bg-transparent font-body-sm text-body-sm text-on-surface placeholder:text-outline focus:outline-none"
-            placeholder="Filter nodes..."
+            placeholder="Filter nodes & requests..."
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -66,6 +67,8 @@ export function NodeLibrary() {
           {blocks.length === 0 && <div className="px-space-xs font-body-sm text-body-sm text-outline">No matching blocks.</div>}
         </div>
       </div>
+
+      <SavedRequests query={query} />
     </>
   );
 }
