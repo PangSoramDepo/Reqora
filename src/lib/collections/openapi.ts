@@ -1,12 +1,24 @@
 import { parse as parseYaml } from "yaml";
 import { ImportError } from "./curl";
-import { emptyDefinition, type KeyValue, type RequestDefinition, type RequestMethod } from "./schema";
+import {
+  emptyDefinition,
+  type ExampleResponse,
+  type KeyValue,
+  type RequestDefinition,
+  type RequestMethod,
+  type ScopeSettings,
+} from "./schema";
 
-export type ImportedRequest = { name: string; definition: RequestDefinition };
+export type ImportedRequest = {
+  name: string;
+  definition: RequestDefinition;
+  examples?: { name: string; response: ExampleResponse }[];
+};
 export type ImportedCollection = {
   name: string;
   description?: string;
-  folders: { name: string; requests: ImportedRequest[] }[];
+  settings?: ScopeSettings;
+  folders: { name: string; settings?: ScopeSettings; requests: ImportedRequest[] }[];
   /** Operations without tags. */
   requests: ImportedRequest[];
 };

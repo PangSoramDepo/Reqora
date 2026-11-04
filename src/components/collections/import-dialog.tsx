@@ -6,7 +6,14 @@ import { importCollection } from "@/lib/collections/client";
 import type { Collection } from "@/lib/collections/schema";
 import { GHOST_BUTTON, SELECT } from "./ui";
 
-type Format = "curl" | "openapi";
+export type ImportFormat = "reqora" | "curl" | "openapi";
+type Format = ImportFormat;
+
+const TAB_LABEL: Record<Format, string> = {
+  reqora: "Reqora collection",
+  curl: "cURL command",
+  openapi: "OpenAPI (JSON / YAML)",
+};
 
 type Props = {
   initialFormat: Format;
@@ -16,6 +23,11 @@ type Props = {
 };
 
 const PLACEHOLDER: Record<Format, string> = {
+  reqora: `{
+  "reqora": "collection",
+  "version": 1,
+  "collection": { "name": "My API", "folders": [], "requests": [] }
+}`,
   curl: `curl -X POST https://api.example.com/v1/orders \\
   -H 'Content-Type: application/json' \\
   -H 'Authorization: Bearer {{env.API_TOKEN}}' \\
@@ -53,7 +65,7 @@ export function ImportDialog({ initialFormat, collections, onClose, onImported }
       className="fixed inset-0 z-[60] flex items-center justify-center bg-surface-container-lowest/70 backdrop-blur-sm p-space-lg"
       role="dialog"
       aria-modal="true"
-      aria-label="Import cURL or OpenAPI"
+      aria-label="Import a collection, cURL or OpenAPI"
       onKeyDown={(e) => e.key === "Escape" && onClose()}
     >
       <div className="w-full max-w-2xl bg-surface-container-low rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
@@ -68,7 +80,7 @@ export function ImportDialog({ initialFormat, collections, onClose, onImported }
         </div>
         <div className="p-space-md flex flex-col gap-space-sm overflow-auto">
           <div className="flex items-center gap-space-xxs" role="tablist">
-            {(["curl", "openapi"] as const).map((f) => (
+            {(["reqora", "curl", "openapi"] as const).map((f) => (
               <button
                 key={f}
                 type="button"
@@ -79,21 +91,23 @@ export function ImportDialog({ initialFormat, collections, onClose, onImported }
                   format === f ? "bg-surface-container-high text-primary font-semibold" : "text-on-surface-variant hover:text-on-surface"
                 }`}
               >
-                {f === "curl" ? "cURL command" : "OpenAPI (JSON / YAML)"}
+                {TAB_LABEL[f]}
               </button>
             ))}
           </div>
           <p className="font-body-sm text-body-sm text-on-surface-variant">
-            {format === "curl"
+            {format === "reqora"
+              ? "Load a .reqora.json file exported from Reqora (the download icon on a collection). It becomes a new collection with its folders, requests, auth, headers, scripts, tests and examples. Environment variables and secrets are not part of the file."
+              : format === "curl"
               ? "Paste a curl command. Method, headers, body, basic auth (-u) and query params are imported."
               : "Paste an OpenAPI 3 / Swagger 2 document. A collection is created from info.title with one folder per tag and one request per operation; {param} path parameters become {{param}}."}
           </p>
-          {format === "openapi" && (
+          {format !== "curl" && (
             <label className="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant">
               <span>…or load a file:</span>
               <input
                 type="file"
-                accept=".json,.yaml,.yml,application/json,text/yaml"
+                accept={format === "reqora" ? ".json,application/json" : ".json,.yaml,.yml,application/json,text/yaml"}
                 className="font-body-sm text-body-sm text-on-surface-variant file:mr-2 file:px-2 file:py-1 file:rounded file:border-0 file:bg-surface-container-high file:text-on-surface"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -103,7 +117,7 @@ export function ImportDialog({ initialFormat, collections, onClose, onImported }
             </label>
           )}
           <textarea
-            aria-label={format === "curl" ? "cURL command" : "OpenAPI document"}
+            aria-label={format === "curl" ? "cURL command" : format === "reqora" ? "Reqora collection JSON" : "OpenAPI document"}
             className="w-full h-64 bg-surface-container-lowest rounded p-space-sm font-code-block text-code-block text-on-surface placeholder:text-outline focus:outline-none resize-y"
             placeholder={PLACEHOLDER[format]}
             spellCheck={false}

@@ -532,8 +532,11 @@ paths:
   /api/collections/import:
     post:
       operationId: importCollection
-      summary: Import a cURL command or an OpenAPI document
+      summary: Import a Reqora collection export, a cURL command or an OpenAPI document
       description: |
+        `reqora`: `text` is a file from `GET /api/collections/{collectionId}/export` (`CollectionExport`). Creates a
+        new collection with its settings, folders, requests (in order, with scripts and tests) and examples.
+
         `openapi` (JSON or YAML, OpenAPI 3 or Swagger 2): creates a collection named from `info.title`, with the
         base URL from `servers[0].url`, one folder per operation's first tag, and one request per path × method.
         `{param}` path parameters become `{{param}}` placeholders, query/header parameters are added (optional
@@ -551,7 +554,7 @@ paths:
               type: object
               required: [format, text]
               properties:
-                format: { type: string, enum: [curl, openapi] }
+                format: { type: string, enum: [reqora, curl, openapi] }
                 text: { type: string, minLength: 1, maxLength: 2000000 }
                 collectionId: { type: string, description: "cURL only: append to this existing collection" }
       responses:
@@ -621,6 +624,26 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Collection" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/collections/{collectionId}/export:
+    parameters:
+      - $ref: "#/components/parameters/CollectionId"
+    get:
+      operationId: exportCollection
+      summary: Export a collection
+      description: |
+        Downloads the collection as a `<name>.reqora.json` attachment: settings (auth, headers, scripts), folders
+        with their settings, and every request in order with its definition and saved examples. Ids are not
+        included; environment variables and secrets are not part of the file. Import it with
+        `POST /api/collections/import` and `format: reqora`.
+      responses:
+        "200":
+          description: The export file
+          headers:
+            Content-Disposition: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CollectionExport" }
         "404": { $ref: "#/components/responses/Problem" }
   /api/collections/{collectionId}/folders:
     parameters:
@@ -1648,6 +1671,48 @@ components:
         body: {}
         size: { type: integer }
         durationMs: { type: number }
+    ExportedRequest:
+      type: object
+      required: [name, definition]
+      properties:
+        name: { type: string }
+        definition: { $ref: "#/components/schemas/RequestDefinition" }
+        examples:
+          type: array
+          items:
+            type: object
+            required: [name, response]
+            properties:
+              name: { type: string }
+              response: { $ref: "#/components/schemas/ExampleResponse" }
+    CollectionExport:
+      type: object
+      description: A collection exported from Reqora (see exportCollection).
+      required: [reqora, version, collection]
+      properties:
+        reqora: { const: collection }
+        version: { const: 1 }
+        exportedAt: { type: string, format: date-time }
+        collection:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string }
+            description: { type: string }
+            settings: { $ref: "#/components/schemas/ScopeSettings" }
+            folders:
+              type: array
+              items:
+                type: object
+                required: [name, requests]
+                properties:
+                  name: { type: string }
+                  settings: { $ref: "#/components/schemas/ScopeSettings" }
+                  requests: { type: array, items: { $ref: "#/components/schemas/ExportedRequest" } }
+            requests:
+              type: array
+              description: Requests at the collection root.
+              items: { $ref: "#/components/schemas/ExportedRequest" }
     Example:
       type: object
       required: [id, requestId, name, status, response, createdAt]

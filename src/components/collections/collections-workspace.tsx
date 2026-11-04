@@ -33,7 +33,7 @@ import { fetchVariables } from "@/lib/workflows/client";
 import type { Environment } from "@/lib/workflows/schema";
 import type { InheritSource } from "./auth-panel";
 import { Explorer, type NodeKind, type Renaming, type RequestTarget, type ScopeRef } from "./explorer";
-import { ImportDialog } from "./import-dialog";
+import { ImportDialog, type ImportFormat } from "./import-dialog";
 import { RequestBuilder, type Draft } from "./request-builder";
 import { ResponseViewer } from "./response-viewer";
 import { ScopeSettingsPanel } from "./scope-settings";
@@ -101,7 +101,7 @@ export function CollectionsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<Renaming>(null);
-  const [importing, setImporting] = useState<"curl" | "openapi" | null>(null);
+  const [importing, setImporting] = useState<ImportFormat | null>(null);
 
   // Per-request state is tagged with the request id it belongs to, so switching requests needs no reset.
   const [loaded, setLoaded] = useState<{ id: string; request?: SavedRequest; error?: string } | null>(null);

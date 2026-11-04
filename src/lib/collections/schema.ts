@@ -133,7 +133,8 @@ export const toNodeInputSchema = z.union([
 ]);
 
 export const importInputSchema = z.object({
-  format: z.enum(["curl", "openapi"]),
+  /** `reqora`: a collection exported from Reqora (lossless). */
+  format: z.enum(["curl", "openapi", "reqora"]),
   text: z.string().min(1).max(2_000_000),
   /** cURL only: add the request to this existing collection instead of creating one. */
   collectionId: id.optional(),
@@ -217,3 +218,32 @@ export const exampleInputSchema = z.object({
 });
 
 export type Example = { id: string; requestId: string; name: string; status: number; response: ExampleResponse; createdAt: string };
+
+const exportedRequestSchema = z.object({
+  name,
+  definition: requestDefinitionSchema,
+  examples: z.array(exampleInputSchema).max(100).default([]),
+});
+
+/**
+ * A collection exported from Reqora: settings (auth, headers, scripts), folders with their settings, and every
+ * request in order with its examples. Ids are not kept; importing creates a new collection. Environment
+ * variables and secrets are not included.
+ */
+export const collectionExportSchema = z.object({
+  reqora: z.literal("collection"),
+  version: z.literal(1),
+  exportedAt: z.string().optional(),
+  collection: z.object({
+    name,
+    description: z.string().max(2000).optional(),
+    settings: scopeSettingsSchema.default(emptyScopeSettings),
+    folders: z
+      .array(z.object({ name, settings: scopeSettingsSchema.default(emptyScopeSettings), requests: z.array(exportedRequestSchema).max(1000) }))
+      .max(200)
+      .default([]),
+    /** Requests at the collection root. */
+    requests: z.array(exportedRequestSchema).max(1000).default([]),
+  }),
+});
+export type CollectionExport = z.infer<typeof collectionExportSchema>;

@@ -97,3 +97,42 @@ describe("duplicateCollection", () => {
     expect(store.listExamples(copiedB.id)).toHaveLength(1);
   });
 });
+
+describe("exportCollection / import", () => {
+  it("round-trips settings, folders, request order, definitions, scripts and examples", async () => {
+    const { collectionExportSchema } = await import("./schema");
+    const { col, a, b } = seed();
+    const def = { ...store.getRequest(a.id)!.definition, method: "POST" as const, url: "{{env.BASE}}/a", postScript: 'rq.test("ok", () => {});' };
+    store.replaceRequest(a.id, { name: "A", folderId: a.folderId, definition: def });
+    store.createExample(b.id, "second", { ...example, status: 201 });
+
+    const exported = store.exportCollection(col.id)!;
+    expect(exported).toMatchObject({ reqora: "collection", version: 1 });
+    // What a file round-trip would see: JSON text, then validation.
+    const file = collectionExportSchema.parse(JSON.parse(JSON.stringify(exported)));
+    const imported = store.insertImported(file.collection);
+
+    const original = store.getCollection(col.id)!;
+    expect(imported.id).not.toBe(col.id);
+    expect(imported.name).toBe("API");
+    expect(imported.description).toBe("desc");
+    expect(imported.settings).toEqual(original.settings);
+    expect(imported.folders.map((f) => [f.name, f.settings])).toEqual(original.folders.map((f) => [f.name, f.settings]));
+    const folderName = (c: typeof original, id: string | null) => c.folders.find((f) => f.id === id)?.name ?? null;
+    expect(imported.requests.map((r) => [r.name, folderName(imported, r.folderId)])).toEqual(
+      original.requests.map((r) => [r.name, folderName(original, r.folderId)]),
+    );
+    const importedA = imported.requests.find((r) => r.name === "A")!;
+    expect(store.getRequest(importedA.id)!.definition).toEqual(def);
+    const importedB = imported.requests.find((r) => r.name === "B")!;
+    expect(store.listExamples(importedB.id).map((e) => [e.name, e.status])).toEqual(
+      store.listExamples(b.id).map((e) => [e.name, e.status]),
+    );
+    // Exporting the import gives the same content.
+    expect(store.exportCollection(imported.id)!.collection).toEqual(exported.collection);
+  });
+
+  it("returns undefined for an unknown collection", () => {
+    expect(store.exportCollection("col_missing")).toBeUndefined();
+  });
+});

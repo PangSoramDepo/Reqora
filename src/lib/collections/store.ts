@@ -10,6 +10,7 @@ import {
   scopeSettingsSchema,
   type ScopeSettings,
   type Collection,
+  type CollectionExport,
   type Example,
   type ExampleResponse,
   type Folder,
@@ -416,35 +417,46 @@ export function insertImported(imported: ImportedCollection): Collection {
   const c = conn();
   const at = now();
   const collectionId = newId("col");
-  const insertRequest = c.prepare(
+  const insertRequestRow = c.prepare(
     `INSERT INTO requests (id, collection_id, folder_id, name, position, definition, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+  const insertExample = c.prepare(
+    "INSERT INTO request_examples (id, request_id, name, status, response, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  );
   let position = 0;
+  let exampleOrder = 0;
+  const insertRequest = (r: ImportedCollection["requests"][number], folderId: string | null) => {
+    const requestId = newId("req");
+    insertRequestRow.run(requestId, collectionId, folderId, r.name, position++, JSON.stringify(r.definition), at, at);
+    for (const ex of r.examples ?? []) {
+      // Distinct created_at values keep the examples in their exported order.
+      const createdAt = new Date(Date.parse(at) + exampleOrder++).toISOString();
+      insertExample.run(newId("ex"), requestId, ex.name, ex.response.status, JSON.stringify(ex.response), createdAt);
+    }
+  };
   c.exec("BEGIN");
   try {
-    c.prepare("INSERT INTO collections (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+    c.prepare("INSERT INTO collections (id, name, description, created_at, updated_at, settings) VALUES (?, ?, ?, ?, ?, ?)").run(
       collectionId,
       imported.name,
       imported.description ?? null,
       at,
       at,
+      imported.settings ? JSON.stringify(imported.settings) : null,
     );
     imported.folders.forEach((folder, index) => {
       const folderId = newId("fld");
-      c.prepare("INSERT INTO collection_folders (id, collection_id, name, position) VALUES (?, ?, ?, ?)").run(
+      c.prepare("INSERT INTO collection_folders (id, collection_id, name, position, settings) VALUES (?, ?, ?, ?, ?)").run(
         folderId,
         collectionId,
         folder.name,
         index,
+        folder.settings ? JSON.stringify(folder.settings) : null,
       );
-      for (const r of folder.requests) {
-        insertRequest.run(newId("req"), collectionId, folderId, r.name, position++, JSON.stringify(r.definition), at, at);
-      }
+      for (const r of folder.requests) insertRequest(r, folderId);
     });
-    for (const r of imported.requests) {
-      insertRequest.run(newId("req"), collectionId, null, r.name, position++, JSON.stringify(r.definition), at, at);
-    }
+    for (const r of imported.requests) insertRequest(r, null);
     c.exec("COMMIT");
   } catch (error) {
     c.exec("ROLLBACK");
@@ -565,4 +577,34 @@ export function duplicateCollection(id: string): Collection | undefined {
     return collectionId;
   });
   return getCollection(copyId);
+}
+
+/** The whole collection as an export file (see `collectionExportSchema`), or undefined if it doesn't exist. */
+export function exportCollection(id: string): CollectionExport | undefined {
+  const collection = getCollection(id);
+  if (!collection) return undefined;
+  const c = conn();
+  const rows = c.prepare("SELECT * FROM requests WHERE collection_id = ? ORDER BY position, name").all(id) as RequestRow[];
+  const exampleRows = c.prepare("SELECT * FROM request_examples WHERE request_id = ? ORDER BY created_at");
+  const exported = (r: RequestRow) => ({
+    name: r.name,
+    definition: parseDefinition(r.definition),
+    examples: (exampleRows.all(r.id) as ExampleRow[]).map((ex) => ({ name: ex.name, response: JSON.parse(ex.response) as ExampleResponse })),
+  });
+  return {
+    reqora: "collection",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    collection: {
+      name: collection.name,
+      ...(collection.description ? { description: collection.description } : {}),
+      settings: collection.settings,
+      folders: collection.folders.map((f) => ({
+        name: f.name,
+        settings: f.settings,
+        requests: rows.filter((r) => r.folder_id === f.id).map(exported),
+      })),
+      requests: rows.filter((r) => r.folder_id === null).map(exported),
+    },
+  };
 }

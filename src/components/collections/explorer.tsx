@@ -2,6 +2,7 @@
 
 import { useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
+import { collectionExportUrl } from "@/lib/collections/client";
 import type { Collection, Folder, RequestSummary, ScopeSettings } from "@/lib/collections/schema";
 import { REQUEST_DRAG_MIME } from "@/lib/workflows/defaults";
 import { MethodPill } from "./ui";
@@ -30,7 +31,7 @@ type Props = {
   onDelete: (kind: NodeKind, id: string, name: string) => void;
   /** Copies the saved item as "<name> Copy" (unsaved edits to an open request are not included). */
   onDuplicate: (kind: NodeKind, id: string) => void;
-  onImport: (format: "curl" | "openapi") => void;
+  onImport: (format: "curl" | "openapi" | "reqora") => void;
   /** `index` is the position among the target container's requests, not counting the moved one. */
   onMoveRequest: (id: string, target: RequestTarget) => void;
   /** `index` is the position among the collection's folders, not counting the moved one. */
@@ -510,6 +511,15 @@ export function Explorer(props: Props) {
                 <button type="button" className={HOVER_BTN} title="Duplicate collection" onClick={() => onDuplicate("collection", c.id)}>
                   <Icon name="content_copy" className="text-body-sm" />
                 </button>
+                <a
+                  className={HOVER_BTN}
+                  download
+                  href={collectionExportUrl(c.id)}
+                  title="Export collection (.reqora.json) — import it later from Import › Reqora collection"
+                  aria-label={`Export ${c.name}`}
+                >
+                  <Icon name="download" className="text-body-sm" />
+                </a>
                 <button type="button" className={HOVER_BTN} title="Delete collection" onClick={() => onDelete("collection", c.id, c.name)}>
                   <Icon name="delete" className="text-body-sm" />
                 </button>
@@ -553,7 +563,7 @@ export function Explorer(props: Props) {
             <button
               type="button"
               onClick={() => onImport("curl")}
-              title="Import cURL / OpenAPI"
+              title="Import a Reqora collection, cURL or OpenAPI"
               className="p-space-xs rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors"
             >
               <Icon name="publish" className="text-body-md" />
@@ -598,6 +608,9 @@ export function Explorer(props: Props) {
           </button>
           <button type="button" className={PILL} onClick={() => onImport("curl")}>
             <Icon name="terminal" className="text-body-sm text-primary-fixed" /> cURL
+          </button>
+          <button type="button" className={PILL} onClick={() => onImport("reqora")} title="Import a .reqora.json collection export">
+            <Icon name="upload_file" className="text-body-sm text-tertiary" /> Collection
           </button>
         </div>
       </div>
@@ -644,10 +657,10 @@ export function Explorer(props: Props) {
               </button>
               <button
                 type="button"
-                onClick={() => onImport("curl")}
+                onClick={() => onImport("reqora")}
                 className="flex items-center gap-1 px-space-sm py-1 rounded bg-surface-container-high text-on-surface font-label-sm text-label-sm"
               >
-                <Icon name="publish" className="text-body-sm" /> Import cURL / OpenAPI
+                <Icon name="publish" className="text-body-sm" /> Import collection / cURL / OpenAPI
               </button>
             </div>
           </div>
