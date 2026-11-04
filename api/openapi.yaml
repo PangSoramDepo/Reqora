@@ -1123,6 +1123,13 @@ components:
                   additionalProperties: { type: string, description: template }
                 body: { type: string, description: JSON template }
                 timeoutMs: { type: integer, minimum: 100, maximum: 30000, default: 10000 }
+                requestId:
+                  type: string
+                  description: |
+                    Saved Collections request this node is linked to (set when a request is dropped onto the canvas).
+                    Manual runs and replays rebuild the config from that request as it is now, with its collection and
+                    folder auth and headers; the other fields are its last copy. Deploying freezes the copy for webhooks.
+                    The step fails if the request was deleted. Remove the field to unlink.
     ConditionNode:
       description: Compares two values. Output ports `true` and `false`; only the matching one continues.
       allOf:

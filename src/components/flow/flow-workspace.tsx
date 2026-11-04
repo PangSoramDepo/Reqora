@@ -114,7 +114,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true });
           setSelectedId(node.id);
           setSelectedEdgeId(null);
-          flash([`Added “${draft.name}” as an HTTP node.`, ...draft.warnings].join(" "));
+          flash([`Added “${draft.name}” as an HTTP node linked to Collections — edits there apply on every run.`, ...draft.warnings].join(" "));
         })
         .catch((error: Error) => flash(`Couldn't add that request: ${error.message}`));
     },

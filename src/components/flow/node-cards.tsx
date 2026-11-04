@@ -221,6 +221,11 @@ export function NodeCard({ node, step, selected }: { node: WorkflowNode; step?: 
         <div className="flex items-center gap-space-xs min-w-0">
           <Icon name={style.icon} className={`${style.text} text-headline-sm`} />
           <span className="font-headline-sm text-headline-sm text-on-surface truncate">{node.name}</span>
+          {node.type === "http" && node.config.requestId && (
+            <span title="Linked to a Collections request — edits there apply on every run" className="shrink-0 flex">
+              <Icon name="link" className="text-outline text-body-md" />
+            </span>
+          )}
         </div>
         <StatusBadge node={node} step={step} />
       </div>

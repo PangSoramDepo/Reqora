@@ -5,12 +5,19 @@ import { TemplateError, renderJson, renderString, renderValue, type TemplateCont
 
 const MAX_RESPONSE_BYTES = 1_000_000;
 
+type HttpConfig = Extract<WorkflowNode, { type: "http" }>["config"];
+
 export type EngineDeps = {
   fetch: typeof fetch;
   /** Returns the variable's value, or undefined when it is not configured. */
   env: (name: string) => string | undefined;
   /** Origin that relative HTTP node URLs resolve against. */
   baseUrl: string;
+  /**
+   * Rebuilds a linked http node's config from its saved Collections request. When omitted, linked nodes run
+   * their stored copy (e.g. a deployed snapshot, which was frozen at deploy time).
+   */
+  linkedRequest?: (requestId: string) => { ok: true; config: HttpConfig } | { ok: false; error: string };
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 };
@@ -118,8 +125,12 @@ async function runNode(
     case "webhook":
       return { output: { body: ctx.trigger.body ?? null, headers: ctx.trigger.headers ?? {} } };
 
-    case "http":
-      return runHttp(node.config, ctx, deps);
+    case "http": {
+      if (!node.config.requestId || !deps.linkedRequest) return runHttp(node.config, ctx, deps);
+      const linked = deps.linkedRequest(node.config.requestId);
+      if (!linked.ok) throw new StepError(linked.error);
+      return runHttp(linked.config, ctx, deps);
+    }
 
     case "condition": {
       const { left, operator, right } = node.config;
@@ -149,7 +160,7 @@ async function runNode(
 }
 
 async function runHttp(
-  config: Extract<WorkflowNode, { type: "http" }>["config"],
+  config: HttpConfig,
   ctx: TemplateContext,
   deps: EngineDeps,
 ): Promise<NodeResult> {

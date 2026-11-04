@@ -27,6 +27,11 @@ export const httpNodeSchema = z.object({
     headers: z.record(z.string(), z.string().max(4000)).default({}),
     body: z.string().max(100_000).optional(),
     timeoutMs: z.number().int().min(100).max(30_000).default(10_000),
+    /**
+     * Saved Collections request this node is linked to. Runs rebuild the config from that request (with its
+     * collection/folder auth and headers), so edits in Collections apply here; the fields above are its last copy.
+     */
+    requestId: z.string().min(1).max(100).optional(),
   }),
 });
 

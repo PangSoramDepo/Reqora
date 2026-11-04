@@ -1,5 +1,6 @@
 import "server-only";
 
+import { linkedHttpConfig } from "@/lib/collections/linked";
 import { resolveVariable } from "@/lib/secrets/variables";
 import { executeWorkflow } from "./engine";
 import type { Environment, Run, RunTrigger, Workflow } from "./schema";
@@ -30,7 +31,13 @@ export function scrub<T>(value: T, secrets: string[]): T {
   return value;
 }
 
-type RunOptions = { baseUrl: string; environment: Environment; replayOf?: string };
+type RunOptions = {
+  baseUrl: string;
+  environment: Environment;
+  replayOf?: string;
+  /** Linked http nodes use their Collections request as it is now (default); false runs their stored copy. */
+  followLinks?: boolean;
+};
 
 /**
  * Executes a workflow and stores the run. `{{env.NAME}}` resolves from the environment's stored
@@ -40,7 +47,7 @@ type RunOptions = { baseUrl: string; environment: Environment; replayOf?: string
 export async function runWorkflow(
   workflow: Workflow,
   trigger: RunTrigger,
-  { baseUrl, environment, replayOf }: RunOptions,
+  { baseUrl, environment, replayOf, followLinks = true }: RunOptions,
 ): Promise<Run> {
   const resolved = new Set<string>();
   const result = await executeWorkflow(workflow, trigger, {
@@ -52,6 +59,7 @@ export async function runWorkflow(
       return value;
     },
     baseUrl,
+    ...(followLinks ? { linkedRequest: linkedHttpConfig } : {}),
   });
 
   const run: Run = {

@@ -32,7 +32,8 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/hooks/[
   const run = await runWorkflow(
     workflow,
     { source: "webhook", body, headers: Object.fromEntries(request.headers) },
-    { baseUrl: request.nextUrl.origin, environment: environment.data },
+    // The deployed snapshot froze its linked requests at deploy time; later Collections edits need a redeploy.
+    { baseUrl: request.nextUrl.origin, environment: environment.data, followLinks: false },
   );
 
   const headers = { "x-reqora-run-id": run.id };

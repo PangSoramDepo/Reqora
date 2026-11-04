@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { notFound, parseBody, problem } from "@/lib/http";
+import { syncLinkedNodes } from "@/lib/collections/linked";
 import { validateGraph } from "@/lib/workflows/graph";
 import { workflowReplaceSchema } from "@/lib/workflows/schema";
 import { deleteWorkflow, getWorkflow, replaceWorkflow } from "@/lib/workflows/store";
@@ -10,7 +11,8 @@ export async function GET(_request: Request, ctx: Ctx) {
   await connection();
   const { workflowId } = await ctx.params;
   const workflow = getWorkflow(workflowId);
-  return workflow ? Response.json(workflow) : notFound(`workflow "${workflowId}"`);
+  // Linked http nodes show their Collections request as it is now.
+  return workflow ? Response.json(syncLinkedNodes(workflow)) : notFound(`workflow "${workflowId}"`);
 }
 
 export async function PUT(request: Request, ctx: Ctx) {

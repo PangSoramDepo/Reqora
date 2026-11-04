@@ -144,14 +144,24 @@ export function getDeployedWorkflow(id: string): Workflow | undefined {
 
 export type DeployResult = { ok: true; workflow: Workflow } | { ok: false; reason: "not_found" | "conflict"; current?: number };
 
-/** Snapshots the current draft as the live version, if the caller has seen that exact version. */
-export function deployWorkflow(id: string, expectedVersion: number): DeployResult {
+/**
+ * Snapshots the current draft as the live version, if the caller has seen that exact version. `freeze` may
+ * rewrite the snapshot (e.g. to capture linked Collections requests as they are at deploy time).
+ */
+export function deployWorkflow(
+  id: string,
+  expectedVersion: number,
+  freeze?: (draft: Pick<Workflow, "nodes" | "edges">) => Pick<Workflow, "nodes" | "edges">,
+): DeployResult {
+  const draft = freeze && getWorkflow(id);
+  const snapshot =
+    draft && draft.version === expectedVersion ? JSON.stringify(freeze({ nodes: draft.nodes, edges: draft.edges })) : null;
   const result = db()
     .prepare(
-      `UPDATE workflows SET deployed_version = version, deployed_definition = definition, deployed_at = ?
+      `UPDATE workflows SET deployed_version = version, deployed_definition = COALESCE(?, definition), deployed_at = ?
        WHERE id = ? AND version = ?`,
     )
-    .run(new Date().toISOString(), id, expectedVersion);
+    .run(snapshot, new Date().toISOString(), id, expectedVersion);
   if (result.changes === 1) return { ok: true, workflow: getWorkflow(id)! };
   const existing = getWorkflow(id);
   return existing ? { ok: false, reason: "conflict", current: existing.version } : { ok: false, reason: "not_found" };

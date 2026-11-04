@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
+import { fetchRequest } from "@/lib/collections/client";
+import { ApiError } from "@/lib/workflows/client";
 import type { Step, WorkflowNode } from "@/lib/workflows/schema";
 import { NodeConfigForm } from "./node-config-form";
 
@@ -31,8 +34,79 @@ function curlFor(node: HttpNode) {
   return `curl -X ${node.config.method} '${node.config.url}'${headers.join("")}${body}`;
 }
 
+type LinkState = { requestId: string; name?: string; missing?: boolean };
+
+/**
+ * A node dropped from Collections stays linked to its saved request: runs rebuild it from that request, so its
+ * fields are read-only here. Unlinking keeps the current copy as an ordinary, editable node.
+ */
+function LinkedRequestBanner({ node, onChange }: { node: HttpNode; onChange: (n: WorkflowNode) => void }) {
+  const requestId = node.config.requestId!;
+  const [link, setLink] = useState<LinkState>({ requestId });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRequest(requestId)
+      .then((saved) => !cancelled && setLink({ requestId, name: saved.name }))
+      .catch((error: unknown) => {
+        if (!cancelled && error instanceof ApiError && error.status === 404) setLink({ requestId, missing: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestId]);
+
+  const current = link.requestId === requestId ? link : { requestId };
+  const unlink = () => {
+    const { requestId: _drop, ...config } = node.config;
+    void _drop;
+    onChange({ ...node, config });
+  };
+
+  return (
+    <div
+      data-testid="linked-request"
+      className={`flex flex-col gap-space-xs p-space-sm rounded-lg ${
+        current.missing ? "bg-error-container/40 text-on-error-container" : "bg-surface-container-lowest"
+      }`}
+    >
+      <div className="flex items-center gap-space-xs min-w-0">
+        <Icon name={current.missing ? "link_off" : "link"} className={`text-body-md ${current.missing ? "" : "text-primary"}`} />
+        <span className="font-body-sm text-body-sm text-on-surface truncate flex-1">
+          {current.missing ? (
+            "The linked Collections request was deleted"
+          ) : (
+            <>
+              Linked to <span className="font-semibold">“{current.name ?? "…"}”</span>
+            </>
+          )}
+        </span>
+        {!current.missing && (
+          <Link className="font-label-sm text-label-sm text-primary hover:underline shrink-0" href={`/collections?request=${requestId}`}>
+            Open
+          </Link>
+        )}
+        <button
+          className="font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface hover:underline shrink-0"
+          title="Keep this copy as a normal node you can edit here; Collections edits will no longer apply"
+          type="button"
+          onClick={unlink}
+        >
+          Unlink
+        </button>
+      </div>
+      <span className="font-label-sm text-label-sm text-outline">
+        {current.missing
+          ? "Runs of this node fail until you unlink it, which keeps the copy below."
+          : "Method, URL, headers, body and timeout come from Collections on every run (with its collection and folder auth). Unlink to edit them here. Webhooks use the copy from your last deploy."}
+      </span>
+    </div>
+  );
+}
+
 function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChange: (n: WorkflowNode) => void }) {
   const update = (config: Partial<HttpNode["config"]>) => onChange({ ...node, config: { ...node.config, ...config } });
+  const linked = !!node.config.requestId;
 
   switch (tab) {
     case "Headers":
@@ -65,6 +139,7 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
             id="node-body"
             className={`${CODE_BLOCK} leading-relaxed text-on-surface min-h-36 resize-y focus:outline-none focus:ring-1 focus:ring-primary/40`}
             spellCheck={false}
+            readOnly={linked}
             value={node.config.body ?? ""}
             placeholder={'{ "id": "{{node-1.body.id}}" }'}
             onChange={(e) => update({ body: e.target.value === "" ? undefined : e.target.value })}
@@ -101,6 +176,7 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
             min={100}
             max={30000}
             step={100}
+            readOnly={linked}
             value={node.config.timeoutMs}
             onChange={(e) => update({ timeoutMs: Math.min(30000, Math.max(100, Number(e.target.value) || 100)) })}
           />
@@ -163,6 +239,7 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
 
         {node.type === "http" ? (
           <>
+            {node.config.requestId && <LinkedRequestBanner node={node} onChange={onChange} />}
             <div className="flex flex-col gap-space-xs">
               <label className={SECTION_LABEL} htmlFor="request-target">
                 Request Target
@@ -170,7 +247,8 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
               <div className="flex items-center rounded-lg bg-surface-container-lowest overflow-hidden shadow-inner">
                 <select
                   aria-label="HTTP method"
-                  className="px-space-sm py-space-xs bg-primary text-on-primary font-label-sm text-label-sm font-bold uppercase focus:outline-none"
+                  className="px-space-sm py-space-xs bg-primary text-on-primary font-label-sm text-label-sm font-bold uppercase focus:outline-none disabled:opacity-100"
+                  disabled={!!node.config.requestId}
                   value={node.config.method}
                   onChange={(e) =>
                     onChange({ ...node, config: { ...node.config, method: e.target.value as HttpNode["config"]["method"] } })
@@ -184,6 +262,7 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
                   id="request-target"
                   className="bg-transparent font-mono text-body-sm text-on-surface px-space-sm py-space-xs w-full focus:outline-none"
                   type="text"
+                  readOnly={!!node.config.requestId}
                   value={node.config.url}
                   onChange={(e) => onChange({ ...node, config: { ...node.config, url: e.target.value } })}
                 />
