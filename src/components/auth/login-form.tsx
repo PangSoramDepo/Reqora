@@ -115,7 +115,7 @@ export function LoginForm() {
         </>
       )}
 
-      <form className="flex flex-col gap-space-lg" onSubmit={submit}>
+      <form className="flex flex-col gap-space-lg" method="post" onSubmit={submit}>
         {signingUp && (
           <div className="flex flex-col gap-space-xs">
             <label className="font-label-md text-label-md text-on-surface" htmlFor="full-name">
