@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { parseBody } from "@/lib/http";
-import { sendInputSchema } from "@/lib/collections/schema";
+import { sendInputSchema, type SendOutcome } from "@/lib/collections/schema";
 import { recordSend } from "@/lib/collections/history";
 import { sendRequest } from "@/lib/collections/send";
 import { requestScopes } from "@/lib/collections/store";
@@ -13,15 +13,19 @@ export async function POST(request: NextRequest) {
   const parsed = await parseBody(request, sendInputSchema);
   if ("error" in parsed) return parsed.error;
   const { definition, environment, collectionId, folderId, requestId, name = "request" } = parsed.data;
-  // The Live Execution Console log keeps real values (like Postman); the response here stays scrubbed.
-  const outcome = await sendRequest(
+  // Like Postman, the response panel and the Live Execution Console show real values (the sender chose the
+  // environment; stored workflow run history stays scrubbed).
+  let raw: SendOutcome | undefined;
+  const scrubbed = await sendRequest(
     { name, definition, ...requestScopes(collectionId, folderId) },
     {
       environment,
       baseUrl: request.nextUrl.origin,
-      onUnscrubbed: (raw) =>
-        recordSend({ requestId, collectionId, name, method: definition.method, url: definition.url, environment }, raw),
+      onUnscrubbed: (outcome) => {
+        raw = outcome;
+        recordSend({ requestId, collectionId, name, method: definition.method, url: definition.url, environment }, outcome);
+      },
     },
   );
-  return Response.json(outcome);
+  return Response.json(raw ?? scrubbed);
 }

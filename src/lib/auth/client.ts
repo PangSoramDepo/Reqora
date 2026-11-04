@@ -25,3 +25,5 @@ export const signup = (input: { name: string; email: string; password: string; r
   post<SessionUser>("/api/auth/signup", input);
 
 export const logout = () => post<void>("/api/auth/logout");
+/** Changes the signed-in user's password; other sessions are signed out. */
+export const changePassword = (input: { currentPassword: string; newPassword: string }) => post<void>("/api/auth/password", input);

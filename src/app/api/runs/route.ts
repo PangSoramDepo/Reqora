@@ -1,6 +1,6 @@
 import { connection, type NextRequest } from "next/server";
 import { problem } from "@/lib/http";
-import { queryRuns } from "@/lib/workflows/store";
+import { deleteRuns, queryRuns } from "@/lib/workflows/store";
 import { windowStart } from "@/lib/workflows/windows";
 
 export async function GET(request: NextRequest) {
@@ -23,4 +23,13 @@ export async function GET(request: NextRequest) {
   return Response.json({
     data: queryRuns({ limit, since: range.since, status, workflowId: params.get("workflowId") ?? undefined }),
   });
+}
+
+/**
+ * Permanently deletes stored runs: all of them, or one workflow's with `?workflowId=`. Run history, replays and
+ * telemetry lose them; deployments and load-test reports are kept.
+ */
+export async function DELETE(request: NextRequest) {
+  const workflowId = request.nextUrl.searchParams.get("workflowId") ?? undefined;
+  return Response.json({ deleted: deleteRuns(workflowId) });
 }

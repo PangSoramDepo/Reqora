@@ -71,8 +71,41 @@ rq.variables.set("sha", CryptoJS.SHA256("abc").toString());`,
       sha: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     });
 
-    const missing = await runScripts({ phase: "pre", readEnv: env, state: state(), scripts: [{ scope: "request", name: "R", code: `require("lodash");` }] });
-    expect(missing.errors[0].message).toBe('Error: Cannot find module "lodash". Scripts can require: crypto-js');
+    const missing = await runScripts({ phase: "pre", readEnv: env, state: state(), scripts: [{ scope: "request", name: "R", code: `require("axios");` }] });
+    expect(missing.errors[0].message).toBe('Error: Cannot find module "axios". Scripts can require: crypto-js, lodash, moment');
+  });
+
+  it("provides lodash (require or the _ global) and moment, like Postman", async () => {
+    const { state: out, errors } = await runScripts({
+      phase: "pre",
+      readEnv: env,
+      state: state(),
+      scripts: [
+        {
+          scope: "request",
+          name: "R",
+          code: `const lodash = require("lodash");
+const moment = require("moment");
+rq.variables.set("picked", JSON.stringify(lodash.pick({ a: 1, b: 2, c: 3 }, ["a", "c"])));
+rq.variables.set("grouped", Object.keys(_.groupBy([1.2, 1.8, 2.1], Math.floor)).join(","));
+rq.variables.set("date", moment.utc("2026-01-31T10:00:00Z").add(1, "month").format("YYYY-MM-DD"));
+rq.variables.set("same", String(lodash === _));`,
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
+    expect(out.variables).toEqual({ picked: '{"a":1,"c":3}', grouped: "1,2", date: "2026-02-28", same: "true" });
+  });
+
+  it("loads a library only when the script uses it", async () => {
+    const { errors } = await runScripts({
+      phase: "pre",
+      readEnv: env,
+      state: state(),
+      // "my_var.x" and "moments" must not load lodash or moment; without them these globals are undefined.
+      scripts: [{ scope: "request", name: "R", code: `const my_var = { x: 1 }; const moments = 2; my_var.x; if (typeof _ !== "undefined" || typeof moment !== "undefined") throw new Error("loaded");` }],
+    });
+    expect(errors).toEqual([]);
   });
 
   it("matches the editor's list of modules", () => {

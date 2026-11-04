@@ -23,7 +23,7 @@ export function NodeLibrary() {
 
   return (
     <>
-      <div className="p-space-sm">
+      <div className="p-space-sm rail-hide">
         <label className="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-lowest text-on-surface-variant">
           <Icon name="search" className="text-body-md" />
           <input
@@ -37,7 +37,7 @@ export function NodeLibrary() {
       </div>
 
       <div className="px-space-sm pt-space-xs pb-space-sm">
-        <div className="font-label-sm text-label-sm text-outline uppercase tracking-wider px-space-xs mb-space-xs">
+        <div className="font-label-sm text-label-sm text-outline uppercase tracking-wider px-space-xs mb-space-xs rail-hide">
           Core Blocks
         </div>
         <div className="space-y-space-xxs">
@@ -45,20 +45,20 @@ export function NodeLibrary() {
             <div
               key={block.type}
               draggable
-              title="Drag onto the canvas, or double-click to add"
+              title={`${block.label}: drag onto the canvas, or double-click to add`}
               onDragStart={(e) => {
                 e.dataTransfer.setData(NODE_DRAG_MIME, block.type);
                 e.dataTransfer.effectAllowed = "copy";
               }}
               onDoubleClick={() => window.dispatchEvent(new CustomEvent(ADD_NODE_EVENT, { detail: block.type }))}
-              className="flex items-center justify-between p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab select-none"
+              className="flex items-center justify-between rail-center p-space-xs rounded bg-surface-container hover:bg-surface-container-high transition-colors cursor-grab select-none"
             >
               <div className="flex items-center gap-space-xs">
                 <Icon name={block.icon} className={`${block.tone} text-body-lg`} />
-                <span className="font-body-sm text-body-sm text-on-surface">{block.label}</span>
+                <span className="font-body-sm text-body-sm text-on-surface rail-hide">{block.label}</span>
               </div>
               <span
-                className={`font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest ${block.tone}`}
+                className={`font-label-sm text-label-sm px-space-xs py-space-xxs rounded bg-surface-container-highest rail-hide ${block.tone}`}
               >
                 {block.tag}
               </span>
@@ -68,7 +68,9 @@ export function NodeLibrary() {
         </div>
       </div>
 
-      <SavedRequests query={query} />
+      <div className="rail-hide">
+        <SavedRequests query={query} />
+      </div>
     </>
   );
 }

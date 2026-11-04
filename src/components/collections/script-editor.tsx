@@ -42,6 +42,8 @@ const API: Record<Phase, [string, string][]> = {
     ["rq.environment.set / unset / has", "saved to the selected environment after the send; {{env.NAME}} sees it right away"],
     ["console", "log / info / warn / error → Console tab"],
     ["require(\"crypto-js\")", "built-in crypto-js (also the global CryptoJS): AES, SHA256, HmacSHA256, Base64…"],
+    ["require(\"lodash\") / _", "lodash: _.get, _.pick, _.groupBy, _.sortBy, _.isEqual, _.cloneDeep…"],
+    ["require(\"moment\")", "moment dates: moment().format(\"YYYY-MM-DD\"), add, subtract, diff, unix…"],
   ],
   post: [
     ["rq.response", "status, statusText, headers, body, responseTime, json(), text()"],
@@ -52,6 +54,8 @@ const API: Record<Phase, [string, string][]> = {
     ["rq.request", "the request as sent (read-only)"],
     ["console", "log / info / warn / error → Console tab"],
     ["require(\"crypto-js\")", "built-in crypto-js (also the global CryptoJS): AES, SHA256, HmacSHA256, Base64…"],
+    ["require(\"lodash\") / _", "lodash: _.get, _.pick, _.groupBy, _.sortBy, _.isEqual, _.cloneDeep…"],
+    ["require(\"moment\")", "moment dates: moment().format(\"YYYY-MM-DD\"), add, subtract, diff, unix…"],
   ],
 };
 

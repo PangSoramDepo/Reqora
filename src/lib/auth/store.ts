@@ -90,3 +90,15 @@ export function userForSession(token: string | undefined): User | undefined {
 export function deleteSession(token: string | undefined) {
   if (token) conn().prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashToken(token));
 }
+
+export function passwordHashOf(userId: string): string | undefined {
+  return (conn().prepare("SELECT password_hash FROM users WHERE id = ?").get(userId) as { password_hash: string } | undefined)
+    ?.password_hash;
+}
+
+/** Sets a new password hash and signs the user out of every other session (`keepToken` stays signed in). */
+export function updatePassword(userId: string, passwordHash: string, keepToken: string | undefined) {
+  const d = conn();
+  d.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, userId);
+  d.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?").run(userId, keepToken ? hashToken(keepToken) : "");
+}

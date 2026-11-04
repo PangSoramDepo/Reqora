@@ -17,5 +17,13 @@ export const signupSchema = z.object({
   remember: z.boolean().default(false),
 });
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(1024),
+  newPassword: z
+    .string()
+    .min(MIN_PASSWORD_LENGTH, `password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+    .max(1024),
+});
+
 /** Open signup only bootstraps the first account, unless explicitly enabled for the deployment. */
 export const signupOpen = (userCount: number) => userCount === 0 || process.env.REQORA_ALLOW_SIGNUP === "true";

@@ -284,6 +284,14 @@ export function queryRuns({ limit, since, status, workflowId }: RunQuery): Run[]
   return rows.map((row) => parseRun(row.data));
 }
 
+/** Deletes stored runs (one workflow's, or all); returns how many. */
+export function deleteRuns(workflowId?: string): number {
+  const statement = workflowId
+    ? db().prepare("DELETE FROM runs WHERE workflow_id = ?").run(workflowId)
+    : db().prepare("DELETE FROM runs").run();
+  return Number(statement.changes);
+}
+
 /** Runs started in [from, to). */
 export function countRuns(from: string, to: string): number {
   const row = db().prepare("SELECT COUNT(*) AS n FROM runs WHERE started_at >= ? AND started_at < ?").get(from, to) as { n: number };

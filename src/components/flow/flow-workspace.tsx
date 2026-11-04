@@ -24,6 +24,7 @@ import { ExecutionStream } from "./execution-stream";
 import { FlowCanvas } from "./flow-canvas";
 import { DeploymentsPanel } from "./deployments-panel";
 import { LoadTestPanel } from "./load-test-panel";
+import { readSavedPayload, TestPayloadEditor } from "./test-payload-editor";
 import { NodeInspector } from "./node-inspector";
 import { WorkflowSwitcher } from "./workflow-switcher";
 
@@ -58,6 +59,9 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const [run, setRun] = useState<Run | undefined>();
   const [running, setRunning] = useState(false);
   const [loadTesting, setLoadTesting] = useState(false);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+  const [savedPayload, setSavedPayload] = useState<unknown>(() => readSavedPayload(workflowId));
+  const [editingPayload, setEditingPayload] = useState(false);
   const [showDeployments, setShowDeployments] = useState(false);
   const [deploymentsKey, setDeploymentsKey] = useState(0);
   // While a run executes: the steps finished so far and the node running now, replayed at a watchable pace.
@@ -227,8 +231,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     pulseTimer.current = setTimeout(() => setPulsingNodeId(null), 300);
   };
 
-  // Re-use the last run's payload so tests match this workflow's shape; the sample order otherwise.
-  const testPayload = run?.trigger.body ?? SAMPLE_ORDER;
+  // A payload saved for this workflow, else the last run's (so tests match its shape), else the sample order.
+  const testPayload = savedPayload ?? run?.trigger.body ?? SAMPLE_ORDER;
 
   const execute = async () => {
     if (!workflow || running) return;
@@ -319,7 +323,9 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
 
   const steps = new Map<string, Step>((live ? live.steps : run?.steps)?.map((s) => [s.nodeId, s]));
   const activeName = live?.activeId ? workflow.nodes.find((n) => n.id === live.activeId)?.name : undefined;
-  const selected = workflow.nodes.find((n) => n.id === selectedId);
+  // A pinned node stays in the inspector while other nodes are selected on the canvas.
+  const pinnedNode = workflow.nodes.find((n) => n.id === pinnedId);
+  const selected = pinnedNode ?? workflow.nodes.find((n) => n.id === selectedId);
   const saveLabel = {
     saved: { text: "SAVED", className: "bg-primary/10 text-primary" },
     saving: { text: "SAVING…", className: "bg-primary/10 text-primary animate-pulse" },
@@ -406,12 +412,40 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             disabled={running}
             onClick={execute}
             title={`Run the draft in ${ENVIRONMENT_LABELS[environment].label} with ${
-              run ? "the last run's payload" : `sample order ${SAMPLE_ORDER.id}`
+              savedPayload !== undefined ? "your saved test payload" : run ? "the last run's payload" : `sample order ${SAMPLE_ORDER.id}`
             }`}
           >
             <Icon name={running ? "progress_activity" : "bolt"} className={`text-body-md ${running ? "animate-spin" : ""}`} />
             <span>{running ? "Running…" : "Emit Webhook Test"}</span>
           </button>
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Edit test payload"
+              aria-expanded={editingPayload}
+              title="Edit the test payload (the JSON body sent as {{trigger.body}})"
+              onClick={() => setEditingPayload((v) => !v)}
+              className={`p-space-xs rounded-xl shadow-lg transition-all ${
+                savedPayload !== undefined ? "bg-primary/20 text-primary" : "bg-surface-container-high text-on-surface-variant hover:text-on-surface"
+              }`}
+            >
+              <Icon name="data_object" className="text-body-md" />
+            </button>
+            {editingPayload && (
+              <TestPayloadEditor
+                workflowId={workflowId}
+                current={testPayload}
+                saved={savedPayload !== undefined}
+                lastRunPayload={run?.trigger.body}
+                samplePayload={SAMPLE_ORDER}
+                onChange={(payload) => {
+                  setSavedPayload(payload);
+                  flash(payload === undefined ? "Test runs use the last run's payload again." : "Test payload saved for this workflow.");
+                }}
+                onClose={() => setEditingPayload(false)}
+              />
+            )}
+          </div>
         </div>
 
         {(saveState.kind === "error" || notice) && (
@@ -496,6 +530,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             running={running}
             onChange={updateNode}
             onRun={execute}
+            pinned={!!pinnedNode}
+            onTogglePin={() => setPinnedId(pinnedNode ? null : selected.id)}
           />
         ) : (
           <aside className="w-[380px] h-full bg-surface-container-low/95 flex flex-col items-center justify-center gap-space-xs p-space-xl text-center text-outline font-body-sm text-body-sm">

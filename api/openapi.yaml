@@ -25,7 +25,7 @@ info:
     existing variable's kind — a secret stays encrypted — and resolve in `{{env.NAME}}` for the same send),
     `rq.test(name, fn)`,
     `rq.expect(value)` (toBe, toEqual, toContain, toBeTruthy, toBeFalsy, toBeGreaterThan, toBeLessThan,
-    toHaveProperty, toMatch) and `console`. Resolved environment values are scrubbed from everything returned.
+    toHaveProperty, toMatch) and `console`. Send responses show real values, like Postman; stored workflow runs are scrubbed.
 
     **Authentication.** Every operation requires the `reqora_session` cookie from `POST /api/auth/login`
     (401 otherwise), except the ones marked `security: []`: the auth endpoints, the webhook entry point
@@ -101,6 +101,26 @@ paths:
       security: []
       responses:
         "204": { description: Signed out; clears the cookie }
+  /api/auth/password:
+    post:
+      operationId: changePassword
+      summary: Change the signed-in user's password
+      description: Checks the current password (failed attempts are rate-limited), then signs out every other session of the user; this one stays signed in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 10 }
+      responses:
+        "204": { description: Password changed }
+        "400": { $ref: "#/components/responses/Problem" }
+        "401": { $ref: "#/components/responses/Problem" }
+        "429": { $ref: "#/components/responses/Problem" }
   /api/auth/session:
     get:
       operationId: getSession
@@ -576,6 +596,25 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Run" }
         "400": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteRuns
+      summary: Permanently delete stored runs
+      description: Deletes every stored run, or one workflow's with `workflowId`. Execution History, replays and telemetry lose them; deployments and load-test reports are kept.
+      parameters:
+        - name: workflowId
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: How many runs were deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: { type: integer }
+        "401": { $ref: "#/components/responses/Problem" }
   /api/runs/stats:
     get:
       operationId: getRunStats
@@ -710,8 +749,15 @@ paths:
   /api/collections/import:
     post:
       operationId: importCollection
-      summary: Import a Reqora collection export, a cURL command or an OpenAPI document
+      summary: Import a Reqora or Postman collection, a cURL command or an OpenAPI document
       description: |
+        `postman`: a Postman Collection v2.0/v2.1. Nested folders are flattened ("Parent / Child", keeping the
+        parent's auth and scripts); requests keep auth, headers, query params, raw/urlencoded/GraphQL bodies, saved
+        responses and pre-request/test scripts (which run through the `pm` compatibility layer). `{{name}}` becomes
+        `{{env.name}}`, or `{{vars.name}}` when scripts set it with `pm.variables.set`. With `variablesEnvironment`,
+        collection variables missing from that environment are added. The response lists what was converted or
+        left out in `importNotes`.
+
         `reqora`: `text` is a file from `GET /api/collections/{collectionId}/export` (`CollectionExport`). Creates a
         new collection with its settings, folders, requests (in order, with scripts and tests) and examples.
 
@@ -732,9 +778,13 @@ paths:
               type: object
               required: [format, text]
               properties:
-                format: { type: string, enum: [reqora, curl, openapi] }
+                format: { type: string, enum: [reqora, postman, curl, openapi] }
                 text: { type: string, minLength: 1, maxLength: 2000000 }
                 collectionId: { type: string, description: "cURL only: append to this existing collection" }
+                variablesEnvironment:
+                  description: "postman only: add the collection's variables to this environment (existing values are kept)"
+                  allOf:
+                    - $ref: "#/components/schemas/EnvironmentName"
       responses:
         "201":
           description: The created (or, for cURL with `collectionId`, the updated) collection
@@ -742,7 +792,15 @@ paths:
             Location: { schema: { type: string } }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Collection" }
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Collection"
+                  - type: object
+                    properties:
+                      importNotes:
+                        type: array
+                        description: "postman only: what was converted, renamed or left out, and variables added"
+                        items: { type: string }
         "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
         "422": { $ref: "#/components/responses/Problem" }
@@ -814,6 +872,13 @@ paths:
         with their settings, and every request in order with its definition and saved examples. Ids are not
         included; environment variables and secrets are not part of the file. Import it with
         `POST /api/collections/import` and `format: reqora`.
+
+        `?format=postman` downloads a Postman Collection v2.1 (`<name>.postman_collection.json`) instead:
+        `{{env.x}}`/`{{vars.x}}` become `{{x}}`, common `rq.*` calls become `pm.*`, and tests become `pm.test` scripts.
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [reqora, postman], default: reqora }
       responses:
         "200":
           description: The export file
@@ -1084,9 +1149,9 @@ paths:
       summary: Send the request's saved definition from the server
       description: |
         Templates resolve like workflow runs (`{{env.NAME}}` from the chosen environment, falling back to
-        `REQORA_ENV_NAME`; `{{$guid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`). Every resolved variable value of
-        6+ characters is replaced with `[secret]` anywhere in the result (URL, headers, body, test results), so
-        an echoing upstream cannot reveal secrets. Response bodies are capped at 1 MB.
+        `REQORA_ENV_NAME`; `{{$guid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`). Like Postman, the result shows the
+        real values that were sent (secrets included), so only people allowed to use the environment should send.
+        Response bodies are capped at 1 MB.
 
         **When no HTTP response is received** (network error, timeout, missing variable, invalid JSON body
         template, body over 1 MB) the status is still 200 and the payload is a `SendFailure`. Upstream 4xx/5xx
@@ -1991,7 +2056,7 @@ components:
         sentAt: { type: string, format: date-time }
     SentRequest:
       type: object
-      description: The request as it went on the wire (after scripts, templates and auth); in send responses resolved secrets read [secret], in send history they are kept
+      description: The request as it went on the wire (after scripts, templates and auth), with real values in send responses and send history
       required: [method, url, headers]
       properties:
         method: { type: string }
@@ -2107,7 +2172,7 @@ components:
         body: { description: "Parsed JSON when the response content type is JSON, otherwise the text" }
         size: { type: integer, description: Body size in bytes }
         durationMs: { type: integer }
-        url: { type: string, description: Resolved URL with secrets scrubbed }
+        url: { type: string, description: Resolved URL }
         assertions:
           type: array
           items: { $ref: "#/components/schemas/AssertionResult" }

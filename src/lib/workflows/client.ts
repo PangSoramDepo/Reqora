@@ -152,6 +152,12 @@ export type RunStatsResponse = {
 export const fetchRuns = (since: RunWindow, status?: Run["status"]) =>
   request<{ data: Run[] }>(`/api/runs?since=${since}&limit=100${status ? `&status=${status}` : ""}`).then((r) => r.data);
 
+/** Permanently deletes stored runs (one workflow's, or all). */
+export const deleteRuns = (workflowId?: string) =>
+  request<{ deleted: number }>(`/api/runs${workflowId ? `?workflowId=${encodeURIComponent(workflowId)}` : ""}`, { method: "DELETE" }).then(
+    (r) => r.deleted,
+  );
+
 export const fetchRunStats = (since: RunWindow) => request<RunStatsResponse>(`/api/runs/stats?since=${since}`);
 
 export const replayRun = (runId: string) => request<Run>(`/api/runs/${runId}/replay`, { method: "POST" });

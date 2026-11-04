@@ -1,6 +1,8 @@
 import { notFound, parseBody, problem } from "@/lib/http";
 import { ImportError, parseCurl } from "@/lib/collections/curl";
 import { importOpenApi } from "@/lib/collections/openapi";
+import { importPostman } from "@/lib/collections/postman";
+import { putVariable, resolveVariable } from "@/lib/secrets/variables";
 import { collectionExportSchema, importInputSchema } from "@/lib/collections/schema";
 import { createRequest, getCollection, insertImported } from "@/lib/collections/store";
 
@@ -38,9 +40,35 @@ function parseReqoraExport(text: string) {
 export async function POST(request: Request) {
   const parsed = await parseBody(request, importInputSchema);
   if ("error" in parsed) return parsed.error;
-  const { format, text, collectionId } = parsed.data;
+  const { format, text, collectionId, variablesEnvironment } = parsed.data;
 
   try {
+    if (format === "postman") {
+      const imported = importPostman(text);
+      const collection = insertImported(imported);
+      const notes = [...imported.notes];
+      if (imported.variables.length) {
+        if (variablesEnvironment) {
+          // Only fill in what's missing, so an import never overwrites existing (possibly secret) values.
+          const added: string[] = [];
+          const kept: string[] = [];
+          for (const v of imported.variables) {
+            if (resolveVariable(variablesEnvironment, v.name) !== undefined) kept.push(v.name);
+            else {
+              putVariable(variablesEnvironment, v.name, { kind: v.secret ? "secret" : "plain", value: v.value, description: `From Postman collection “${imported.name}”` });
+              added.push(v.name);
+            }
+          }
+          // (lib/environment is a client module, so the label is built here.)
+          const env = variablesEnvironment[0].toUpperCase() + variablesEnvironment.slice(1);
+          if (added.length) notes.unshift(`Added ${added.length} collection variable${added.length === 1 ? "" : "s"} to ${env}: ${added.join(", ")}.`);
+          if (kept.length) notes.unshift(`Kept the existing ${env} values of: ${kept.join(", ")}.`);
+        } else {
+          notes.unshift(`Set these in your environment (Secrets page): ${imported.variables.map((v) => v.name).join(", ")}.`);
+        }
+      }
+      return Response.json({ ...collection, importNotes: notes }, { status: 201, headers: { Location: `/api/collections/${collection.id}` } });
+    }
     if (format === "reqora") {
       const collection = insertImported(parseReqoraExport(text));
       return Response.json(collection, { status: 201, headers: { Location: `/api/collections/${collection.id}` } });

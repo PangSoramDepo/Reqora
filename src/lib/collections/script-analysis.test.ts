@@ -50,14 +50,17 @@ describe("lintScript", () => {
   it("accepts require('crypto-js') and CryptoJS, and flags unknown modules", () => {
     expect(lint("const CryptoJS = require('crypto-js');\nCryptoJS.AES.decrypt('x', CryptoJS.enc.Utf8.parse('k'), { mode: CryptoJS.mode.ECB });")).toEqual([]);
     expect(lint("CryptoJS.SHA256('abc').toString();")).toEqual([]);
-    expect(lint("const _ = require('lodash');")).toEqual([
-      { from: 18, to: 26, severity: "error", message: 'Cannot find module "lodash". Scripts can require: crypto-js.' },
+    expect(lint("const _ = require('lodash');")).toEqual([]);
+    expect(lint("const a = require('axios');")).toEqual([
+      { from: 18, to: 25, severity: "error", message: 'Cannot find module "axios". Scripts can require: crypto-js, lodash, moment.' },
     ]);
   });
 
   it("warns about globals the sandbox doesn't have, unless declared", () => {
     expect(lint('fetch("https://x.dev");')[0].message).toContain("no network access");
-    expect(lint("pm.environment.get('A');")[0].message).toContain("Use rq instead of pm");
+    // Postman's pm API is supported (compatibility layer), and its members are checked.
+    expect(lint("pm.environment.set('A', 1); pm.expect(1).to.be.ok; pm.request.headers.add({ key: 'x', value: 'y' });")).toEqual([]);
+    expect(lint("pm.enviroment.get('A');")[0].message).toContain('Did you mean "environment"');
     expect(lint("const fetch = () => 1; fetch();")).toEqual([]);
   });
 
@@ -101,11 +104,11 @@ describe("completeScript", () => {
   });
 
   it("offers module names inside require(\"…\")", () => {
-    expect(labels('const CryptoJS = require("')).toEqual(["crypto-js"]);
+    expect(labels('const CryptoJS = require("')).toEqual(["crypto-js", "lodash", "moment"]);
   });
 
   it("offers the API roots for a bare word, not for a declaration", () => {
-    expect(labels("r")).toEqual(["rq", "console", "require", "CryptoJS"]);
+    expect(labels("r")).toEqual(expect.arrayContaining(["rq", "console", "require", "pm", "CryptoJS", "_", "moment"]));
     expect(labels("const r")).toBeUndefined();
   });
 

@@ -176,3 +176,22 @@
 ::-webkit-scrollbar {
   display: none;
 }
+
+/* Sidebar width; the rail toggle sets data-rail="collapsed" on <html> (see rail-toggle.tsx). */
+:root {
+  --sidebar-w: 16rem;
+}
+:root[data-rail="collapsed"] {
+  --sidebar-w: 3.5rem;
+}
+:root[data-rail="collapsed"] .rail-hide,
+:root:not([data-rail="collapsed"]) .rail-only {
+  display: none !important;
+}
+:root[data-rail="collapsed"] .rail-center {
+  justify-content: center;
+}
+:root[data-rail="collapsed"] .rail-tight {
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+}

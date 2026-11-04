@@ -12,11 +12,12 @@ import {
 import { clearRecentSends, fetchRecentSends } from "@/lib/collections/client";
 import type { SendRecord } from "@/lib/collections/history";
 import {
+  deleteRuns,
   fetchRecentRuns,
   fetchWorkflowSummaries,
 } from "@/lib/workflows/client";
 import type { Run } from "@/lib/workflows/schema";
-import { ExecutionConsole, type ConsoleTab } from "./execution-console";
+import { ExecutionConsole, type ClearMode, type ConsoleTab } from "./execution-console";
 
 const OPEN_KEY = "reqora:console-open";
 const OPEN_EVENT = "reqora:console-open-change";
@@ -204,11 +205,18 @@ export function LiveStatusBar({ className }: { className: string }) {
   const cutoff = [cleared[scope], scope === "*" ? undefined : cleared["*"]].filter(Boolean).sort().at(-1);
   const visibleRuns = cutoff ? runs.filter((r) => r.startedAt > cutoff) : runs;
 
-  const clearConsole = async () => {
+  const clearConsole = async (mode: ClearMode) => {
     if (tab === "requests") {
       sendsGeneration.current += 1;
       await clearRecentSends();
       setSends({ list: [], loaded: true });
+      return;
+    }
+    if (mode === "delete") {
+      // Permanently delete this view's runs (one workflow, or all), then forget any hide cutoff for it.
+      await deleteRuns(workflowId);
+      setFeed((prev) => ({ ...prev, scope, runs: [], error: null }));
+      showClearedRuns();
       return;
     }
     if (!runs[0]) return;

@@ -89,7 +89,13 @@ export const createExample = (requestId: string, name: string, response: Example
 export const deleteExample = (id: string) => request<void>(`/api/examples/${id}`, { method: "DELETE" });
 
 /** Download URL of a collection's `.reqora.json` export. */
-export const collectionExportUrl = (id: string) => `/api/collections/${id}/export`;
+export const collectionExportUrl = (id: string, format: "reqora" | "postman" = "reqora") =>
+  `/api/collections/${id}/export${format === "postman" ? "?format=postman" : ""}`;
 
-export const importCollection = (format: "curl" | "openapi" | "reqora", text: string, collectionId?: string) =>
-  request<Collection>("/api/collections/import", json("POST", { format, text, collectionId }));
+export type ImportResult = Collection & { importNotes?: string[] };
+export const importCollection = (
+  format: "curl" | "openapi" | "reqora" | "postman",
+  text: string,
+  collectionId?: string,
+  variablesEnvironment?: Environment,
+) => request<ImportResult>("/api/collections/import", json("POST", { format, text, collectionId, variablesEnvironment }));

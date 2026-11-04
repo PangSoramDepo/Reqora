@@ -7,7 +7,7 @@
 export type ScriptPhase = "pre" | "post";
 
 /** Libraries scripts can require (bundles in SCRIPT_MODULES, scripts.ts). */
-export const SCRIPT_MODULE_NAMES = ["crypto-js"] as const;
+export const SCRIPT_MODULE_NAMES = ["crypto-js", "lodash", "moment"] as const;
 
 export type ApiMember = {
   name: string;
@@ -51,6 +51,14 @@ const MATCHER_NAMES: [string, string, string][] = [
 ];
 const MATCHERS: ApiMember[] = MATCHER_NAMES.map(([name, sig, doc]) => method(name, sig, doc));
 for (const m of MATCHERS) m.members = MATCHERS; // matchers chain: expect(x).toBeTruthy().toBe(1)
+
+const PM_ENV: ApiMember[] = [
+  method("get", "(name: string): string | undefined", "Reads a value. Write the name as a string literal: only literal names are resolved.", { nameArg: "env" }),
+  method("set", "(name: string, value: any): void", "Sets a value; it is saved to the selected environment after the send.", { nameArg: "env" }),
+  method("unset", "(name: string): void", "Removes a value from the selected environment after the send.", { nameArg: "env" }),
+  method("has", "(name: string): boolean", "Whether the environment has a value for the name.", { nameArg: "env" }),
+  method("replaceIn", "(text: string): string", "Replaces {{name}} with environment values."),
+];
 
 const REQUEST_MEMBERS: ApiMember[] = [
   prop("method", "string", "HTTP method, e.g. \"GET\". Pre-request scripts may change it."),
@@ -118,11 +126,52 @@ export const SCRIPT_API: ApiMember[] = [
       method("error", "(...values: any[]): void", "Logs at error level."),
     ],
   },
-  method("require", '(name: "crypto-js"): any', `Loads a built-in library, like Postman. Available: ${SCRIPT_MODULE_NAMES.join(", ")}.`, {
+  method("require", '(name: "crypto-js" | "lodash" | "moment"): any', `Loads a built-in library, like Postman. Available: ${SCRIPT_MODULE_NAMES.join(", ")}.`, {
     nameArg: "module",
   }),
   // Members are left open (no lint); the library is large.
+  {
+    name: "pm",
+    kind: "namespace",
+    detail: "Postman compatibility",
+    doc: "Postman's pm API, mapped onto rq so imported Postman scripts run unchanged.",
+    members: [
+      prop("environment", "object", "The selected environment (same as rq.environment): get / set / unset / has / replaceIn.", {
+        members: PM_ENV,
+      }),
+      prop("collectionVariables", "object", "Saved to the selected environment in Reqora (there are no collection variables).", {
+        members: PM_ENV,
+      }),
+      prop("globals", "object", "Saved to the selected environment in Reqora (there are no globals).", { members: PM_ENV }),
+      prop("variables", "object", "Request-local values (rq.variables), falling back to the environment on get.", {
+        members: [
+          method("get", "(name: string): string | undefined", "A local variable, else the environment value."),
+          method("set", "(name: string, value: any): void", "Sets a local variable ({{vars.NAME}})."),
+          method("unset", "(name: string): void", "Removes a local variable."),
+          method("has", "(name: string): boolean", "Whether a local or environment value exists."),
+          method("toObject", "(): Record<string, string>", "Local variables."),
+          method("replaceIn", "(text: string): string", "Replaces {{name}} with variable / environment values."),
+        ],
+      }),
+      prop("request", "object", "The request: url (toString, getHost, getPath, query), method, headers (add, upsert, remove, get), body."),
+      prop("response", "object", "The response: code, status, headers.get(), responseTime, json(), text(), to.have.status(), to.be.ok…", {
+        phases: ["post"],
+      }),
+      method("test", "(name: string, fn: () => void): void", "A named test (same as rq.test)."),
+      method("expect", "(actual: any): Assertion", "Chai-style assertion: to.equal, to.eql, to.include, to.be.above, to.have.property, to.be.a(\"string\")…"),
+      prop("info", "object", "eventName (\"prerequest\" or \"test\"), iteration."),
+      method("sendRequest", "(…): never", "Not available: scripts have no network access."),
+    ],
+  },
+  prop("postman", "object", "Legacy Postman API: setEnvironmentVariable, getEnvironmentVariable, clearEnvironmentVariable…"),
+  prop("tests", "Record<string, boolean>", "Legacy Postman tests: tests[\"name\"] = condition."),
+  method("btoa", "(text: string): string", "Base64-encodes a Latin-1 string."),
+  method("atob", "(base64: string): string", "Decodes base64."),
+  prop("responseBody", "string", "Legacy Postman: the response body text.", { phases: ["post"] }),
+  prop("responseCode", "{ code, name }", "Legacy Postman: the response status.", { phases: ["post"] }),
   prop("CryptoJS", "crypto-js", "The crypto-js library (also require(\"crypto-js\")): AES, DES, SHA256, HmacSHA256, MD5, enc.Base64/Hex/Utf8, mode, pad…"),
+  prop("_", "lodash", "The lodash library (also require(\"lodash\")): get, set, pick, omit, groupBy, sortBy, uniq, isEqual, cloneDeep…"),
+  prop("moment", "moment", "The moment date library (also require(\"moment\")): moment().format(\"YYYY-MM-DD\"), add, subtract, diff, unix, toISOString…"),
 ];
 
 /** Standard globals available in the sandbox (QuickJS): no window, document, fetch or timers. */
@@ -142,7 +191,6 @@ export const UNAVAILABLE_GLOBALS: Record<string, string> = {
   window: "Scripts don't run in the browser.",
   document: "Scripts don't run in the browser.",
   localStorage: "Scripts don't run in the browser.",
-  pm: "Use rq instead of pm (rq.request, rq.response, rq.environment, rq.test, rq.expect).",
 };
 
 /** Whether a member exists in this phase. */

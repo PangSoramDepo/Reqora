@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ago,
   shortId,
@@ -99,50 +99,141 @@ type ExecutionConsoleProps = {
   error: string | null;
   onClose: () => void;
   /** Clears the active tab: deletes the API request log, or hides the current workflow runs. */
-  onClear: () => Promise<void>;
+  onClear: (mode: ClearMode) => Promise<void>;
   /** Runs hidden by an earlier clear (still in Execution History). */
   hiddenRuns: number;
   onShowHiddenRuns: () => void;
 };
 
 /** Two-step "Clear": the first click arms it for a few seconds, the second one clears. */
-function ClearButton({ tab, disabled, onClear }: { tab: ConsoleTab; disabled: boolean; onClear: () => Promise<void> }) {
-  const [armed, setArmed] = useState(false);
+export type ClearMode = "hide" | "delete";
+
+const MENU_ITEM =
+  "w-full flex items-start gap-space-xs px-space-sm py-space-xs rounded text-left font-body-sm text-body-sm hover:bg-surface-container-highest";
+
+/**
+ * Requests tab: two-step "Clear" that deletes the request log. Runs tab: a menu to hide the runs from the console
+ * (they stay in Executions) or delete them from history permanently (second click confirms).
+ */
+function ClearButton({
+  tab,
+  disabled,
+  runCount,
+  scopeName,
+  onClear,
+}: {
+  tab: ConsoleTab;
+  disabled: boolean;
+  runCount: number;
+  scopeName: string;
+  onClear: (mode: ClearMode) => Promise<void>;
+}) {
+  const [armed, setArmed] = useState<ClearMode | null>(null);
+  const [menu, setMenu] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!armed) return;
-    const timer = setTimeout(() => setArmed(false), 3000);
+    const timer = setTimeout(() => setArmed(null), 3000);
     return () => clearTimeout(timer);
   }, [armed]);
 
-  const what = tab === "requests" ? "Delete all API request logs" : "Hide the current workflow runs from the console (they stay in Executions)";
+  useEffect(() => {
+    if (!menu) return;
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setMenu(false);
+        setArmed(null);
+      }
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [menu]);
+
+  const run = (mode: ClearMode) => {
+    setArmed(null);
+    setMenu(false);
+    setBusy(true);
+    onClear(mode)
+      .catch((error: Error) => setFailed(error.message))
+      .finally(() => setBusy(false));
+  };
+
+  const base = "flex items-center gap-space-xxs px-space-xs py-0.5 rounded font-label-sm text-label-sm transition-colors disabled:opacity-40 disabled:pointer-events-none";
+  const icon = <Icon name={busy ? "progress_activity" : "delete_sweep"} className={`text-body-md ${busy ? "animate-spin" : ""}`} />;
+
+  if (tab === "requests") {
+    return (
+      <button
+        aria-label={armed ? "Confirm clear" : "Clear console"}
+        className={`${base} ${
+          armed ? "bg-error-container text-on-error-container" : failed ? "text-error hover:bg-surface-container-high" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
+        }`}
+        disabled={disabled || busy}
+        onClick={() => {
+          if (!armed) {
+            setFailed(null);
+            setArmed("delete");
+            return;
+          }
+          run("delete");
+        }}
+        title={failed ? `Could not clear: ${failed}` : armed ? "Click again to clear" : "Delete all API request logs"}
+        type="button"
+      >
+        {icon}
+        {armed ? "Click again to clear" : failed ? "Clear failed" : "Clear"}
+      </button>
+    );
+  }
+
   return (
-    <button
-      aria-label={armed ? "Confirm clear" : "Clear console"}
-      className={`flex items-center gap-space-xxs px-space-xs py-0.5 rounded font-label-sm text-label-sm transition-colors disabled:opacity-40 disabled:pointer-events-none ${
-        armed ? "bg-error-container text-on-error-container" : failed ? "text-error hover:bg-surface-container-high" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
-      }`}
-      disabled={disabled || busy}
-      onClick={() => {
-        if (!armed) {
+    <div ref={rootRef} className="relative">
+      <button
+        aria-label="Clear console"
+        aria-expanded={menu}
+        className={`${base} ${failed ? "text-error hover:bg-surface-container-high" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"}`}
+        disabled={disabled || busy}
+        onClick={() => {
           setFailed(null);
-          setArmed(true);
-          return;
-        }
-        setArmed(false);
-        setBusy(true);
-        onClear()
-          .catch((error: Error) => setFailed(error.message))
-          .finally(() => setBusy(false));
-      }}
-      title={failed ? `Could not clear: ${failed}` : armed ? "Click again to clear" : what}
-      type="button"
-    >
-      <Icon name={busy ? "progress_activity" : "delete_sweep"} className={`text-body-md ${busy ? "animate-spin" : ""}`} />
-      {armed ? "Click again to clear" : failed ? "Clear failed" : "Clear"}
-    </button>
+          setArmed(null);
+          setMenu((v) => !v);
+        }}
+        title={failed ? `Could not clear: ${failed}` : "Hide or delete these workflow runs"}
+        type="button"
+      >
+        {icon}
+        {failed ? "Clear failed" : "Clear"}
+        <Icon name="arrow_drop_down" className="text-body-md -ml-1" />
+      </button>
+      {menu && (
+        <div role="menu" className="absolute right-0 bottom-full mb-1 w-72 z-50 p-space-xxs rounded-lg bg-surface-container-high shadow-2xl">
+          <button role="menuitem" type="button" className={`${MENU_ITEM} text-on-surface`} onClick={() => run("hide")}>
+            <Icon name="visibility_off" className="text-body-md mt-0.5" />
+            <span>
+              Hide from console
+              <span className="block text-label-sm text-outline">They stay in Execution History.</span>
+            </span>
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            className={`${MENU_ITEM} ${armed === "delete" ? "bg-error-container text-on-error-container" : "text-error"}`}
+            onClick={() => (armed === "delete" ? run("delete") : setArmed("delete"))}
+          >
+            <Icon name="delete_forever" className="text-body-md mt-0.5" />
+            <span>
+              {armed === "delete" ? "Click again to delete permanently" : "Delete from history…"}
+              <span className={`block text-label-sm ${armed === "delete" ? "" : "text-outline"}`}>
+                Every stored run of {scopeName} ({runCount > 0 ? `${runCount}+ shown here` : "none shown"}). Replays and telemetry lose them.
+              </span>
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -200,7 +291,7 @@ export function ExecutionConsole({
   return (
     <section
       aria-label="Live execution console"
-      className="fixed left-64 right-0 bottom-10 z-40 flex flex-col bg-surface-container-low/98 backdrop-blur-xl shadow-[0_-4px_16px_rgba(0,0,0,0.35)] overscroll-contain"
+      className="fixed left-[var(--sidebar-w)] right-0 bottom-10 z-40 flex flex-col bg-surface-container-low/98 backdrop-blur-xl shadow-[0_-4px_16px_rgba(0,0,0,0.35)] overscroll-contain"
       id="execution-console"
       style={{
         height: expanded ? FULL_HEIGHT : height,
@@ -280,7 +371,9 @@ export function ExecutionConsole({
           <ClearButton
             key={tab}
             tab={tab}
-            disabled={tab === "requests" ? sends.length === 0 : runs.length === 0}
+            disabled={tab === "requests" ? sends.length === 0 : runs.length === 0 && hiddenRuns === 0}
+            runCount={runs.length + hiddenRuns}
+            scopeName={workflowId ? `“${scopeName}”` : "all workflows"}
             onClear={onClear}
           />
           <Link

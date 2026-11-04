@@ -31,7 +31,7 @@ type Props = {
   onDelete: (kind: NodeKind, id: string, name: string) => void;
   /** Copies the saved item as "<name> Copy" (unsaved edits to an open request are not included). */
   onDuplicate: (kind: NodeKind, id: string) => void;
-  onImport: (format: "curl" | "openapi" | "reqora") => void;
+  onImport: (format: "curl" | "openapi" | "reqora" | "postman") => void;
   /** `index` is the position among the target container's requests, not counting the moved one. */
   onMoveRequest: (id: string, target: RequestTarget) => void;
   /** `index` is the position among the collection's folders, not counting the moved one. */
@@ -520,6 +520,15 @@ export function Explorer(props: Props) {
                 >
                   <Icon name="download" className="text-body-sm" />
                 </a>
+                <a
+                  className={HOVER_BTN}
+                  download
+                  href={collectionExportUrl(c.id, "postman")}
+                  title="Export for Postman (Collection v2.1)"
+                  aria-label={`Export ${c.name} for Postman`}
+                >
+                  <Icon name="ios_share" className="text-body-sm" />
+                </a>
                 <button type="button" className={HOVER_BTN} title="Delete collection" onClick={() => onDelete("collection", c.id, c.name)}>
                   <Icon name="delete" className="text-body-sm" />
                 </button>
@@ -611,6 +620,9 @@ export function Explorer(props: Props) {
           </button>
           <button type="button" className={PILL} onClick={() => onImport("reqora")} title="Import a .reqora.json collection export">
             <Icon name="upload_file" className="text-body-sm text-tertiary" /> Collection
+          </button>
+          <button type="button" className={PILL} onClick={() => onImport("postman")} title="Import a Postman collection (v2.1)">
+            <Icon name="rocket_launch" className="text-body-sm text-secondary" /> Postman
           </button>
         </div>
       </div>

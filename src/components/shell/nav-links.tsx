@@ -28,10 +28,11 @@ export function NavLinks() {
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
-            className={active ? ACTIVE : IDLE}
+            className={`${active ? ACTIVE : IDLE} rail-center`}
+            title={item.label}
           >
             <Icon name={item.icon} className="text-body-md" />
-            <span>{item.label}</span>
+            <span className="rail-hide">{item.label}</span>
           </Link>
         );
       })}

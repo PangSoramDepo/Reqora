@@ -6,7 +6,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   return (
     <>
       <Sidebar />
-      <div className="pl-64 flex flex-col min-h-screen">
+      <div className="pl-[var(--sidebar-w)] transition-[padding] flex flex-col min-h-screen">
         <TopBar />
         <main className="relative pt-14 bg-surface flex-1 w-full">{children}</main>
         <StatusBar />

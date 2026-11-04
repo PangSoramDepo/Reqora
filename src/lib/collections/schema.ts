@@ -133,8 +133,10 @@ export const toNodeInputSchema = z.union([
 ]);
 
 export const importInputSchema = z.object({
-  /** `reqora`: a collection exported from Reqora (lossless). */
-  format: z.enum(["curl", "openapi", "reqora"]),
+  /** `reqora`: a collection exported from Reqora (lossless). `postman`: a Postman Collection v2.0/v2.1. */
+  format: z.enum(["curl", "openapi", "reqora", "postman"]),
+  /** postman only: add the collection's variables to this environment (existing values are kept). */
+  variablesEnvironment: environmentSchema.optional(),
   text: z.string().min(1).max(2_000_000),
   /** cURL only: add the request to this existing collection instead of creating one. */
   collectionId: id.optional(),

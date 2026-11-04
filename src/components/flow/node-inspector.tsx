@@ -7,6 +7,7 @@ import { fetchRequest } from "@/lib/collections/client";
 import { ApiError } from "@/lib/workflows/client";
 import type { Step, WorkflowNode } from "@/lib/workflows/schema";
 import { NodeConfigForm } from "./node-config-form";
+import { NodeDocs } from "./node-docs";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
 
@@ -26,6 +27,9 @@ type InspectorProps = {
   running: boolean;
   onChange: (node: WorkflowNode) => void;
   onRun: () => void;
+  /** Pinned: the inspector stays on this node while other nodes are selected. */
+  pinned: boolean;
+  onTogglePin: () => void;
 };
 
 function curlFor(node: HttpNode) {
@@ -186,8 +190,9 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
   }
 }
 
-export function NodeInspector({ node, step, running, onChange, onRun }: InspectorProps) {
+export function NodeInspector({ node, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
   const [tab, setTab] = useState<Tab>("Headers");
+  const [showDocs, setShowDocs] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const copyCurl = async () => {
@@ -229,16 +234,29 @@ export function NodeInspector({ node, step, running, onChange, onRun }: Inspecto
               {node.disabled ? "Enable" : "Disable"}
             </button>
           )}
-          <button className={ICON_BUTTON} title="Node Documentation" type="button">
+          <button
+            className={`${ICON_BUTTON} ${showDocs ? "text-primary bg-surface-container" : ""}`}
+            title={showDocs ? "Hide node documentation" : "Node documentation: what this node does, its outputs and tips"}
+            aria-pressed={showDocs}
+            type="button"
+            onClick={() => setShowDocs((v) => !v)}
+          >
             <Icon name="help_outline" className="text-body-md" />
           </button>
-          <button className={ICON_BUTTON} title="Pin Panel" type="button">
-            <Icon name="push_pin" className="text-body-md" />
+          <button
+            className={`${ICON_BUTTON} ${pinned ? "text-primary bg-surface-container" : ""}`}
+            title={pinned ? "Unpin: follow the selected node again" : "Pin: keep showing this node while you select others"}
+            aria-pressed={pinned}
+            type="button"
+            onClick={onTogglePin}
+          >
+            <Icon name="push_pin" className="text-body-md" style={pinned ? { fontVariationSettings: "'FILL' 1" } : undefined} />
           </button>
         </div>
       </div>
 
       <div className="p-space-md flex flex-col gap-space-md flex-1">
+        {showDocs && <NodeDocs type={node.type} nodeId={node.id} />}
         {node.disabled && (
           <div
             data-testid="node-disabled"

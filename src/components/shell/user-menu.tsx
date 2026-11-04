@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
 import { fetchSession, logout, type SessionUser } from "@/lib/auth/client";
+import { ChangePasswordDialog } from "./change-password-dialog";
 
 const initials = (name: string) =>
   name
@@ -17,6 +18,7 @@ export function UserMenu() {
   const router = useRouter();
   const [user, setUser] = useState<SessionUser | null>(null);
   const [open, setOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,6 +65,16 @@ export function UserMenu() {
           <div className="h-px bg-outline-variant/30 my-space-xs" />
           <button
             className="w-full flex items-center gap-space-xs px-space-sm py-space-xs rounded text-left font-body-sm text-body-sm text-on-surface hover:bg-surface-container-highest"
+            onClick={() => {
+              setOpen(false);
+              setChangingPassword(true);
+            }}
+            type="button"
+          >
+            <Icon name="key" className="text-body-md" /> Change password
+          </button>
+          <button
+            className="w-full flex items-center gap-space-xs px-space-sm py-space-xs rounded text-left font-body-sm text-body-sm text-on-surface hover:bg-surface-container-highest"
             onClick={signOut}
             type="button"
           >
@@ -70,6 +82,7 @@ export function UserMenu() {
           </button>
         </div>
       )}
+      {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
     </div>
   );
 }
