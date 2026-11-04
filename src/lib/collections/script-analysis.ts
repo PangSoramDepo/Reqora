@@ -5,6 +5,7 @@ import {
   inPhase,
   memberAt,
   membersAfter,
+  SCRIPT_MODULE_NAMES,
   UNAVAILABLE_GLOBALS,
   type ApiMember,
   type ScriptPhase,
@@ -141,19 +142,30 @@ export function lintScript(code: string, tree: Tree, phase: ScriptPhase): Diagno
         return;
       }
 
-      // 3. Environment name arguments.
+      // 3. Name arguments: environment variables and require() modules.
       if (node.name === "CallExpression") {
         const calleePath = pathOf(code, node.firstChild);
         const callee = calleePath && !declared.has(calleePath[0]) ? memberAt(calleePath) : undefined;
         const args = node.getChild("ArgList");
-        if (!callee?.envNameArg || !args) return;
+        if (!callee?.nameArg || !args) return;
         const arg = firstArg(args);
         const label = display(calleePath!);
         if (!arg) {
-          out.push({ ...span(args.from, args.to), severity: "error", message: `${label}() needs a variable name.` });
+          const what = callee.nameArg === "module" ? "module" : "variable";
+          out.push({ ...span(args.from, args.to), severity: "error", message: `${label}() needs a ${what} name.` });
           return;
         }
         const value = literal(code, arg);
+        if (callee.nameArg === "module") {
+          if (value !== null && !(SCRIPT_MODULE_NAMES as readonly string[]).includes(value)) {
+            out.push({
+              ...span(arg.from, arg.to),
+              severity: "error",
+              message: `Cannot find module "${value}". Scripts can require: ${SCRIPT_MODULE_NAMES.join(", ")}.`,
+            });
+          }
+          return;
+        }
         if (value === null) {
           if (callee.name === "get" || callee.name === "has") {
             out.push({
@@ -210,13 +222,16 @@ export function completeScript(
 ): CompletionResult | null {
   const node = tree.resolveInner(pos, -1);
 
-  // Inside a string: environment names for rq.environment.get("|").
+  // Inside a string: environment names for rq.environment.get("|"), module names for require("|").
   if (node.name === "String" || node.name === "TemplateString") {
     const args = node.parent;
     const call = args?.name === "ArgList" ? args.parent : null;
     if (!call || call.name !== "CallExpression" || firstArg(args!)?.from !== node.from) return null;
     const callee = memberAt(pathOf(code, call.firstChild) ?? []);
-    if (!callee?.envNameArg || !opts.envNames?.length) return null;
+    if (callee?.nameArg === "module") {
+      return { from: node.from + 1, options: SCRIPT_MODULE_NAMES.map((name) => ({ label: name, type: "namespace", detail: "library" })) };
+    }
+    if (callee?.nameArg !== "env" || !opts.envNames?.length) return null;
     return {
       from: node.from + 1,
       options: opts.envNames.map((name) => ({ label: name, type: "variable", detail: "environment variable" })),

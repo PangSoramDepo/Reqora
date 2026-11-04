@@ -6,6 +6,9 @@
 
 export type ScriptPhase = "pre" | "post";
 
+/** Libraries scripts can require (bundles in SCRIPT_MODULES, scripts.ts). */
+export const SCRIPT_MODULE_NAMES = ["crypto-js"] as const;
+
 export type ApiMember = {
   name: string;
   kind: "namespace" | "property" | "method";
@@ -16,8 +19,8 @@ export type ApiMember = {
   members?: ApiMember[];
   /** Only available in these phases (default: both). */
   phases?: ScriptPhase[];
-  /** Methods whose first argument is an environment variable name. */
-  envNameArg?: boolean;
+  /** The first argument names something checkable: an environment variable, or a module for require(). */
+  nameArg?: "env" | "module";
 };
 
 const prop = (name: string, detail: string, doc: string, extra: Partial<ApiMember> = {}): ApiMember => ({
@@ -90,13 +93,13 @@ export const SCRIPT_API: ApiMember[] = [
       prop("environment", "object", "The selected environment's variables ({{env.NAME}}).", {
         members: [
           method("get", "(name: string): string | undefined", "Reads an environment value. Write the name as a string literal: only literal names are resolved.", {
-            envNameArg: true,
+            nameArg: "env",
           }),
           method("set", "(name: string, value: any): void", "Sets a value; it is saved to the selected environment after the send.", {
-            envNameArg: true,
+            nameArg: "env",
           }),
-          method("unset", "(name: string): void", "Removes a value from the selected environment after the send.", { envNameArg: true }),
-          method("has", "(name: string): boolean", "Whether the environment has a value for the name.", { envNameArg: true }),
+          method("unset", "(name: string): void", "Removes a value from the selected environment after the send.", { nameArg: "env" }),
+          method("has", "(name: string): boolean", "Whether the environment has a value for the name.", { nameArg: "env" }),
         ],
       }),
       method("test", "(name: string, fn: () => void): void", "A named test. It fails if fn throws (e.g. a failed rq.expect)."),
@@ -115,6 +118,11 @@ export const SCRIPT_API: ApiMember[] = [
       method("error", "(...values: any[]): void", "Logs at error level."),
     ],
   },
+  method("require", '(name: "crypto-js"): any', `Loads a built-in library, like Postman. Available: ${SCRIPT_MODULE_NAMES.join(", ")}.`, {
+    nameArg: "module",
+  }),
+  // Members are left open (no lint); the library is large.
+  prop("CryptoJS", "crypto-js", "The crypto-js library (also require(\"crypto-js\")): AES, DES, SHA256, HmacSHA256, MD5, enc.Base64/Hex/Utf8, mode, pad…"),
 ];
 
 /** Standard globals available in the sandbox (QuickJS): no window, document, fetch or timers. */
@@ -130,7 +138,6 @@ export const UNAVAILABLE_GLOBALS: Record<string, string> = {
   XMLHttpRequest: "There is no network access in scripts.",
   setTimeout: "There are no timers in scripts.",
   setInterval: "There are no timers in scripts.",
-  require: "Modules can't be loaded in scripts.",
   process: "There is no Node.js process in scripts.",
   window: "Scripts don't run in the browser.",
   document: "Scripts don't run in the browser.",

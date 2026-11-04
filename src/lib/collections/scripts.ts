@@ -1,5 +1,9 @@
 import "server-only";
 
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
 import variant from "@jitl/quickjs-wasmfile-release-sync";
 import {
   newQuickJSWASMModuleFromVariant,
@@ -21,8 +25,39 @@ const MAX_LOGS = 200;
 const MAX_LOG_CHARS = 2000;
 const MAX_ENV_VALUE = 10_000;
 
+const RANDOM_POOL_BYTES = 1024;
+
 let modulePromise: Promise<QuickJSWASMModule> | undefined;
 const quickjs = () => (modulePromise ??= newQuickJSWASMModuleFromVariant(variant));
+
+/**
+ * Libraries scripts can `require`, like Postman's built-ins. Each is a self-contained UMD bundle evaluated
+ * inside the sandbox (only when the script mentions it), so it gets no more access than the script itself.
+ */
+export const SCRIPT_MODULES = {
+  "crypto-js": { file: "crypto-js/crypto-js.js", global: "CryptoJS" },
+} as const;
+export type ScriptModuleName = keyof typeof SCRIPT_MODULES;
+
+const moduleSources = new Map<ScriptModuleName, string>();
+function moduleSource(name: ScriptModuleName): string {
+  let source = moduleSources.get(name);
+  if (source === undefined) {
+    // Resolved from the app root at runtime (not bundled): the file is evaluated in QuickJS, never in Node.
+    const resolve = createRequire(path.join(process.cwd(), "package.json")).resolve;
+    source = readFileSync(resolve(SCRIPT_MODULES[name].file), "utf8");
+    moduleSources.set(name, source);
+  }
+  return source;
+}
+
+/** Known modules a script mentions via require("…") or the matching global (e.g. CryptoJS). */
+function modulesUsed(code: string): ScriptModuleName[] {
+  return (Object.keys(SCRIPT_MODULES) as ScriptModuleName[]).filter((name) => {
+    const quoted = name.replace(/[-]/g, "\\-");
+    return new RegExp(`require\\(\\s*["'\`]${quoted}["'\`]\\s*\\)`).test(code) || code.includes(SCRIPT_MODULES[name].global);
+  });
+}
 
 export type ScriptPhase = "pre" | "post";
 export type ScriptScope = "collection" | "folder" | "request";
@@ -68,6 +103,31 @@ const __log = (level) => (...args) => {
   if (__logs.length < ${MAX_LOGS}) __logs.push({ level, message: args.map(__fmt).join(" ").slice(0, ${MAX_LOG_CHARS}) });
 };
 globalThis.console = { log: __log("log"), info: __log("info"), warn: __log("warn"), error: __log("error") };
+
+// Secure randomness from the host (a fixed pool per script), for crypto-js encryption and similar.
+const __pool = __in.random;
+let __poolAt = 0;
+globalThis.crypto = {
+  getRandomValues(array) {
+    const size = array.BYTES_PER_ELEMENT || 1;
+    for (let i = 0; i < array.length; i++) {
+      let v = 0;
+      for (let b = 0; b < size; b++) {
+        if (__poolAt >= __pool.length) throw new Error("crypto.getRandomValues: out of random bytes (${RANDOM_POOL_BYTES} per script)");
+        v = v * 256 + __pool[__poolAt++];
+      }
+      array[i] = v;
+    }
+    return array;
+  },
+};
+
+const __modules = {};
+const __moduleNames = ${JSON.stringify(Object.keys(SCRIPT_MODULES))};
+globalThis.require = (name) => {
+  if (Object.prototype.hasOwnProperty.call(__modules, name)) return __modules[name];
+  throw new Error("Cannot find module " + JSON.stringify(String(name)) + ". Scripts can require: " + __moduleNames.join(", "));
+};
 
 const __deepEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 class AssertionError extends Error {}
@@ -170,7 +230,7 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
     const context = runtime.newContext();
     try {
       const input = context.newString(
-        JSON.stringify({ request: current.request, variables: current.variables, environment, response }),
+        JSON.stringify({ request: current.request, variables: current.variables, environment, response, random: [...randomBytes(RANDOM_POOL_BYTES)] }),
       );
       context.setProp(context.global, "__input", input);
       input.dispose();
@@ -186,6 +246,24 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
         break;
       }
       prelude.value.dispose();
+
+      // Libraries the script uses: each UMD bundle sets its global (e.g. CryptoJS), also returned by require().
+      let moduleFailed = false;
+      for (const name of modulesUsed(script.code)) {
+        const { global } = SCRIPT_MODULES[name];
+        const loaded = context.evalCode(`${moduleSource(name)}\n;__modules[${JSON.stringify(name)}] = globalThis.${global};`, `${name}.js`);
+        if (loaded.error) {
+          fail(`could not load ${name}: ${JSON.stringify(context.dump(loaded.error))}`);
+          loaded.error.dispose();
+          moduleFailed = true;
+          break;
+        }
+        loaded.value.dispose();
+      }
+      if (moduleFailed) {
+        if (phase === "pre") break;
+        continue;
+      }
 
       // Wrapped so top-level `return` works and user globals don't collide with the prelude.
       const result = context.evalCode(`(function(){\n${script.code}\n})()`, `${script.scope}-${phase}.js`);

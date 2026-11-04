@@ -47,6 +47,14 @@ describe("lintScript", () => {
     expect(lint("rq.environment.get(`TOKEN`);")).toEqual([]);
   });
 
+  it("accepts require('crypto-js') and CryptoJS, and flags unknown modules", () => {
+    expect(lint("const CryptoJS = require('crypto-js');\nCryptoJS.AES.decrypt('x', CryptoJS.enc.Utf8.parse('k'), { mode: CryptoJS.mode.ECB });")).toEqual([]);
+    expect(lint("CryptoJS.SHA256('abc').toString();")).toEqual([]);
+    expect(lint("const _ = require('lodash');")).toEqual([
+      { from: 18, to: 26, severity: "error", message: 'Cannot find module "lodash". Scripts can require: crypto-js.' },
+    ]);
+  });
+
   it("warns about globals the sandbox doesn't have, unless declared", () => {
     expect(lint('fetch("https://x.dev");')[0].message).toContain("no network access");
     expect(lint("pm.environment.get('A');")[0].message).toContain("Use rq instead of pm");
@@ -92,8 +100,12 @@ describe("completeScript", () => {
     expect(complete('console.log("', "pre", { envNames: ["A"] })).toBeNull();
   });
 
+  it("offers module names inside require(\"…\")", () => {
+    expect(labels('const CryptoJS = require("')).toEqual(["crypto-js"]);
+  });
+
   it("offers the API roots for a bare word, not for a declaration", () => {
-    expect(labels("r")).toEqual(["rq", "console"]);
+    expect(labels("r")).toEqual(["rq", "console", "require", "CryptoJS"]);
     expect(labels("const r")).toBeUndefined();
   });
 

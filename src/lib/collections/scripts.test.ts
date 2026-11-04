@@ -1,5 +1,7 @@
+import { createCipheriv } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { runScripts, type ScriptState } from "./scripts";
+import { SCRIPT_MODULE_NAMES } from "./script-api";
+import { runScripts, SCRIPT_MODULES, type ScriptState } from "./scripts";
 
 const state = (): ScriptState => ({
   request: { method: "GET", url: "https://x.dev/{{vars.path}}", params: [], headers: { Accept: "application/json" } },
@@ -10,6 +12,73 @@ const state = (): ScriptState => ({
 });
 const env = (name: string) => ({ API_KEY: "secret-key-123", OTHER_SECRET: "other-secret-456" })[name];
 const okResponse = { status: 200, statusText: "OK", headers: {}, body: "", responseTime: 1 };
+
+describe("script modules", () => {
+  it("supports require('crypto-js') like Postman: AES-ECB decrypt of a response field", async () => {
+    const key = "0123456789abcdef0123456789abcdef"; // 32 UTF-8 bytes → AES-256
+    const cipher = createCipheriv("aes-256-ecb", Buffer.from(key, "utf8"), null);
+    const qr = Buffer.concat([cipher.update(JSON.stringify({ verification_token: "vt-42" }), "utf8"), cipher.final()]).toString("base64");
+
+    const started = Date.now();
+    const { state: out, errors } = await runScripts({
+      phase: "post",
+      readEnv: env,
+      state: state(),
+      response: { ...okResponse, body: JSON.stringify({ data: { qr_content: qr } }) },
+      scripts: [
+        {
+          scope: "request",
+          name: "GenerateQr",
+          code: `const CryptoJS = require('crypto-js');
+const key = "${key}";
+rq.test("decrypts", () => {
+  const data = rq.response.json().data;
+  const plain = aesDecryptECB(data.qr_content, key);
+  rq.environment.set("verification_token", JSON.parse(plain).verification_token);
+});
+function aesDecryptECB(ciphertextBase64, key) {
+  const keyHex = CryptoJS.enc.Utf8.parse(key);
+  const decrypted = CryptoJS.AES.decrypt(ciphertextBase64, keyHex, { mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.Pkcs7 });
+  return decrypted.toString(CryptoJS.enc.Utf8);
+}`,
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
+    expect(out.tests).toMatchObject([{ name: "decrypts", passed: true }]);
+    expect(out.environment).toEqual({ verification_token: "vt-42" });
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("exposes CryptoJS as a global, has secure random for encryption, and names unknown modules", async () => {
+    const { state: out, errors } = await runScripts({
+      phase: "pre",
+      readEnv: env,
+      state: state(),
+      scripts: [
+        {
+          scope: "request",
+          name: "R",
+          code: `const enc = CryptoJS.AES.encrypt("hello", "passphrase").toString();
+rq.variables.set("roundtrip", CryptoJS.AES.decrypt(enc, "passphrase").toString(CryptoJS.enc.Utf8));
+rq.variables.set("sha", CryptoJS.SHA256("abc").toString());`,
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
+    expect(out.variables).toEqual({
+      roundtrip: "hello",
+      sha: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+    });
+
+    const missing = await runScripts({ phase: "pre", readEnv: env, state: state(), scripts: [{ scope: "request", name: "R", code: `require("lodash");` }] });
+    expect(missing.errors[0].message).toBe('Error: Cannot find module "lodash". Scripts can require: crypto-js');
+  });
+
+  it("matches the editor's list of modules", () => {
+    expect(Object.keys(SCRIPT_MODULES)).toEqual([...SCRIPT_MODULE_NAMES]);
+  });
+});
 
 describe("script sandbox", () => {
   it("lets pre-request scripts edit the request and set variables, threading state through levels", async () => {
@@ -64,7 +133,7 @@ describe("script sandbox", () => {
     expect(out.variables.orderId).toBe("o1");
   });
 
-  it("is isolated from the server: no process, require, fetch or timers", async () => {
+  it("is isolated from the server: no process, Node modules, fetch or timers", async () => {
     const { state: out } = await runScripts({
       phase: "post",
       readEnv: env,
@@ -74,11 +143,18 @@ describe("script sandbox", () => {
         {
           scope: "request",
           name: "probe",
-          code: `console.log([typeof process, typeof require, typeof fetch, typeof setTimeout, typeof XMLHttpRequest].join(","))`,
+          code: `console.log([typeof process, typeof fetch, typeof setTimeout, typeof XMLHttpRequest].join(","));
+for (const m of ["fs", "child_process", "crypto", "node:fs"]) { try { require(m); console.log("loaded " + m); } catch (e) { console.log("blocked " + m); } }`,
         },
       ],
     });
-    expect(out.logs[0].message).toBe("undefined,undefined,undefined,undefined,undefined");
+    expect(out.logs.map((l) => l.message)).toEqual([
+      "undefined,undefined,undefined,undefined",
+      "blocked fs",
+      "blocked child_process",
+      "blocked crypto",
+      "blocked node:fs",
+    ]);
   });
 
   it("exposes only the environment names a script mentions literally", async () => {
