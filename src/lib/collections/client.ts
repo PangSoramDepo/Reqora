@@ -33,6 +33,8 @@ export const createCollection = (name: string, description?: string) =>
 export const updateCollection = (id: string, patch: { name?: string; description?: string | null; settings?: ScopeSettings }) =>
   request<Collection>(`/api/collections/${id}`, json("PATCH", patch));
 export const deleteCollection = (id: string) => request<void>(`/api/collections/${id}`, { method: "DELETE" });
+/** Copies a collection with its folders, requests and examples as "<name> Copy". */
+export const duplicateCollection = (id: string) => request<Collection>(`/api/collections/${id}/duplicate`, { method: "POST" });
 
 export const createFolder = (collectionId: string, name: string) =>
   request<Folder>(`/api/collections/${collectionId}/folders`, json("POST", { name }));
@@ -42,6 +44,8 @@ export const updateFolderSettings = (id: string, settings: ScopeSettings) =>
 /** Reorders a folder within its collection. */
 export const moveFolder = (id: string, index: number) => request<Folder>(`/api/folders/${id}/move`, json("POST", { index }));
 export const deleteFolder = (id: string) => request<void>(`/api/folders/${id}`, { method: "DELETE" });
+/** Copies a folder with its requests as "<name> Copy", right after the original. */
+export const duplicateFolder = (id: string) => request<Folder>(`/api/folders/${id}/duplicate`, { method: "POST" });
 
 export const createRequest = (
   collectionId: string,
@@ -54,6 +58,8 @@ export const saveRequest = (id: string, input: { name: string; folderId: string 
 export const moveRequest = (id: string, target: { collectionId: string; folderId: string | null; index: number }) =>
   request<SavedRequest>(`/api/requests/${id}/move`, json("POST", target));
 export const deleteRequest = (id: string) => request<void>(`/api/requests/${id}`, { method: "DELETE" });
+/** Copies the saved version of a request (and its examples) as "<name> Copy", right after the original. */
+export const duplicateRequest = (id: string) => request<SavedRequest>(`/api/requests/${id}/duplicate`, { method: "POST" });
 
 /** Sends an unsaved definition; pass the location so collection/folder auth, headers and scripts apply. */
 export const sendAdHoc = (

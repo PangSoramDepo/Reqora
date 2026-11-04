@@ -94,7 +94,8 @@ export const ENVIRONMENTS = ["production", "staging", "sandbox"] as const;
 export type Environment = (typeof ENVIRONMENTS)[number];
 export const environmentSchema = z.enum(ENVIRONMENTS);
 
-export const VARIABLE_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
+/** Environment variable names: letters, digits and _, not starting with a digit (scripts often use login_id style). */
+export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
 export const variableInputSchema = z.object({
   kind: z.enum(["secret", "plain"]),

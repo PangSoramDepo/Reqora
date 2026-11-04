@@ -58,3 +58,20 @@ export function resolveVariable(environment: Environment, name: string): string 
   if (!row) return undefined;
   return row.kind === "secret" ? decrypt(row.value, aad(environment, name)) : row.value;
 }
+
+/**
+ * Writes a value from a script (rq.environment.set): keeps an existing variable's kind and description,
+ * so setting a secret stays encrypted; new names are stored as plain. `null` deletes the variable.
+ */
+export function setVariableValue(environment: Environment, name: string, value: string | null): { kind: Variable["kind"] | null } {
+  if (value === null) {
+    deleteVariable(environment, name);
+    return { kind: null };
+  }
+  const existing = db()
+    .prepare("SELECT kind, description FROM variables WHERE environment = ? AND name = ?")
+    .get(environment, name) as Pick<VariableRow, "kind" | "description"> | undefined;
+  const kind = existing?.kind ?? "plain";
+  putVariable(environment, name, { kind, value, ...(existing?.description ? { description: existing.description } : {}) });
+  return { kind };
+}

@@ -109,3 +109,11 @@ export async function fetchLatestRun(workflowId: string): Promise<Run | undefine
   const { data } = await request<{ data: Run[] }>(`/api/workflows/${workflowId}/runs?limit=1`);
   return data[0];
 }
+
+/** Newest runs for one workflow, or across all workflows (last 30 days) when no id is given. */
+export function fetchRecentRuns(workflowId: string | undefined, limit = 25): Promise<Run[]> {
+  const url = workflowId
+    ? `/api/workflows/${encodeURIComponent(workflowId)}/runs?limit=${limit}`
+    : `/api/runs?since=30d&limit=${limit}`;
+  return request<{ data: Run[] }>(url).then((r) => r.data);
+}

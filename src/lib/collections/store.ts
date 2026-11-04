@@ -452,3 +452,117 @@ export function insertImported(imported: ImportedCollection): Collection {
   }
   return getCollection(collectionId)!;
 }
+
+/** "<name> Copy" — the name Postman gives a duplicate. */
+const copyName = (name: string) => `${name} Copy`;
+
+/** Inserts a copy of a request row (and its saved examples) with a new id; call inside a transaction. */
+function copyRequestRow(row: RequestRow, into: { collectionId: string; folderId: string | null; name: string; position: number }) {
+  const c = conn();
+  const id = newId("req");
+  const at = now();
+  c.prepare(
+    `INSERT INTO requests (id, collection_id, folder_id, name, position, definition, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, into.collectionId, into.folderId, into.name, into.position, row.definition, at, at);
+  const examples = c.prepare("SELECT * FROM request_examples WHERE request_id = ?").all(row.id) as ExampleRow[];
+  const insertExample = c.prepare(
+    "INSERT INTO request_examples (id, request_id, name, status, response, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  );
+  // Keep each example's created_at so the copy lists them in the same order.
+  for (const ex of examples) insertExample.run(newId("ex"), id, ex.name, ex.status, ex.response, ex.created_at);
+  return id;
+}
+
+/** Copies a saved request (with its examples) as "<name> Copy", placed right after the original. */
+export function duplicateRequest(id: string): SavedRequest | undefined {
+  const c = conn();
+  const row = c.prepare("SELECT * FROM requests WHERE id = ?").get(id) as RequestRow | undefined;
+  if (!row) return undefined;
+  const copyId = transaction(() => {
+    const siblings = (
+      c
+        .prepare("SELECT id FROM requests WHERE collection_id = ? AND folder_id IS ? ORDER BY position, name")
+        .all(row.collection_id, row.folder_id) as { id: string }[]
+    ).map((r) => r.id);
+    const newRequestId = copyRequestRow(row, {
+      collectionId: row.collection_id,
+      folderId: row.folder_id,
+      name: copyName(row.name),
+      position: 0,
+    });
+    siblings.splice(siblings.indexOf(id) + 1, 0, newRequestId);
+    const set = c.prepare("UPDATE requests SET position = ? WHERE id = ?");
+    siblings.forEach((rid, i) => set.run(i, rid));
+    return newRequestId;
+  });
+  touch(row.collection_id);
+  return getRequest(copyId);
+}
+
+/** Copies a folder (settings, requests in order, their examples) as "<name> Copy", placed right after the original. */
+export function duplicateFolder(id: string): Folder | undefined {
+  const c = conn();
+  const row = c.prepare("SELECT * FROM collection_folders WHERE id = ?").get(id) as FolderRow | undefined;
+  if (!row) return undefined;
+  const copyId = transaction(() => {
+    const folderId = newId("fld");
+    c.prepare("INSERT INTO collection_folders (id, collection_id, name, position, settings) VALUES (?, ?, ?, ?, ?)").run(
+      folderId,
+      row.collection_id,
+      copyName(row.name),
+      0,
+      row.settings,
+    );
+    const siblings = (
+      c.prepare("SELECT id FROM collection_folders WHERE collection_id = ? AND id != ? ORDER BY position, name").all(
+        row.collection_id,
+        folderId,
+      ) as { id: string }[]
+    ).map((r) => r.id);
+    siblings.splice(siblings.indexOf(id) + 1, 0, folderId);
+    const set = c.prepare("UPDATE collection_folders SET position = ? WHERE id = ?");
+    siblings.forEach((fid, i) => set.run(i, fid));
+
+    const requests = c.prepare("SELECT * FROM requests WHERE folder_id = ? ORDER BY position, name").all(id) as RequestRow[];
+    requests.forEach((r, i) => copyRequestRow(r, { collectionId: row.collection_id, folderId, name: r.name, position: i }));
+    return folderId;
+  });
+  touch(row.collection_id);
+  return getFolder(copyId);
+}
+
+/** Copies a collection with its settings, folders, requests and examples as "<name> Copy". */
+export function duplicateCollection(id: string): Collection | undefined {
+  const c = conn();
+  const row = c.prepare("SELECT * FROM collections WHERE id = ?").get(id) as CollectionRow | undefined;
+  if (!row) return undefined;
+  const copyId = transaction(() => {
+    const collectionId = newId("col");
+    const at = now();
+    c.prepare(
+      "INSERT INTO collections (id, name, description, created_at, updated_at, settings) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(collectionId, copyName(row.name), row.description, at, at, row.settings);
+    const folderIds = new Map<string, string>();
+    const insertFolder = c.prepare(
+      "INSERT INTO collection_folders (id, collection_id, name, position, settings) VALUES (?, ?, ?, ?, ?)",
+    );
+    const folders = c.prepare("SELECT * FROM collection_folders WHERE collection_id = ? ORDER BY position, name").all(id) as FolderRow[];
+    folders.forEach((f, i) => {
+      const folderId = newId("fld");
+      folderIds.set(f.id, folderId);
+      insertFolder.run(folderId, collectionId, f.name, i, f.settings);
+    });
+    const requests = c.prepare("SELECT * FROM requests WHERE collection_id = ? ORDER BY position, name").all(id) as RequestRow[];
+    requests.forEach((r, i) =>
+      copyRequestRow(r, {
+        collectionId,
+        folderId: r.folder_id === null ? null : (folderIds.get(r.folder_id) ?? null),
+        name: r.name,
+        position: i,
+      }),
+    );
+    return collectionId;
+  });
+  return getCollection(copyId);
+}

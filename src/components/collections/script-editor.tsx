@@ -12,6 +12,7 @@ const SNIPPETS: Snippet[] = [
   { label: "Set a variable", code: 'rq.variables.set("orderId", "ord_123");', phases: ["pre"] },
   { label: "Add a header", code: 'rq.request.headers["X-Request-Time"] = new Date().toISOString();', phases: ["pre"] },
   { label: "Read an env value", code: 'const apiKey = rq.environment.get("API_KEY");', phases: ["pre", "post"] },
+  { label: "Set an env value", code: 'rq.environment.set("login_id", "123");', phases: ["pre", "post"] },
   { label: "Log the request", code: "console.log(rq.request.method, rq.request.url);", phases: ["pre"] },
   {
     label: "Status code is 200",
@@ -29,6 +30,7 @@ const SNIPPETS: Snippet[] = [
     phases: ["post"],
   },
   { label: "Save a value from the response", code: 'rq.variables.set("id", String(rq.response.json().id));', phases: ["post"] },
+  { label: "Save a token to the environment", code: 'rq.environment.set("token", rq.response.json().token);', phases: ["post"] },
   { label: "Log the response", code: "console.log(rq.response.status, rq.response.json());", phases: ["post"] },
 ];
 
@@ -37,6 +39,7 @@ const API: Record<Phase, [string, string][]> = {
     ["rq.request", "method, url, params[{key,value}], headers{}, body — editable; templates still unresolved"],
     ["rq.variables", "get / set / unset / toObject — read in templates as {{vars.NAME}}"],
     ["rq.environment.get(\"NAME\")", "environment value (write the name literally)"],
+    ["rq.environment.set / unset / has", "saved to the selected environment after the send; {{env.NAME}} sees it right away"],
     ["console", "log / info / warn / error → Console tab"],
   ],
   post: [
@@ -44,6 +47,7 @@ const API: Record<Phase, [string, string][]> = {
     ["rq.test(name, fn)", "a named test; throwing fails it"],
     ["rq.expect(v)", "toBe, toEqual, toContain, toBeTruthy, toBeFalsy, toBeGreaterThan, toBeLessThan, toHaveProperty, toMatch"],
     ["rq.variables", "get / set / unset / toObject"],
+    ["rq.environment", "get(\"NAME\") / set / unset / has — set and unset are saved to the selected environment"],
     ["rq.request", "the request as sent (read-only)"],
     ["console", "log / info / warn / error → Console tab"],
   ],

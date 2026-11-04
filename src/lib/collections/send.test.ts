@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/secrets/variables", () => ({
   resolveVariable: (_env: string, name: string) => (name === "TOKEN" ? "tok_super_secret" : undefined),
+  setVariableValue: () => ({ kind: "plain" }),
 }));
 const { sendDefinition } = await import("./send");
 const { emptyDefinition } = await import("./schema");
@@ -101,6 +102,18 @@ describe("sendRequest with inherited settings and scripts", () => {
     expect(result.scripts.logs[0].message).toBe("token [secret]");
     expect((result.body as { echo: string }).echo).toBe("Bearer [secret]");
     expect(JSON.stringify(result)).not.toContain("tok_super_secret");
+  });
+
+  it("resolves {{env.*}} set by a pre-request script and saves the change to the environment", async () => {
+    const writeEnv = vi.fn(() => ({ kind: "plain" as const }));
+    const fetchMock = vi.fn(async (url: string | URL | Request) => Response.json({ url: String(url) }));
+    const result = await sendDefinition(
+      { ...emptyDefinition(), url: "/api/users/{{env.login_id}}", preScript: `rq.environment.set("login_id", "123");` },
+      { environment: "staging", baseUrl: "http://localhost:3000", fetch: fetchMock as typeof fetch, writeEnv },
+    );
+    expect(String(fetchMock.mock.calls[0][0])).toBe("http://localhost:3000/api/users/123");
+    expect(writeEnv).toHaveBeenCalledWith("staging", "login_id", "123");
+    expect("scripts" in result && result.scripts?.environment).toEqual({ login_id: "123" });
   });
 
   it("aborts the send when a pre-request script fails", async () => {

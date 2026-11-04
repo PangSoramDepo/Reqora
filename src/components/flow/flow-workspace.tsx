@@ -238,6 +238,9 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
 
   const undeployed = !!workflow && workflow.deployment?.version !== workflow.version;
   useEffect(() => publishCanvasState({ running, deploying, undeployed }), [running, deploying, undeployed]);
+  const nodeCount = workflow?.nodes.length;
+  useEffect(() => publishCanvasState({ workflowId, nodeCount }), [workflowId, nodeCount]);
+  useEffect(() => () => publishCanvasState({ running: false, workflowId: undefined, nodeCount: undefined }), []);
 
   if (loadError) {
     return (

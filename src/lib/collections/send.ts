@@ -1,6 +1,6 @@
 import "server-only";
 
-import { resolveVariable } from "@/lib/secrets/variables";
+import { resolveVariable, setVariableValue } from "@/lib/secrets/variables";
 import { scrub } from "@/lib/workflows/runner";
 import type { Environment } from "@/lib/workflows/schema";
 import { TemplateError, type TemplateContext } from "@/lib/workflows/template";
@@ -36,13 +36,20 @@ async function readCapped(response: Response): Promise<Uint8Array> {
 
 type Scope = { name: string; settings: ScopeSettings };
 export type SendTarget = { name: string; definition: RequestDefinition; collection?: Scope; folder?: Scope };
-type SendOptions = { environment: Environment; baseUrl: string; fetch?: typeof fetch };
+type SendOptions = {
+  environment: Environment;
+  baseUrl: string;
+  fetch?: typeof fetch;
+  /** Persists rq.environment.set / unset; defaults to the environment store. */
+  writeEnv?: typeof setVariableValue;
+};
 
 const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptReport => ({
   logs: state.logs,
   tests: state.tests,
   errors,
   variables: state.variables,
+  environment: state.environment,
 });
 
 /**
@@ -53,7 +60,10 @@ const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptRepor
  * included — so neither an echoing upstream nor a script can reveal secrets. Failures without an HTTP
  * response come back as `{ error }`.
  */
-export async function sendRequest(target: SendTarget, { environment, baseUrl, fetch: doFetch = fetch }: SendOptions): Promise<SendOutcome> {
+export async function sendRequest(
+  target: SendTarget,
+  { environment, baseUrl, fetch: doFetch = fetch, writeEnv = setVariableValue }: SendOptions,
+): Promise<SendOutcome> {
   const def = target.definition;
   const resolved = new Set<string>();
   const readEnv = (name: string) => {
@@ -62,21 +72,38 @@ export async function sendRequest(target: SendTarget, { environment, baseUrl, fe
     return value;
   };
   const secrets = () => [...resolved];
+
+  /** Saves the scripts' environment changes, then scrubs. Every return goes through here exactly once. */
+  const finish = <T extends SendOutcome>(outcome: T): T => {
+    for (const [name, value] of Object.entries(outcome.scripts?.environment ?? {})) {
+      try {
+        const { kind } = writeEnv(environment, name, value);
+        if (kind === "secret" && value !== null && value.length >= 6) resolved.add(value);
+      } catch (error) {
+        outcome.scripts?.errors.push({
+          phase: "post",
+          scope: "request",
+          source: target.name,
+          message: `could not save environment variable "${name}": ${(error as Error).message}`,
+        });
+      }
+    }
+    return scrub(outcome, secrets());
+  };
   const effective = resolveEffective({ name: target.name, definition: def }, target.collection, target.folder);
 
   // 1. Pre-request scripts.
-  let state: ScriptState = { request: draftRequest(def, effective.headers), variables: {}, logs: [], tests: [] };
+  let state: ScriptState = { request: draftRequest(def, effective.headers), variables: {}, logs: [], tests: [], environment: {} };
   const pre = await runScripts({ phase: "pre", scripts: effective.preScripts, state, readEnv });
   state = pre.state;
   if (pre.errors.length) {
     const e = pre.errors[0];
-    return scrub(
+    return finish(
       { error: `pre-request script (${e.scope} “${e.source}”) failed: ${e.message}`, durationMs: 0, scripts: report(state, pre.errors) },
-      secrets(),
     );
   }
   if (!SUPPORTED_METHODS.has(state.request.method)) {
-    return scrub({ error: `unsupported method "${state.request.method}"`, durationMs: 0, scripts: report(state, []) }, secrets());
+    return finish({ error: `unsupported method "${state.request.method}"`, durationMs: 0, scripts: report(state, []) });
   }
 
   // 2. Resolve templates (env, vars from scripts, dynamic values) and apply auth.
@@ -84,7 +111,8 @@ export async function sendRequest(target: SendTarget, { environment, baseUrl, fe
     trigger: {},
     nodes: { vars: state.variables },
     env: (name) => {
-      const value = readEnv(name);
+      const changed = state.environment[name];
+      const value = changed === null ? undefined : (changed ?? readEnv(name));
       if (value === undefined) throw new TemplateError(`environment variable "${name}" is not configured in ${environment}`);
       return value;
     },
@@ -94,7 +122,7 @@ export async function sendRequest(target: SendTarget, { environment, baseUrl, fe
     prepared = renderDraft(state.request, effective.auth, def.body.type, ctx, baseUrl);
   } catch (error) {
     const message = error instanceof TypeError ? `invalid URL: ${error.message}` : (error as Error).message;
-    return scrub({ error: message, durationMs: 0, scripts: report(state, []) }, secrets());
+    return finish({ error: message, durationMs: 0, scripts: report(state, []) });
   }
 
   // 3. Send.
@@ -112,9 +140,8 @@ export async function sendRequest(target: SendTarget, { environment, baseUrl, fe
     const err = error as Error & { cause?: { message?: string } };
     const reason =
       err.name === "TimeoutError" ? `timed out after ${def.settings.timeoutMs}ms` : (err.cause?.message ?? err.message);
-    return scrub(
+    return finish(
       { error: `request failed: ${reason}`, url: prepared.url, durationMs: Date.now() - started, scripts: report(state, []) },
-      secrets(),
     );
   }
 
@@ -122,9 +149,8 @@ export async function sendRequest(target: SendTarget, { environment, baseUrl, fe
   try {
     bytes = await readCapped(response);
   } catch (error) {
-    return scrub(
+    return finish(
       { error: (error as Error).message, url: prepared.url, durationMs: Date.now() - started, scripts: report(state, []) },
-      secrets(),
     );
   }
   const durationMs = Date.now() - started;
@@ -149,7 +175,7 @@ export async function sendRequest(target: SendTarget, { environment, baseUrl, fe
     response: { status: response.status, statusText: response.statusText, headers, body: text, responseTime: durationMs },
   });
 
-  return scrub(
+  return finish(
     {
       status: response.status,
       statusText: response.statusText,
@@ -161,7 +187,6 @@ export async function sendRequest(target: SendTarget, { environment, baseUrl, fe
       assertions,
       scripts: report(post.state, post.errors),
     },
-    secrets(),
   );
 }
 

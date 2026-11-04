@@ -15,13 +15,24 @@ export type CanvasState = {
   deploying: boolean;
   /** Draft version differs from the deployed one (or never deployed). */
   undeployed: boolean;
+  /** Workflow open on the canvas and its node count (for the status bar). */
+  workflowId?: string;
+  nodeCount?: number;
 };
+
+// Last published state, so listeners that mount after the canvas (e.g. the status bar) can catch up.
+let snapshot: Partial<CanvasState> = {};
+
+export function getCanvasState(): Partial<CanvasState> {
+  return snapshot;
+}
 
 export function sendCanvasCommand(command: CanvasCommand) {
   window.dispatchEvent(new CustomEvent<CanvasCommand>(CANVAS_COMMAND, { detail: command }));
 }
 
 export function publishCanvasState(state: Partial<CanvasState>) {
+  snapshot = { ...snapshot, ...state };
   window.dispatchEvent(new CustomEvent<Partial<CanvasState>>(CANVAS_STATE, { detail: state }));
 }
 

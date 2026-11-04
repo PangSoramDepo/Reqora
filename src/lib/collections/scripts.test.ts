@@ -6,6 +6,7 @@ const state = (): ScriptState => ({
   variables: {},
   logs: [],
   tests: [],
+  environment: {},
 });
 const env = (name: string) => ({ API_KEY: "secret-key-123", OTHER_SECRET: "other-secret-456" })[name];
 const okResponse = { status: 200, statusText: "OK", headers: {}, body: "", responseTime: 1 };
@@ -114,6 +115,25 @@ describe("script sandbox", () => {
     });
     expect(thrown.errors[0].message).toMatch(/^TypeError: /);
     expect(thrown.state.logs.map((l) => l.message)).toEqual(["before"]);
+  });
+
+  it("sets and unsets environment values that later scripts can read, and rejects bad names", async () => {
+    const { state: out, errors } = await runScripts({
+      phase: "pre",
+      readEnv: env,
+      state: state(),
+      scripts: [
+        { scope: "collection", name: "API", code: `rq.environment.set("login_id", 123); rq.environment.unset("API_KEY");` },
+        { scope: "request", name: "Get", code: `console.log(rq.environment.get("login_id"), rq.environment.get("API_KEY"), rq.environment.has("login_id"));` },
+      ],
+    });
+    expect(errors).toEqual([]);
+    expect(out.environment).toEqual({ login_id: "123", API_KEY: null });
+    expect(out.logs.map((l) => l.message)).toEqual(["123 undefined true"]);
+
+    const bad = await runScripts({ phase: "pre", readEnv: env, state: state(), scripts: [{ scope: "request", name: "Get", code: `rq.environment.set("bad name", "x");` }] });
+    expect(bad.errors[0].message).toMatch(/invalid name "bad name"/);
+    expect(bad.state.environment).toEqual({});
   });
 
   it("caps memory", async () => {

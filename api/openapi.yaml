@@ -20,7 +20,10 @@ info:
     `rq.request` (method, url, params, headers, body — templates unresolved, auth not yet applied; editable in
     pre-request scripts), `rq.response` (status, statusText, headers, body text, responseTime, json(); post only),
     `rq.variables.get/set/unset/toObject` (usable in templates as `{{vars.NAME}}`),
-    `rq.environment.get("NAME")` (only names written literally are available), `rq.test(name, fn)`,
+    `rq.environment.get("NAME")` (only names written literally are available, plus names set earlier in the
+    send), `rq.environment.set/unset/has` (changes are saved to the environment the request is sent in, keep an
+    existing variable's kind — a secret stays encrypted — and resolve in `{{env.NAME}}` for the same send),
+    `rq.test(name, fn)`,
     `rq.expect(value)` (toBe, toEqual, toContain, toBeTruthy, toBeFalsy, toBeGreaterThan, toBeLessThan,
     toHaveProperty, toMatch) and `console`. Resolved environment values are scrubbed from everything returned.
 
@@ -269,7 +272,7 @@ paths:
       - name: name
         in: path
         required: true
-        schema: { type: string, pattern: "^[A-Z][A-Z0-9_]{0,63}$" }
+        schema: { type: string, pattern: "^[A-Za-z_][A-Za-z0-9_]{0,63}$" }
     put:
       operationId: putVariable
       summary: Create or replace a variable
@@ -588,6 +591,22 @@ paths:
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/Problem" }
+  /api/collections/{collectionId}/duplicate:
+    parameters:
+      - $ref: "#/components/parameters/CollectionId"
+    post:
+      operationId: duplicateCollection
+      summary: Duplicate a collection
+      description: Copies the collection's settings, folders, requests and saved examples under new ids, named "<name> Copy".
+      responses:
+        "201":
+          description: The copy
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Collection" }
+        "404": { $ref: "#/components/responses/Problem" }
   /api/collections/{collectionId}/folders:
     parameters:
       - $ref: "#/components/parameters/CollectionId"
@@ -670,6 +689,25 @@ paths:
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/Problem" }
+  /api/folders/{folderId}/duplicate:
+    parameters:
+      - name: folderId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: duplicateFolder
+      summary: Duplicate a folder
+      description: Copies the folder's settings and its requests (in order, with saved examples) as "<name> Copy", placed right after the original; later folders shift down.
+      responses:
+        "201":
+          description: The copy
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Folder" }
+        "404": { $ref: "#/components/responses/Problem" }
   /api/folders/{folderId}/move:
     parameters:
       - name: folderId
@@ -725,6 +763,22 @@ paths:
         "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
         "422": { $ref: "#/components/responses/Problem" }
+  /api/requests/{requestId}/duplicate:
+    parameters:
+      - $ref: "#/components/parameters/RequestId"
+    post:
+      operationId: duplicateRequest
+      summary: Duplicate a saved request
+      description: Copies the saved request and its examples as "<name> Copy", placed right after the original in the same folder or collection root; later siblings shift down.
+      responses:
+        "201":
+          description: The copy
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedRequest" }
+        "404": { $ref: "#/components/responses/Problem" }
   /api/requests/to-node:
     post:
       operationId: requestToWorkflowNode
@@ -1333,6 +1387,10 @@ components:
           type: object
           additionalProperties: { type: string }
           description: "Values set with rq.variables.set, available to templates as {{vars.NAME}}"
+        environment:
+          type: object
+          additionalProperties: { type: [string, "null"] }
+          description: "Changes from rq.environment.set / unset (null = unset), saved to the environment the request was sent in"
     RequestSummary:
       type: object
       required: [id, name, method, url, folderId]

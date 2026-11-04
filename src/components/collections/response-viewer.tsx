@@ -26,6 +26,7 @@ function ScriptConsole({ scripts, compact = false }: { scripts: ScriptReport | u
     return <p className="text-on-surface-variant font-body-sm text-body-sm">No script output — send the request to run its scripts.</p>;
   }
   const vars = Object.entries(scripts.variables);
+  const envChanges = Object.entries(scripts.environment ?? {});
   const empty = scripts.logs.length === 0 && scripts.errors.length === 0;
   return (
     <div className="flex flex-col gap-space-sm" data-testid="script-console">
@@ -58,6 +59,21 @@ function ScriptConsole({ scripts, compact = false }: { scripts: ScriptReport | u
       )}
       {empty && !compact && (
         <p className="text-on-surface-variant font-body-sm text-body-sm">Scripts logged nothing. Use console.log() in a pre-request or post-response script.</p>
+      )}
+      {envChanges.length > 0 && (
+        <div data-testid="env-changes">
+          <div className="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-0.5">Environment updated {"{{env.*}}"}</div>
+          <table className="font-code-block text-code-block">
+            <tbody>
+              {envChanges.map(([k, v]) => (
+                <tr key={k}>
+                  <td className="pr-space-md text-tertiary align-top whitespace-nowrap">{k}</td>
+                  <td className={v === null ? "text-outline italic" : "text-on-surface break-all"}>{v === null ? "unset" : v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {(!compact || vars.length > 0) && (
         <div>
@@ -318,7 +334,7 @@ export function ResponseViewer({ outcome, sending, examples, onSaveExample, onDe
               </div>
             </div>
             {failure.scripts &&
-              (failure.scripts.logs.length > 0 || failure.scripts.errors.length > 0 || Object.keys(failure.scripts.variables).length > 0) && (
+              (failure.scripts.logs.length > 0 || failure.scripts.errors.length > 0 || Object.keys(failure.scripts.variables).length > 0 || Object.keys(failure.scripts.environment ?? {}).length > 0) && (
                 <ScriptConsole scripts={failure.scripts} compact />
               )}
           </div>

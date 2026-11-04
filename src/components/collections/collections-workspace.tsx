@@ -12,6 +12,9 @@ import {
   deleteExample,
   deleteFolder,
   deleteRequest,
+  duplicateCollection,
+  duplicateFolder,
+  duplicateRequest,
   fetchCollections,
   fetchExamples,
   fetchRequest,
@@ -385,6 +388,21 @@ export function CollectionsWorkspace() {
     }
   };
 
+  /**
+   * Copies the saved item server-side, then opens the copy. Unsaved edits of an open request are not part of
+   * the copy; opening the copy asks before discarding them, as any navigation does.
+   */
+  const duplicate = (kind: NodeKind, id: string) => {
+    if (kind === "request") {
+      duplicateRequest(id)
+        .then((r) => refresh().then(() => navigate(r.id)))
+        .catch(fail);
+    } else {
+      const op = kind === "folder" ? duplicateFolder(id) : duplicateCollection(id);
+      op.then((copy) => refresh().then(() => go({ kind, id: copy.id }))).catch(fail);
+    }
+  };
+
   const remove = (kind: NodeKind, id: string, name: string) => {
     const containsSelected =
       kind === "request"
@@ -432,6 +450,7 @@ export function CollectionsWorkspace() {
           onNewRequest={newRequest}
           onRename={rename}
           onDelete={remove}
+          onDuplicate={duplicate}
           onImport={setImporting}
         />
         <section className="flex-1 flex flex-col min-w-0 bg-surface overflow-hidden">

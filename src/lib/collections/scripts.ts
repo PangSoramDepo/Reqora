@@ -6,6 +6,7 @@ import {
   shouldInterruptAfterDeadline,
   type QuickJSWASMModule,
 } from "quickjs-emscripten-core";
+import { VARIABLE_NAME } from "@/lib/workflows/schema";
 import type { DraftRequest } from "./request";
 
 /**
@@ -18,6 +19,7 @@ const TIME_LIMIT_MS = 1000;
 const MEMORY_LIMIT_BYTES = 32 * 1024 * 1024;
 const MAX_LOGS = 200;
 const MAX_LOG_CHARS = 2000;
+const MAX_ENV_VALUE = 10_000;
 
 let modulePromise: Promise<QuickJSWASMModule> | undefined;
 const quickjs = () => (modulePromise ??= newQuickJSWASMModuleFromVariant(variant));
@@ -45,6 +47,11 @@ export type ScriptState = {
   variables: Record<string, string>;
   logs: ScriptLog[];
   tests: ScriptTest[];
+  /**
+   * Environment changes made by rq.environment.set / unset so far (null = unset). Later scripts see them,
+   * `{{env.NAME}}` resolves them, and the caller persists them to the selected environment afterwards.
+   */
+  environment: Record<string, string | null>;
 };
 
 // Runs inside QuickJS. Builds the `rq` API from __input (a JSON string) and exposes __output() for the result.
@@ -84,6 +91,7 @@ const __expect = (actual) => {
 const __request = __in.request;
 const __variables = __in.variables;
 const __env = __in.environment;
+const __envChanges = {};
 globalThis.rq = {
   request: __request,
   response: __in.response && {
@@ -99,6 +107,14 @@ globalThis.rq = {
   },
   environment: {
     get: (k) => (Object.prototype.hasOwnProperty.call(__env, k) ? __env[k] : undefined),
+    set: (k, v) => {
+      if (v === undefined || v === null) throw new TypeError("rq.environment.set(" + __fmt(k) + ") needs a value; use unset to remove it");
+      const value = typeof v === "string" ? v : __fmt(v);
+      __env[String(k)] = value;
+      __envChanges[String(k)] = value;
+    },
+    unset: (k) => { delete __env[String(k)]; __envChanges[String(k)] = null; },
+    has: (k) => Object.prototype.hasOwnProperty.call(__env, k),
   },
   test: (name, fn) => {
     try { fn(); __tests.push({ name: String(name), passed: true }); }
@@ -106,7 +122,7 @@ globalThis.rq = {
   },
   expect: __expect,
 };
-globalThis.__output = () => JSON.stringify({ request: __request, variables: __variables, logs: __logs, tests: __tests });
+globalThis.__output = () => JSON.stringify({ request: __request, variables: __variables, logs: __logs, tests: __tests, environment: __envChanges });
 `;
 
 type RunInput = {
@@ -138,12 +154,14 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
 
   for (const script of scripts) {
     if (!script.code.trim()) continue;
+    // Literal names the script reads, plus everything earlier scripts set (unset names are left out).
     const environment = Object.fromEntries(
       envNames(script.code).flatMap((name) => {
-        const value = readEnv(name);
-        return value === undefined ? [] : [[name, value]];
+        const value = name in current.environment ? current.environment[name] : readEnv(name);
+        return value === undefined || value === null ? [] : [[name, value]];
       }),
     );
+    for (const [name, value] of Object.entries(current.environment)) if (value !== null) environment[name] = value;
 
     const runtime = engine.newRuntime();
     runtime.setMemoryLimit(MEMORY_LIMIT_BYTES);
@@ -189,12 +207,24 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
         if (phase === "pre") break;
         continue;
       }
-      const parsed = JSON.parse(context.getString(out.value)) as Omit<ScriptState, "logs" | "tests"> & {
+      const parsed = JSON.parse(context.getString(out.value)) as Omit<ScriptState, "logs" | "tests" | "environment"> & {
+        environment: Record<string, unknown>;
         logs: Omit<ScriptLog, "scope" | "source">[];
         tests: Omit<ScriptTest, "scope" | "source">[];
       };
       out.value.dispose();
+      const env = { ...current.environment };
+      for (const [name, value] of Object.entries(parsed.environment ?? {})) {
+        if (!VARIABLE_NAME.test(name)) {
+          threw ??= `rq.environment.set: invalid name "${name.slice(0, 80)}" (letters, digits and _, starting with a letter or _; max 64)`;
+        } else if (typeof value === "string" && value.length > MAX_ENV_VALUE) {
+          threw ??= `rq.environment.set("${name}"): value is longer than ${MAX_ENV_VALUE} characters`;
+        } else {
+          env[name] = typeof value === "string" ? value : null;
+        }
+      }
       current = {
+        environment: env,
         request: phase === "pre" ? sanitizeRequest(parsed.request, current.request) : current.request,
         variables: Object.fromEntries(Object.entries(parsed.variables ?? {}).map(([k, v]) => [k, String(v)])),
         logs: [...current.logs, ...parsed.logs.map((l) => ({ ...l, scope: script.scope, source: script.name }))].slice(-MAX_LOGS),

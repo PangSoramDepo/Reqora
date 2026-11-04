@@ -28,6 +28,8 @@ type Props = {
   onNewRequest: (collectionId: string, folderId: string | null) => void;
   onRename: (kind: NodeKind, id: string, name: string) => void;
   onDelete: (kind: NodeKind, id: string, name: string) => void;
+  /** Copies the saved item as "<name> Copy" (unsaved edits to an open request are not included). */
+  onDuplicate: (kind: NodeKind, id: string) => void;
   onImport: (format: "curl" | "openapi") => void;
   /** `index` is the position among the target container's requests, not counting the moved one. */
   onMoveRequest: (id: string, target: RequestTarget) => void;
@@ -115,6 +117,7 @@ export function Explorer(props: Props) {
     onNewRequest,
     onRename,
     onDelete,
+    onDuplicate,
     onImport,
     onMoveRequest,
     onMoveFolder,
@@ -309,6 +312,9 @@ export function Explorer(props: Props) {
               <button type="button" className={HOVER_BTN} title="Rename" onClick={() => setRenaming({ kind: "request", id: r.id })}>
                 <Icon name="edit" className="text-body-sm" />
               </button>
+              <button type="button" className={HOVER_BTN} title="Duplicate request (saved version)" onClick={() => onDuplicate("request", r.id)}>
+                <Icon name="content_copy" className="text-body-sm" />
+              </button>
               <button type="button" className={HOVER_BTN} title="Delete request" onClick={() => onDelete("request", r.id, r.name)}>
                 <Icon name="delete" className="text-body-sm" />
               </button>
@@ -411,6 +417,9 @@ export function Explorer(props: Props) {
                 <button type="button" className={HOVER_BTN} title="Rename folder" onClick={() => setRenaming({ kind: "folder", id: f.id })}>
                   <Icon name="edit" className="text-body-sm" />
                 </button>
+                <button type="button" className={HOVER_BTN} title="Duplicate folder" onClick={() => onDuplicate("folder", f.id)}>
+                  <Icon name="content_copy" className="text-body-sm" />
+                </button>
                 <button type="button" className={HOVER_BTN} title="Delete folder" onClick={() => onDelete("folder", f.id, f.name)}>
                   <Icon name="delete" className="text-body-sm" />
                 </button>
@@ -497,6 +506,9 @@ export function Explorer(props: Props) {
                 </button>
                 <button type="button" className={HOVER_BTN} title="Rename collection" onClick={() => setRenaming({ kind: "collection", id: c.id })}>
                   <Icon name="edit" className="text-body-sm" />
+                </button>
+                <button type="button" className={HOVER_BTN} title="Duplicate collection" onClick={() => onDuplicate("collection", c.id)}>
+                  <Icon name="content_copy" className="text-body-sm" />
                 </button>
                 <button type="button" className={HOVER_BTN} title="Delete collection" onClick={() => onDelete("collection", c.id, c.name)}>
                   <Icon name="delete" className="text-body-sm" />

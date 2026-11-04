@@ -149,6 +149,8 @@ export type ScriptReport = {
   errors: ScriptErrorInfo[];
   /** Variables after all scripts ran (usable as {{vars.NAME}} in this request). */
   variables: Record<string, string>;
+  /** Environment changes from rq.environment.set / unset (null = unset), saved to the selected environment. */
+  environment?: Record<string, string | null>;
 };
 
 export type SendResult = {

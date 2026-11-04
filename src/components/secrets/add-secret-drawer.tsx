@@ -172,7 +172,7 @@ export function AddSecretDrawer({ target, environment, existingNames, onClose, o
                 disabled={editing}
                 id="secret-name"
                 maxLength={64}
-                onChange={(e) => setName(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"))}
+                onChange={(e) => setName(e.target.value.replace(/[^A-Za-z0-9_]/g, "_"))}
                 placeholder="e.g. STRIPE_SECRET"
                 type="text"
                 value={name}
