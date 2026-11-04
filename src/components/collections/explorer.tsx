@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { collectionExportUrl } from "@/lib/collections/client";
 import type { Collection, Folder, RequestSummary, ScopeSettings } from "@/lib/collections/schema";
@@ -48,6 +48,64 @@ type DropAt = { id: string; where: "before" | "after" | "into" | "none" };
 
 const PILL =
   "flex items-center gap-1 px-space-xs py-space-xxs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant text-label-sm font-label-sm whitespace-nowrap transition-colors disabled:opacity-40";
+const IMPORT_OPTIONS: { format: "reqora" | "postman" | "openapi" | "curl"; icon: string; tone: string; label: string; hint: string }[] = [
+  { format: "reqora", icon: "upload_file", tone: "text-tertiary", label: "Reqora collection", hint: ".reqora.json export" },
+  { format: "postman", icon: "rocket_launch", tone: "text-secondary", label: "Postman collection", hint: "Collection v2.1 / v2.0" },
+  { format: "openapi", icon: "file_download", tone: "text-secondary", label: "OpenAPI", hint: "JSON or YAML document" },
+  { format: "curl", icon: "terminal", tone: "text-primary-fixed", label: "cURL", hint: "Paste a curl command" },
+];
+
+/** One "Import" button with a menu, so the toolbar fits the sidebar width. */
+function ImportMenu({ onImport }: { onImport: (format: (typeof IMPORT_OPTIONS)[number]["format"]) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div ref={rootRef} className="relative">
+      <button type="button" className={PILL} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <Icon name="publish" className="text-body-sm text-secondary" /> Import
+        <Icon name="arrow_drop_down" className="text-body-sm -ml-0.5" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 w-56 z-50 p-space-xxs rounded-lg bg-surface-container-high shadow-2xl">
+          {IMPORT_OPTIONS.map((o) => (
+            <button
+              key={o.format}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onImport(o.format);
+              }}
+              className="w-full flex items-start gap-space-xs px-space-sm py-space-xs rounded text-left hover:bg-surface-container-highest"
+            >
+              <Icon name={o.icon} className={`text-body-md mt-0.5 ${o.tone}`} />
+              <span className="flex flex-col">
+                <span className="font-body-sm text-body-sm text-on-surface">{o.label}</span>
+                <span className="font-label-sm text-label-sm text-outline">{o.hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const HOVER_BTN = "p-0.5 rounded text-outline hover:text-on-surface hover:bg-surface-container-highest disabled:opacity-30 disabled:pointer-events-none";
 
 const hasSettings = (s: ScopeSettings) =>
@@ -599,7 +657,7 @@ export function Explorer(props: Props) {
             onKeyDown={(e) => e.key === "Escape" && setQuery("")}
           />
         </div>
-        <div className="flex items-center gap-space-xs overflow-x-auto py-0.5">
+        <div className="flex flex-wrap items-center gap-space-xs py-0.5">
           <button type="button" className={PILL} onClick={onNewCollection}>
             <Icon name="add" className="text-body-sm text-primary" /> Collection
           </button>
@@ -612,18 +670,7 @@ export function Explorer(props: Props) {
           >
             <Icon name="create_new_folder" className="text-body-sm text-tertiary" /> Folder
           </button>
-          <button type="button" className={PILL} onClick={() => onImport("openapi")}>
-            <Icon name="file_download" className="text-body-sm text-secondary" /> OpenAPI
-          </button>
-          <button type="button" className={PILL} onClick={() => onImport("curl")}>
-            <Icon name="terminal" className="text-body-sm text-primary-fixed" /> cURL
-          </button>
-          <button type="button" className={PILL} onClick={() => onImport("reqora")} title="Import a .reqora.json collection export">
-            <Icon name="upload_file" className="text-body-sm text-tertiary" /> Collection
-          </button>
-          <button type="button" className={PILL} onClick={() => onImport("postman")} title="Import a Postman collection (v2.1)">
-            <Icon name="rocket_launch" className="text-body-sm text-secondary" /> Postman
-          </button>
+          <ImportMenu onImport={onImport} />
         </div>
       </div>
 

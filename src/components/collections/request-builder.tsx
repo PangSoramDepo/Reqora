@@ -39,17 +39,30 @@ const TAB_IDLE = "px-space-sm py-2 text-on-surface-variant hover:text-on-surface
 const TAB_ACTIVE = "px-space-sm py-2 text-primary font-label-md text-label-md bg-surface-container-high rounded-t font-semibold flex items-center gap-1.5 shadow-sm";
 const COUNT = "px-1 rounded bg-surface-container font-label-sm text-label-sm";
 
+/** Environment tokens shown before "+N more"; the rest appear when expanded. */
+const TOKENS_COLLAPSED = 10;
+
 function SuggestedTokens({ names }: { names: string[] }) {
   const insert = useTokenInsert();
+  const [expanded, setExpanded] = useState(false);
+  const hidden = expanded ? 0 : Math.max(0, names.length - TOKENS_COLLAPSED);
   const tokens = [
-    ...names.map((n) => ({ token: `{{env.${n}}}`, cls: "bg-tertiary-container/30 hover:bg-tertiary-container/50 text-tertiary" })),
+    ...names
+      .slice(0, names.length - hidden)
+      .map((n) => ({ token: `{{env.${n}}}`, cls: "bg-tertiary-container/30 hover:bg-tertiary-container/50 text-tertiary" })),
     ...["{{$guid}}", "{{$timestamp}}", "{{$isoTimestamp}}"].map((token) => ({
       token,
       cls: "bg-primary-container/20 hover:bg-primary-container/30 text-primary",
     })),
   ];
   return (
-    <div className="px-space-sm py-1 bg-surface-container-low/70 flex items-center gap-space-xs overflow-x-auto shrink-0">
+    // Wraps instead of scrolling sideways, so every token stays visible; long lists collapse behind "+N more".
+    <div
+      data-testid="suggested-tokens"
+      className={`px-space-sm py-1 bg-surface-container-low/70 flex flex-wrap items-center gap-x-space-xs gap-y-1 shrink-0 ${
+        expanded ? "max-h-40 overflow-y-auto" : ""
+      }`}
+    >
       <span className="font-label-sm text-label-sm text-outline whitespace-nowrap">Suggested Tokens:</span>
       {tokens.map(({ token, cls }) => (
         <button
@@ -64,6 +77,16 @@ function SuggestedTokens({ names }: { names: string[] }) {
           {token}
         </button>
       ))}
+      {(hidden > 0 || (expanded && names.length > TOKENS_COLLAPSED)) && (
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setExpanded((v) => !v)}
+          className="px-1.5 py-0.5 rounded font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface bg-surface-container hover:bg-surface-container-high whitespace-nowrap"
+        >
+          {expanded ? "Show less" : `+${hidden} more`}
+        </button>
+      )}
       {names.length === 0 && (
         <span className="font-body-sm text-body-sm text-outline whitespace-nowrap">No variables in this environment yet.</span>
       )}
