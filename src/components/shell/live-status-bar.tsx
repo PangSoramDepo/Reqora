@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Icon } from "@/components/icon";
 import {
   getCanvasState,
@@ -9,7 +9,7 @@ import {
   onRequestSent,
   type CanvasState,
 } from "@/lib/canvas-events";
-import { fetchRecentSends } from "@/lib/collections/client";
+import { clearRecentSends, fetchRecentSends } from "@/lib/collections/client";
 import type { SendRecord } from "@/lib/collections/history";
 import {
   fetchRecentRuns,
@@ -49,6 +49,30 @@ function setConsoleOpen(open: boolean) {
   window.dispatchEvent(new Event(OPEN_EVENT));
 }
 
+/**
+ * "Clear" on the Workflow runs tab only hides runs from the console (they are the Execution History, used by
+ * /executions and replays). Stored per view: the startedAt of the newest run at the time of clearing.
+ */
+const CLEARED_KEY = "reqora:console-runs-cleared";
+type ClearedRuns = Record<string, string>;
+
+function readCleared(): ClearedRuns {
+  try {
+    const value = JSON.parse(localStorage.getItem(CLEARED_KEY) ?? "{}") as unknown;
+    return value && typeof value === "object" ? (value as ClearedRuns) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCleared(value: ClearedRuns) {
+  try {
+    localStorage.setItem(CLEARED_KEY, JSON.stringify(value));
+  } catch {
+    // Storage unavailable; the clear still applies until reload.
+  }
+}
+
 const NO_CANVAS: Partial<CanvasState> = {};
 const subscribeCanvas = (onChange: () => void) => onCanvasState(onChange);
 
@@ -80,6 +104,9 @@ export function LiveStatusBar({ className }: { className: string }) {
     loaded: false,
   });
   const [chosenTab, setChosenTab] = useState<ConsoleTab | null>(null);
+  const [cleared, setCleared] = useState<ClearedRuns>(readCleared);
+  // Bumped on clear so a poll that started before it can't bring the old entries back.
+  const sendsGeneration = useRef(0);
   const onCollections = pathname.startsWith("/collections");
   // Until the user picks a view, show what the current page produces.
   const tab: ConsoleTab = chosenTab ?? (onCollections ? "requests" : "runs");
@@ -91,8 +118,9 @@ export function LiveStatusBar({ className }: { className: string }) {
     let cancelled = false;
     const load = () => {
       if (document.visibilityState !== "visible") return;
+      const generation = sendsGeneration.current;
       fetchRecentSends()
-        .then((list) => !cancelled && setSends({ list, loaded: true }))
+        .then((list) => !cancelled && generation === sendsGeneration.current && setSends({ list, loaded: true }))
         .catch(
           () => !cancelled && setSends((prev) => ({ ...prev, loaded: true })),
         );
@@ -172,6 +200,30 @@ export function LiveStatusBar({ className }: { className: string }) {
   const latest = runs[0];
   const toggle = () => setConsoleOpen(!open);
 
+  // The console hides runs up to the cutoff for this view (a per-workflow view also honours "All workflows").
+  const cutoff = [cleared[scope], scope === "*" ? undefined : cleared["*"]].filter(Boolean).sort().at(-1);
+  const visibleRuns = cutoff ? runs.filter((r) => r.startedAt > cutoff) : runs;
+
+  const clearConsole = async () => {
+    if (tab === "requests") {
+      sendsGeneration.current += 1;
+      await clearRecentSends();
+      setSends({ list: [], loaded: true });
+      return;
+    }
+    if (!runs[0]) return;
+    const next = { ...cleared, [scope]: runs[0].startedAt };
+    saveCleared(next);
+    setCleared(next);
+  };
+  const showClearedRuns = () => {
+    const next = { ...cleared };
+    delete next[scope];
+    if (scope !== "*") delete next["*"];
+    saveCleared(next);
+    setCleared(next);
+  };
+
   return (
     <>
       {open && (
@@ -182,7 +234,10 @@ export function LiveStatusBar({ className }: { className: string }) {
           now={feed.now}
           onClose={() => setConsoleOpen(false)}
           onTab={setChosenTab}
-          runs={runs}
+          onClear={clearConsole}
+          hiddenRuns={runs.length - visibleRuns.length}
+          onShowHiddenRuns={showClearedRuns}
+          runs={visibleRuns}
           sends={sends.list}
           sendsLoading={!sends.loaded}
           tab={tab}

@@ -72,6 +72,9 @@ export const sendAdHoc = (
 /** Recent Collections sends for the Live Execution Console. */
 export const fetchRecentSends = (limit = 25) => request<{ data: SendRecord[] }>(`/api/sends?limit=${limit}`).then((r) => r.data);
 
+/** Deletes the whole send log. */
+export const clearRecentSends = () => request<{ deleted: number }>("/api/sends", { method: "DELETE" }).then((r) => r.deleted);
+
 export type HttpNodeDraft = { name: string; config: Extract<WorkflowNode, { type: "http" }>["config"]; warnings: string[] };
 
 /** Converts a request (saved by id, or unsaved with its location) into a workflow http node config. */

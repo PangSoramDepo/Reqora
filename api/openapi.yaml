@@ -938,6 +938,23 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/SendRecord" }
         "401": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: clearSends
+      summary: Clear the send log
+      description: >-
+        Deletes every recorded send (the console's "Clear" on the API requests tab). Saved requests, examples and
+        workflow runs are not affected.
+      responses:
+        "200":
+          description: How many sends were deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: { type: integer, minimum: 0 }
+        "401": { $ref: "#/components/responses/Problem" }
   /api/requests/{requestId}/examples:
     parameters:
       - $ref: "#/components/parameters/RequestId"

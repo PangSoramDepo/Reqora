@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ago,
   shortId,
@@ -98,7 +98,53 @@ type ExecutionConsoleProps = {
   loading: boolean;
   error: string | null;
   onClose: () => void;
+  /** Clears the active tab: deletes the API request log, or hides the current workflow runs. */
+  onClear: () => Promise<void>;
+  /** Runs hidden by an earlier clear (still in Execution History). */
+  hiddenRuns: number;
+  onShowHiddenRuns: () => void;
 };
+
+/** Two-step "Clear": the first click arms it for a few seconds, the second one clears. */
+function ClearButton({ tab, disabled, onClear }: { tab: ConsoleTab; disabled: boolean; onClear: () => Promise<void> }) {
+  const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
+  const what = tab === "requests" ? "Delete all API request logs" : "Hide the current workflow runs from the console (they stay in Executions)";
+  return (
+    <button
+      aria-label={armed ? "Confirm clear" : "Clear console"}
+      className={`flex items-center gap-space-xxs px-space-xs py-0.5 rounded font-label-sm text-label-sm transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+        armed ? "bg-error-container text-on-error-container" : failed ? "text-error hover:bg-surface-container-high" : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
+      }`}
+      disabled={disabled || busy}
+      onClick={() => {
+        if (!armed) {
+          setFailed(null);
+          setArmed(true);
+          return;
+        }
+        setArmed(false);
+        setBusy(true);
+        onClear()
+          .catch((error: Error) => setFailed(error.message))
+          .finally(() => setBusy(false));
+      }}
+      title={failed ? `Could not clear: ${failed}` : armed ? "Click again to clear" : what}
+      type="button"
+    >
+      <Icon name={busy ? "progress_activity" : "delete_sweep"} className={`text-body-md ${busy ? "animate-spin" : ""}`} />
+      {armed ? "Click again to clear" : failed ? "Clear failed" : "Clear"}
+    </button>
+  );
+}
 
 export function ExecutionConsole({
   tab,
@@ -112,6 +158,9 @@ export function ExecutionConsole({
   loading,
   error,
   onClose,
+  onClear,
+  hiddenRuns,
+  onShowHiddenRuns,
 }: ExecutionConsoleProps) {
   const [height, setHeight] = useState(readHeight);
   const [expanded, setExpanded] = useState(false);
@@ -228,6 +277,12 @@ export function ExecutionConsole({
           )}
         </div>
         <div className="flex items-center gap-space-xs shrink-0">
+          <ClearButton
+            key={tab}
+            tab={tab}
+            disabled={tab === "requests" ? sends.length === 0 : runs.length === 0}
+            onClear={onClear}
+          />
           <Link
             className="flex items-center gap-space-xxs font-label-sm text-label-sm text-primary hover:underline px-space-xs"
             href="/executions"
@@ -270,6 +325,21 @@ export function ExecutionConsole({
                 className="animate-spin text-headline-sm"
               />{" "}
               Loading runs…
+            </>
+          ) : hiddenRuns > 0 ? (
+            <>
+              <Icon name="delete_sweep" className="text-headline-md" />
+              <span className="text-on-surface-variant">Console cleared</span>
+              <span>
+                New runs will appear here. The {hiddenRuns} cleared {hiddenRuns === 1 ? "run is" : "runs are"} still in{" "}
+                <Link className="text-primary hover:underline" href="/executions">
+                  Executions
+                </Link>
+                .
+              </span>
+              <button className="text-primary hover:underline" onClick={onShowHiddenRuns} type="button">
+                Show cleared runs
+              </button>
             </>
           ) : (
             <>

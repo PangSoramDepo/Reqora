@@ -167,6 +167,11 @@ export function recordSend(ctx: SendContext, outcome: SendOutcome): SendRecord {
   return record;
 }
 
+/** Deletes the whole send log (the console's "Clear"). Returns how many entries were removed. */
+export function clearSends(): number {
+  return Number(conn().prepare("DELETE FROM request_sends").run().changes);
+}
+
 export function listSends(limit = 25): SendRecord[] {
   const rows = conn()
     .prepare("SELECT * FROM request_sends ORDER BY sent_at DESC, rowid DESC LIMIT ?")
