@@ -1,5 +1,6 @@
 import "server-only";
 
+import { outboundFetch } from "@/lib/net/outbound";
 import { resolveVariable, setVariableValue } from "@/lib/secrets/variables";
 import { scrub } from "@/lib/workflows/runner";
 import type { Environment } from "@/lib/workflows/schema";
@@ -75,7 +76,7 @@ const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptRepor
  */
 export async function sendRequest(
   target: SendTarget,
-  { environment, baseUrl, fetch: doFetch = fetch, writeEnv = setVariableValue, onUnscrubbed, variables = {}, context }: SendOptions,
+  { environment, baseUrl, fetch: doFetch = outboundFetch(baseUrl), writeEnv = setVariableValue, onUnscrubbed, variables = {}, context }: SendOptions,
 ): Promise<SendOutcome> {
   const def = target.definition;
   const resolved = new Set<string>();

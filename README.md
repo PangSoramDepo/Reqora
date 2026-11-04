@@ -34,6 +34,10 @@ In production set `REQORA_SECRET_KEY` (32 bytes, hex or base64) — the server r
   `REQORA_ENV_NAME`. Secret values are AES-256-GCM encrypted at rest, write-only through the API, and scrubbed
   from stored run history even if an upstream echoes them.
 
+- **Outbound network policy.** Everything the server sends for a user (Collections sends, workflow HTTP nodes, load
+  tests) is checked when each connection opens, including redirects: loopback and private networks are refused
+  unless listed in `REQORA_ALLOW_NETWORKS` (CIDRs, host names, or `private`), and link-local / cloud metadata
+  addresses are always refused. Reqora's own origin stays reachable. See `.env.example`.
 - **Collections inherit like Postman.** Collections and folders carry auth, headers and pre-request /
   post-response scripts; requests use "Inherit auth from parent" by default. Scripts are JavaScript run in a QuickJS
   WebAssembly sandbox (no network, files or timers; 1 s / 32 MB each) with an `rq` API — see the API description.

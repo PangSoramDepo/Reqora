@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
 import {
@@ -79,7 +80,9 @@ export function ExecutionsWorkspace() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [stats, setStats] = useState<RunStatsResponse | null>(null);
   const [names, setNames] = useState(new Map<string, string>());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // `?run=<id>` (e.g. from Telemetry's Inspect) preselects that run.
+  const params = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(() => params.get("run"));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [replaying, setReplaying] = useState(false);

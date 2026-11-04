@@ -208,7 +208,9 @@ async function runHttp(
       signal: AbortSignal.timeout(config.timeoutMs),
     });
   } catch (error) {
-    const reason = (error as Error).name === "TimeoutError" ? `timed out after ${config.timeoutMs}ms` : (error as Error).message;
+    const err = error as Error & { cause?: { message?: string } };
+    // fetch wraps network errors (and blocked addresses) as "fetch failed" with the real reason in `cause`.
+    const reason = err.name === "TimeoutError" ? `timed out after ${config.timeoutMs}ms` : (err.cause?.message ?? err.message);
     throw new StepError(`request failed: ${reason}`, { request });
   }
 

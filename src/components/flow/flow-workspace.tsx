@@ -6,7 +6,15 @@ import { onCanvasCommand, publishCanvasState } from "@/lib/canvas-events";
 import { requestToNodeDraft } from "@/lib/collections/client";
 import { draftToNode } from "@/lib/collections/to-node";
 import { ENVIRONMENT_LABELS, useEnvironment } from "@/lib/environment";
-import { deployWorkflow, fetchLatestRun, fetchWorkflow, startRunLive, type RunProgress } from "@/lib/workflows/client";
+import {
+  deployWorkflow,
+  fetchLatestRun,
+  fetchWorkflow,
+  restoreDeployment,
+  rollbackDeployment,
+  startRunLive,
+  type RunProgress,
+} from "@/lib/workflows/client";
 import { newNode } from "@/lib/workflows/defaults";
 import { topologicalOrder } from "@/lib/workflows/graph";
 import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
@@ -14,6 +22,7 @@ import { SAMPLE_ORDER } from "@/lib/workflows/seed";
 import { createAutosaver, type SaveState } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
 import { FlowCanvas } from "./flow-canvas";
+import { DeploymentsPanel } from "./deployments-panel";
 import { LoadTestPanel } from "./load-test-panel";
 import { NodeInspector } from "./node-inspector";
 import { WorkflowSwitcher } from "./workflow-switcher";
@@ -49,6 +58,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const [run, setRun] = useState<Run | undefined>();
   const [running, setRunning] = useState(false);
   const [loadTesting, setLoadTesting] = useState(false);
+  const [showDeployments, setShowDeployments] = useState(false);
+  const [deploymentsKey, setDeploymentsKey] = useState(0);
   // While a run executes: the steps finished so far and the node running now, replayed at a watchable pace.
   const [live, setLive] = useState<{ steps: Step[]; activeId: string | null } | null>(null);
   const [deploying, setDeploying] = useState(false);
@@ -262,6 +273,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
       if (!current) return;
       const deployed = await deployWorkflow(current.id, current.version);
       autosaver.update((wf) => ({ ...wf, deployment: deployed.deployment }), { save: false });
+      setDeploymentsKey((k) => k + 1);
       flash(`Deployed v${deployed.deployment?.version} — the webhook endpoint now runs this version.`);
     } catch (error) {
       flash(`Deploy failed: ${(error as Error).message}`);
@@ -352,6 +364,18 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             ) : (
               <span className="text-outline">not deployed</span>
             )}
+            <button
+              type="button"
+              className="ml-1 p-0.5 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container-high"
+              title="Deployment history: roll back or restore an earlier version"
+              aria-label="Deployment history"
+              onClick={() => {
+                setLoadTesting(false);
+                setShowDeployments(true);
+              }}
+            >
+              <Icon name="history" className="text-body-md" />
+            </button>
           </div>
           <span className="text-outline-variant font-label-sm text-label-sm">|</span>
           <span
@@ -367,7 +391,10 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           <button
             className="flex items-center gap-space-xs px-space-md py-space-xs bg-surface-container-high text-on-surface rounded-xl shadow-lg transition-all hover:bg-surface-container-highest active:scale-95 font-body-sm text-body-sm font-semibold"
             type="button"
-            onClick={() => setLoadTesting(true)}
+            onClick={() => {
+              setShowDeployments(false);
+              setLoadTesting(true);
+            }}
             title="Run this flow with many concurrent virtual users and measure throughput, errors and latency"
           >
             <Icon name="speed" className="text-body-md text-primary" />
@@ -400,6 +427,29 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
               </div>
             )}
           </div>
+        )}
+
+        {showDeployments && (
+          <DeploymentsPanel
+            workflow={workflow}
+            refreshKey={deploymentsKey}
+            onClose={() => setShowDeployments(false)}
+            onRollback={async (d) => {
+              const updated = await rollbackDeployment(workflow.id, d.id);
+              autosaver.update((wf) => ({ ...wf, deployment: updated.deployment }), { save: false });
+              flash(`Rolled back: the webhook now runs v${d.version}. Your draft is unchanged.`);
+            }}
+            onRestore={async (d) => {
+              await autosaver.flush();
+              const current = autosaver.current();
+              if (!current) return;
+              await restoreDeployment(current.id, d.id, current.version);
+              autosaver.load(await fetchWorkflow(current.id));
+              setSelectedId(null);
+              setSelectedEdgeId(null);
+              flash(`Restored v${d.version} as the draft. Deploy it when you're ready.`);
+            }}
+          />
         )}
 
         {loadTesting && (

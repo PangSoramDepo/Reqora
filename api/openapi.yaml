@@ -445,6 +445,109 @@ paths:
               schema: { $ref: "#/components/schemas/LoadTest" }
         "404": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}/deployments:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    get:
+      operationId: listDeployments
+      summary: Deployment history (newest first; the first entry is live)
+      responses:
+        "200":
+          description: Deployments
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/DeploymentRecord" } }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}/deployments/{deploymentId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+      - $ref: "#/components/parameters/DeploymentId"
+    get:
+      operationId: getDeployment
+      summary: A deployment with the nodes and edges it deployed
+      responses:
+        "200":
+          description: The deployment
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/DeploymentRecord"
+                  - type: object
+                    required: [nodes, edges]
+                    properties:
+                      nodes: { type: array, items: { $ref: "#/components/schemas/Node" } }
+                      edges: { type: array, items: { $ref: "#/components/schemas/Edge" } }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}/deployments/{deploymentId}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+      - $ref: "#/components/parameters/DeploymentId"
+    post:
+      operationId: rollbackDeployment
+      summary: Make an earlier deployment live again
+      description: The webhook runs that deployment from now on; this is recorded as a new history entry (`rollbackOf`). The draft is unchanged.
+      responses:
+        "200":
+          description: The workflow, with its new `deployment`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /api/workflows/{workflowId}/deployments/{deploymentId}/restore:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+      - $ref: "#/components/parameters/DeploymentId"
+    post:
+      operationId: restoreDeployment
+      summary: Replace the draft with a deployment's graph
+      description: Creates a new draft version with the deployment's nodes and edges, so it can be edited. The live deployment is unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: integer, minimum: 1, description: The draft version the caller has seen }
+      responses:
+        "200":
+          description: The workflow with the restored draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workflow" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+  /api/telemetry:
+    get:
+      operationId: getTelemetry
+      summary: Aggregated metrics over stored workflow runs
+      description: |
+        Totals and trend vs the previous window, run-duration percentiles, runs per period (hourly for 24h, 6-hourly
+        for 7d, daily for 30d), failure spikes (periods with at least 3 failures and 20% failing), root causes of
+        failures, upstream hosts called by HTTP steps, a per-node breakdown for one workflow, and the 10 newest runs.
+        Load-test runs are not included. At most 20,000 runs are analysed (`sampled`).
+      parameters:
+        - $ref: "#/components/parameters/Since"
+        - name: workflowId
+          in: query
+          description: "Workflow for the per-node breakdown (default: the one with the most runs)"
+          schema: { type: string }
+      responses:
+        "200":
+          description: Telemetry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Telemetry" }
+        "400": { $ref: "#/components/responses/Problem" }
   /api/runs:
     get:
       operationId: listRuns
@@ -1144,6 +1247,11 @@ components:
       in: path
       required: true
       schema: { type: string }
+    DeploymentId:
+      name: deploymentId
+      in: path
+      required: true
+      schema: { type: string }
     LoadTestId:
       name: loadTestId
       in: path
@@ -1166,6 +1274,144 @@ components:
         application/problem+json:
           schema: { $ref: "#/components/schemas/Problem" }
   schemas:
+    DeploymentRecord:
+      type: object
+      required: [id, workflowId, version, deployedAt, nodeCount, edgeCount, live]
+      properties:
+        id: { type: string }
+        workflowId: { type: string }
+        version: { type: integer, description: Draft version that was deployed }
+        deployedAt: { type: string, format: date-time }
+        deployedBy:
+          type: object
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        rollbackOf:
+          type: object
+          description: Set when this entry re-deployed an earlier one
+          required: [id, version]
+          properties:
+            id: { type: string }
+            version: { type: integer }
+        nodeCount: { type: integer }
+        edgeCount: { type: integer }
+        live: { type: boolean, description: What the webhook runs now }
+    Telemetry:
+      type: object
+      required: [window, since, generatedAt, sampled, totals, latency, bucketMinutes, buckets, peak, spikes, rootCauses, upstreams, workflows, pipeline, recent]
+      properties:
+        window: { type: string, enum: ["24h", "7d", "30d"] }
+        since: { type: string, format: date-time }
+        generatedAt: { type: string, format: date-time }
+        sampled: { type: boolean }
+        totals:
+          type: object
+          properties:
+            runs: { type: integer }
+            succeeded: { type: integer }
+            failed: { type: integer }
+            successRate: { type: [number, "null"] }
+            previousRuns: { type: integer }
+            changePct: { type: [number, "null"] }
+        latency:
+          type: [object, "null"]
+          properties:
+            avg: { type: number }
+            p50: { type: number }
+            p95: { type: number }
+            p99: { type: number }
+        bucketMinutes: { type: integer }
+        buckets:
+          type: array
+          items:
+            type: object
+            properties:
+              start: { type: string, format: date-time }
+              succeeded: { type: integer }
+              failed: { type: integer }
+        peak:
+          type: [object, "null"]
+          properties:
+            start: { type: string, format: date-time }
+            runs: { type: integer }
+        spikes:
+          type: object
+          properties:
+            count: { type: integer }
+            last:
+              type: [object, "null"]
+              properties:
+                start: { type: string, format: date-time }
+                failed: { type: integer }
+                runs: { type: integer }
+        rootCauses:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              count: { type: integer }
+        upstreams:
+          type: array
+          items:
+            type: object
+            properties:
+              host: { type: string }
+              calls: { type: integer }
+              failed: { type: integer }
+              avgMs: { type: number }
+              p95Ms: { type: number }
+        workflows:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              runs: { type: integer }
+              failed: { type: integer }
+        pipeline:
+          type: [object, "null"]
+          properties:
+            workflowId: { type: string }
+            workflowName: { type: string }
+            runs: { type: integer }
+            avgRunMs: { type: number }
+            nodes:
+              type: array
+              items:
+                type: object
+                properties:
+                  nodeId: { type: string }
+                  name: { type: string }
+                  type: { type: string }
+                  calls: { type: integer }
+                  failed: { type: integer }
+                  avgMs: { type: number }
+                  p95Ms: { type: number }
+                  sharePct: { type: number, description: Share of the average run spent in this node }
+        recent:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              workflowId: { type: string }
+              workflowName: { type: string }
+              status: { type: string, enum: [succeeded, failed] }
+              startedAt: { type: string, format: date-time }
+              durationMs: { type: number }
+              environment: { $ref: "#/components/schemas/EnvironmentName" }
+              source: { type: string, enum: [manual, webhook] }
+              executed: { type: integer }
+              failedStep:
+                type: object
+                properties:
+                  name: { type: string }
+                  error: { type: string }
+                  httpStatus: { type: integer }
     LoadTestConfig:
       type: object
       required: [virtualUsers]

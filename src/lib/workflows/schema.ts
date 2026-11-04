@@ -132,6 +132,23 @@ export type WorkflowInput = z.infer<typeof workflowInputSchema>;
 
 export type Deployment = { version: number; deployedAt: string };
 
+/** One entry of a workflow's deployment history (newest first); `live` marks what webhooks run now. */
+export type DeploymentRecord = {
+  id: string;
+  workflowId: string;
+  /** Draft version that was deployed. */
+  version: number;
+  deployedAt: string;
+  deployedBy?: { id: string; name: string };
+  /** Set when this entry re-deployed an earlier one. */
+  rollbackOf?: { id: string; version: number };
+  nodeCount: number;
+  edgeCount: number;
+  live: boolean;
+};
+
+export type DeploymentDetail = DeploymentRecord & Pick<Workflow, "nodes" | "edges">;
+
 export type Workflow = WorkflowInput & {
   id: string;
   version: number;

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { sendLinkedRequest } from "@/lib/collections/linked";
+import { outboundFetch } from "@/lib/net/outbound";
 import { resolveVariable } from "@/lib/secrets/variables";
 import { executeWorkflow, type ExecutionResult, type ProgressEvent } from "./engine";
 import type { Environment, Run, RunTrigger, Workflow } from "./schema";
@@ -57,7 +58,7 @@ type ExecuteOptions = {
 export async function executeScrubbed(
   workflow: Pick<Workflow, "nodes" | "edges">,
   trigger: RunTrigger,
-  { baseUrl, environment, onProgress, fetch: doFetch = fetch }: ExecuteOptions,
+  { baseUrl, environment, onProgress, fetch: doFetch = outboundFetch(baseUrl) }: ExecuteOptions,
 ): Promise<ExecutionResult> {
   const resolved = new Set<string>();
   // rq.variables set by one linked request's scripts are visible to the next ones in this run.
@@ -72,7 +73,7 @@ export async function executeScrubbed(
     },
     baseUrl,
     sendLinked: (requestId, context) =>
-      sendLinkedRequest(requestId, { environment, baseUrl, variables, context, ...(doFetch === fetch ? {} : { fetch: doFetch }) }),
+      sendLinkedRequest(requestId, { environment, baseUrl, variables, context, fetch: doFetch }),
     onProgress: onProgress && ((event) => onProgress(scrub(event, [...resolved]))),
   });
   return scrub(result, [...resolved]);

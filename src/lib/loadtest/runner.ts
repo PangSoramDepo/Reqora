@@ -1,5 +1,6 @@
 import "server-only";
 
+import { outboundFetch } from "@/lib/net/outbound";
 import { executeScrubbed } from "@/lib/workflows/runner";
 import type { Workflow } from "@/lib/workflows/schema";
 import { LoadMetrics, verdictOf } from "./metrics";
@@ -50,7 +51,7 @@ export type StartResult = { ok: true; test: LoadTest } | { ok: false; reason: "b
 export function startLoadTest(
   workflow: Workflow,
   config: LoadTestConfig,
-  { baseUrl, fetch: doFetch = fetch }: { baseUrl: string; fetch?: typeof fetch },
+  { baseUrl, fetch: doFetch = outboundFetch(baseUrl) }: { baseUrl: string; fetch?: typeof fetch },
 ): StartResult {
   if (runningCount() >= MAX_RUNNING) return { ok: false, reason: "busy" };
 

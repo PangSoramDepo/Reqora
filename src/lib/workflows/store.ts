@@ -3,7 +3,7 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Run, Workflow, WorkflowInput, WorkflowSummary } from "./schema";
+import type { DeploymentDetail, DeploymentRecord, Run, Workflow, WorkflowInput, WorkflowSummary } from "./schema";
 import { SEED_WORKFLOWS } from "./seed";
 
 type WorkflowRow = {
@@ -65,6 +65,35 @@ function open(): DatabaseSync {
     if (!columns.has(column)) db.exec(`ALTER TABLE workflows ADD COLUMN ${column} ${type}`);
   }
 
+  // Deployment history. Workflows deployed before it existed get their current deployment as the first entry.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deployments (
+      id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
+      version INTEGER NOT NULL,
+      definition TEXT NOT NULL,
+      deployed_at TEXT NOT NULL,
+      deployed_by TEXT,
+      rollback_of TEXT
+    );
+    CREATE INDEX IF NOT EXISTS deployments_by_workflow ON deployments (workflow_id, deployed_at DESC);
+  `);
+  const undocumented = db
+    .prepare(
+      `SELECT id, deployed_version, deployed_definition, deployed_at FROM workflows
+       WHERE deployed_definition IS NOT NULL AND NOT EXISTS (SELECT 1 FROM deployments d WHERE d.workflow_id = workflows.id)`,
+    )
+    .all() as { id: string; deployed_version: number; deployed_definition: string; deployed_at: string }[];
+  for (const w of undocumented) {
+    db.prepare("INSERT INTO deployments (id, workflow_id, version, definition, deployed_at) VALUES (?, ?, ?, ?, ?)").run(
+      newDeploymentId(),
+      w.id,
+      w.deployed_version,
+      w.deployed_definition,
+      w.deployed_at,
+    );
+  }
+
   const { count } = db.prepare("SELECT COUNT(*) AS count FROM workflows").get() as { count: number };
   if (count === 0) {
     const now = new Date().toISOString();
@@ -74,6 +103,9 @@ function open(): DatabaseSync {
         now,
         seed.id,
       );
+      db.prepare(
+        "INSERT INTO deployments (id, workflow_id, version, definition, deployed_at) SELECT ?, id, 1, definition, ? FROM workflows WHERE id = ?",
+      ).run(newDeploymentId(), now, seed.id);
     }
   }
   return db;
@@ -144,15 +176,42 @@ export function getDeployedWorkflow(id: string): Workflow | undefined {
 
 export type DeployResult = { ok: true; workflow: Workflow } | { ok: false; reason: "not_found" | "conflict"; current?: number };
 
-/** Snapshots the current draft as the live version, if the caller has seen that exact version. */
-export function deployWorkflow(id: string, expectedVersion: number): DeployResult {
-  const result = db()
-    .prepare(
-      `UPDATE workflows SET deployed_version = version, deployed_definition = definition, deployed_at = ?
-       WHERE id = ? AND version = ?`,
-    )
-    .run(new Date().toISOString(), id, expectedVersion);
-  if (result.changes === 1) return { ok: true, workflow: getWorkflow(id)! };
+const newDeploymentId = () => `dep_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
+
+type DeployedBy = { id: string; name: string };
+
+/**
+ * Snapshots the current draft as the live version, if the caller has seen that exact version, and records it in
+ * the deployment history.
+ */
+export function deployWorkflow(id: string, expectedVersion: number, by?: DeployedBy): DeployResult {
+  const conn = db();
+  const at = new Date().toISOString();
+  conn.exec("BEGIN");
+  let changes: number;
+  try {
+    changes = Number(
+      conn
+        .prepare(
+          `UPDATE workflows SET deployed_version = version, deployed_definition = definition, deployed_at = ?
+           WHERE id = ? AND version = ?`,
+        )
+        .run(at, id, expectedVersion).changes,
+    );
+    if (changes === 1) {
+      conn
+        .prepare(
+          `INSERT INTO deployments (id, workflow_id, version, definition, deployed_at, deployed_by)
+           SELECT ?, id, version, definition, ?, ? FROM workflows WHERE id = ?`,
+        )
+        .run(newDeploymentId(), at, by ? JSON.stringify(by) : null, id);
+    }
+    conn.exec("COMMIT");
+  } catch (error) {
+    conn.exec("ROLLBACK");
+    throw error;
+  }
+  if (changes === 1) return { ok: true, workflow: getWorkflow(id)! };
   const existing = getWorkflow(id);
   return existing ? { ok: false, reason: "conflict", current: existing.version } : { ok: false, reason: "not_found" };
 }
@@ -225,6 +284,12 @@ export function queryRuns({ limit, since, status, workflowId }: RunQuery): Run[]
   return rows.map((row) => parseRun(row.data));
 }
 
+/** Runs started in [from, to). */
+export function countRuns(from: string, to: string): number {
+  const row = db().prepare("SELECT COUNT(*) AS n FROM runs WHERE started_at >= ? AND started_at < ?").get(from, to) as { n: number };
+  return Number(row.n);
+}
+
 export type RunStats = {
   total: number;
   succeeded: number;
@@ -255,4 +320,86 @@ export function listRuns(workflowId: string, limit: number): Run[] {
     .prepare("SELECT data FROM runs WHERE workflow_id = ? ORDER BY started_at DESC LIMIT ?")
     .all(workflowId, limit) as { data: string }[];
   return rows.map((row) => parseRun(row.data));
+}
+
+type DeploymentRow = {
+  id: string;
+  workflow_id: string;
+  version: number;
+  definition: string;
+  deployed_at: string;
+  deployed_by: string | null;
+  rollback_of: string | null;
+};
+
+function toDeployment(row: DeploymentRow, liveId: string | undefined, versions: Map<string, number>): DeploymentDetail {
+  const { nodes, edges } = JSON.parse(row.definition) as Pick<Workflow, "nodes" | "edges">;
+  return {
+    id: row.id,
+    workflowId: row.workflow_id,
+    version: row.version,
+    deployedAt: row.deployed_at,
+    ...(row.deployed_by ? { deployedBy: JSON.parse(row.deployed_by) as DeployedBy } : {}),
+    ...(row.rollback_of ? { rollbackOf: { id: row.rollback_of, version: versions.get(row.rollback_of) ?? 0 } } : {}),
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    live: row.id === liveId,
+    nodes,
+    edges,
+  };
+}
+
+function deploymentRows(workflowId: string): DeploymentRow[] {
+  return db()
+    .prepare("SELECT * FROM deployments WHERE workflow_id = ? ORDER BY deployed_at DESC, rowid DESC")
+    .all(workflowId) as DeploymentRow[];
+}
+
+/** The workflow's deployment history, newest first (the newest entry is the live one). */
+export function listDeployments(workflowId: string, limit = 50): DeploymentRecord[] {
+  const rows = deploymentRows(workflowId);
+  const versions = new Map(rows.map((r) => [r.id, r.version]));
+  return rows.slice(0, limit).map((row) => {
+    const { nodes: _nodes, edges: _edges, ...record } = toDeployment(row, rows[0]?.id, versions);
+    void _nodes;
+    void _edges;
+    return record;
+  });
+}
+
+export function getDeployment(workflowId: string, deploymentId: string): DeploymentDetail | undefined {
+  const rows = deploymentRows(workflowId);
+  const row = rows.find((r) => r.id === deploymentId);
+  return row && toDeployment(row, rows[0]?.id, new Map(rows.map((r) => [r.id, r.version])));
+}
+
+export type RollbackResult = { ok: true; workflow: Workflow } | { ok: false; reason: "not_found" | "already_live" };
+
+/**
+ * Makes an earlier deployment live again (webhooks run it from now on) and records that as a new history entry.
+ * The draft is left as it is.
+ */
+export function rollbackDeployment(workflowId: string, deploymentId: string, by?: DeployedBy): RollbackResult {
+  const rows = deploymentRows(workflowId);
+  const target = rows.find((r) => r.id === deploymentId);
+  if (!target) return { ok: false, reason: "not_found" };
+  if (rows[0]?.id === deploymentId) return { ok: false, reason: "already_live" };
+  const conn = db();
+  const at = new Date().toISOString();
+  conn.exec("BEGIN");
+  try {
+    conn
+      .prepare("UPDATE workflows SET deployed_version = ?, deployed_definition = ?, deployed_at = ? WHERE id = ?")
+      .run(target.version, target.definition, at, workflowId);
+    conn
+      .prepare(
+        "INSERT INTO deployments (id, workflow_id, version, definition, deployed_at, deployed_by, rollback_of) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(newDeploymentId(), workflowId, target.version, target.definition, at, by ? JSON.stringify(by) : null, target.id);
+    conn.exec("COMMIT");
+  } catch (error) {
+    conn.exec("ROLLBACK");
+    throw error;
+  }
+  return { ok: true, workflow: getWorkflow(workflowId)! };
 }

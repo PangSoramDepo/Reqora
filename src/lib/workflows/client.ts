@@ -1,4 +1,6 @@
 import type {
+  DeploymentDetail,
+  DeploymentRecord,
   Environment,
   Run,
   RunTrigger,
@@ -45,6 +47,20 @@ export async function deleteWorkflow(id: string) {
 
 export const deployWorkflow = (id: string, version: number) =>
   request<Workflow>(`/api/workflows/${id}/deploy`, { method: "POST", body: JSON.stringify({ version }) });
+
+export const fetchDeployments = (workflowId: string) =>
+  request<{ data: DeploymentRecord[] }>(`/api/workflows/${workflowId}/deployments`).then((r) => r.data);
+export const fetchDeployment = (workflowId: string, deploymentId: string) =>
+  request<DeploymentDetail>(`/api/workflows/${workflowId}/deployments/${deploymentId}`);
+/** Makes an earlier deployment live again; returns the workflow with its new `deployment`. */
+export const rollbackDeployment = (workflowId: string, deploymentId: string) =>
+  request<Workflow>(`/api/workflows/${workflowId}/deployments/${deploymentId}/rollback`, { method: "POST" });
+/** Replaces the draft with a deployment's graph (needs the current draft version). */
+export const restoreDeployment = (workflowId: string, deploymentId: string, version: number) =>
+  request<Workflow>(`/api/workflows/${workflowId}/deployments/${deploymentId}/restore`, {
+    method: "POST",
+    body: JSON.stringify({ version }),
+  });
 
 export type VariableWithUsage = Variable & { usage: VariableReference[] };
 export type VariablesResponse = {
