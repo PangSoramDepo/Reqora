@@ -121,6 +121,9 @@ export const sendInputSchema = z.object({
   /** Where the (possibly unsaved) request lives, so collection/folder auth, headers and scripts apply. */
   collectionId: id.optional(),
   folderId: id.nullable().optional(),
+  /** The saved request being edited, if any, and its (possibly edited) name — for scripts' labels and history. */
+  requestId: id.optional(),
+  name: z.string().trim().min(1).max(200).optional(),
 });
 
 /** Convert a request into a workflow http node config, saved (requestId) or unsaved (definition + location). */

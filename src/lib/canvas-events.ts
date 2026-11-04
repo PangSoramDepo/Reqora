@@ -47,3 +47,15 @@ export function onCanvasState(handler: (state: Partial<CanvasState>) => void) {
   window.addEventListener(CANVAS_STATE, listener);
   return () => window.removeEventListener(CANVAS_STATE, listener);
 }
+
+/** Fired after a Collections send finishes so the Live Execution Console refreshes right away. */
+export const REQUEST_SENT = "reqora:request-sent";
+
+export function notifyRequestSent() {
+  window.dispatchEvent(new Event(REQUEST_SENT));
+}
+
+export function onRequestSent(handler: () => void) {
+  window.addEventListener(REQUEST_SENT, handler);
+  return () => window.removeEventListener(REQUEST_SENT, handler);
+}

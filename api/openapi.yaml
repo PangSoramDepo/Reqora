@@ -904,6 +904,8 @@ paths:
                 environment: { $ref: "#/components/schemas/EnvironmentName" }
                 collectionId: { type: string, description: "Inherit this collection's auth, headers and scripts" }
                 folderId: { type: [string, "null"], description: "Inherit this folder's settings too" }
+                requestId: { type: string, description: "The saved request being edited; links the history entry to it" }
+                name: { type: string, maxLength: 200, description: "Label for script output and the send history" }
       responses:
         "200":
           description: The upstream response, or a SendFailure
@@ -911,6 +913,30 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SendOutcome" }
         "400": { $ref: "#/components/responses/Problem" }
+  /api/sends:
+    get:
+      operationId: listSends
+      summary: Recent Collections sends (newest first)
+      description: >-
+        Every send (saved or ad-hoc) is recorded for the Live Execution Console: status, timing, test counts and
+        script output, with secrets already scrubbed. Response bodies are not stored. The newest 500 are kept.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 25 }
+      responses:
+        "200":
+          description: Sends
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SendRecord" }
+        "401": { $ref: "#/components/responses/Problem" }
   /api/requests/{requestId}/examples:
     parameters:
       - $ref: "#/components/parameters/RequestId"
@@ -1391,6 +1417,34 @@ components:
           type: object
           additionalProperties: { type: [string, "null"] }
           description: "Changes from rq.environment.set / unset (null = unset), saved to the environment the request was sent in"
+    SendRecord:
+      type: object
+      required: [id, requestId, collectionId, name, method, url, environment, status, statusText, error, durationMs, size, tests, scripts, sentAt]
+      properties:
+        id: { type: string }
+        requestId: { type: [string, "null"] }
+        collectionId: { type: [string, "null"] }
+        name: { type: string }
+        method: { type: string }
+        url: { type: string }
+        environment: { $ref: "#/components/schemas/EnvironmentName" }
+        status: { type: [integer, "null"], description: "null when no HTTP response was received" }
+        statusText: { type: [string, "null"] }
+        error: { type: [string, "null"] }
+        durationMs: { type: integer }
+        size: { type: [integer, "null"] }
+        tests:
+          type: object
+          required: [passed, total]
+          description: Assertions plus script tests
+          properties:
+            passed: { type: integer }
+            total: { type: integer }
+        scripts:
+          oneOf:
+            - { $ref: "#/components/schemas/ScriptReport" }
+            - { type: "null" }
+        sentAt: { type: string, format: date-time }
     RequestSummary:
       type: object
       required: [id, name, method, url, folderId]

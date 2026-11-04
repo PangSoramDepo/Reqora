@@ -27,6 +27,7 @@ import {
   updateFolderSettings,
 } from "@/lib/collections/client";
 import type { Collection, Example, SavedRequest, ScopeSettings, SendOutcome } from "@/lib/collections/schema";
+import { notifyRequestSent } from "@/lib/canvas-events";
 import { useEnvironment } from "@/lib/environment";
 import { fetchVariables } from "@/lib/workflows/client";
 import type { Environment } from "@/lib/workflows/schema";
@@ -305,10 +306,17 @@ export function CollectionsWorkspace() {
     const id = selectedId;
     setSendingId(id);
     // The location makes the collection's and folder's auth, headers and scripts apply (folder as currently edited).
-    sendAdHoc(draft.definition, environment, collection ? { collectionId: collection.id, folderId: draft.folderId } : undefined)
+    sendAdHoc(
+      draft.definition,
+      environment,
+      collection ? { collectionId: collection.id, folderId: draft.folderId, requestId: id, name: draft.name.trim() || undefined } : undefined,
+    )
       .then((o) => setResult({ id, outcome: o }))
       .catch((e: Error) => setResult({ id, outcome: { error: e.message, durationMs: 0 } }))
-      .finally(() => setSendingId(null));
+      .finally(() => {
+        setSendingId(null);
+        notifyRequestSent();
+      });
   };
 
   const saveExample = () => {

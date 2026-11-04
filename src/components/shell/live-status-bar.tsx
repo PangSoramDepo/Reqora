@@ -3,10 +3,20 @@
 import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Icon } from "@/components/icon";
-import { getCanvasState, onCanvasState, type CanvasState } from "@/lib/canvas-events";
-import { fetchRecentRuns, fetchWorkflowSummaries } from "@/lib/workflows/client";
+import {
+  getCanvasState,
+  onCanvasState,
+  onRequestSent,
+  type CanvasState,
+} from "@/lib/canvas-events";
+import { fetchRecentSends } from "@/lib/collections/client";
+import type { SendRecord } from "@/lib/collections/history";
+import {
+  fetchRecentRuns,
+  fetchWorkflowSummaries,
+} from "@/lib/workflows/client";
 import type { Run } from "@/lib/workflows/schema";
-import { ExecutionConsole } from "./execution-console";
+import { ExecutionConsole, type ConsoleTab } from "./execution-console";
 
 const OPEN_KEY = "reqora:console-open";
 const OPEN_EVENT = "reqora:console-open-change";
@@ -50,12 +60,54 @@ export function LiveStatusBar({ className }: { className: string }) {
   const scope = workflowId ?? "*";
 
   const open = useSyncExternalStore(subscribeOpen, readOpen, () => false);
-  const canvas = useSyncExternalStore(subscribeCanvas, getCanvasState, () => NO_CANVAS);
+  const canvas = useSyncExternalStore(
+    subscribeCanvas,
+    getCanvasState,
+    () => NO_CANVAS,
+  );
   const onThisCanvas = !!workflowId && canvas.workflowId === workflowId;
   const running = onThisCanvas && !!canvas.running;
 
-  const [feed, setFeed] = useState<Feed>({ scope: "", runs: [], now: 0, error: null });
+  const [feed, setFeed] = useState<Feed>({
+    scope: "",
+    runs: [],
+    now: 0,
+    error: null,
+  });
   const [names, setNames] = useState(new Map<string, string>());
+  const [sends, setSends] = useState<{ list: SendRecord[]; loaded: boolean }>({
+    list: [],
+    loaded: false,
+  });
+  const [chosenTab, setChosenTab] = useState<ConsoleTab | null>(null);
+  const onCollections = pathname.startsWith("/collections");
+  // Until the user picks a view, show what the current page produces.
+  const tab: ConsoleTab = chosenTab ?? (onCollections ? "requests" : "runs");
+
+  // Collections sends: polled while the console is open (or on the Collections page, for the bar's
+  // latency), and refreshed the moment a send finishes.
+  useEffect(() => {
+    if (!open && !onCollections) return;
+    let cancelled = false;
+    const load = () => {
+      if (document.visibilityState !== "visible") return;
+      fetchRecentSends()
+        .then((list) => !cancelled && setSends({ list, loaded: true }))
+        .catch(
+          () => !cancelled && setSends((prev) => ({ ...prev, loaded: true })),
+        );
+    };
+    load();
+    const timer = setInterval(load, open ? POLL_OPEN_MS : POLL_CLOSED_MS);
+    const off = onRequestSent(load);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      off();
+      document.removeEventListener("visibilitychange", load);
+    };
+  }, [open, onCollections]);
 
   // Poll fast while the console is open, slowly otherwise (the bar still shows the latest run), and
   // only while the tab is visible. `running` is a dependency so a canvas test run refreshes on start/finish.
@@ -64,11 +116,20 @@ export function LiveStatusBar({ className }: { className: string }) {
     const load = () => {
       if (document.visibilityState !== "visible") return;
       fetchRecentRuns(workflowId)
-        .then((runs) => !cancelled && setFeed({ scope, runs, now: Date.now(), error: null }))
+        .then(
+          (runs) =>
+            !cancelled &&
+            setFeed({ scope, runs, now: Date.now(), error: null }),
+        )
         .catch(
           (error: Error) =>
             !cancelled &&
-            setFeed((prev) => ({ scope, runs: prev.scope === scope ? prev.runs : [], now: Date.now(), error: error.message })),
+            setFeed((prev) => ({
+              scope,
+              runs: prev.scope === scope ? prev.runs : [],
+              now: Date.now(),
+              error: error.message,
+            })),
         );
     };
     load();
@@ -86,7 +147,10 @@ export function LiveStatusBar({ className }: { className: string }) {
     if (!open) return;
     let cancelled = false;
     fetchWorkflowSummaries()
-      .then((list) => !cancelled && setNames(new Map(list.map((w) => [w.id, w.name]))))
+      .then(
+        (list) =>
+          !cancelled && setNames(new Map(list.map((w) => [w.id, w.name]))),
+      )
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -96,7 +160,8 @@ export function LiveStatusBar({ className }: { className: string }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) setConsoleOpen(false);
+      if (event.key === "Escape" && !event.defaultPrevented)
+        setConsoleOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -116,7 +181,11 @@ export function LiveStatusBar({ className }: { className: string }) {
           names={names}
           now={feed.now}
           onClose={() => setConsoleOpen(false)}
+          onTab={setChosenTab}
           runs={runs}
+          sends={sends.list}
+          sendsLoading={!sends.loaded}
+          tab={tab}
           workflowId={workflowId}
         />
       )}
@@ -140,8 +209,14 @@ export function LiveStatusBar({ className }: { className: string }) {
               </>
             ) : (
               <>
-                <span className={`w-2 h-2 rounded-full ${latest?.status === "failed" ? "bg-error" : "bg-primary"}`} />
-                <span title={latest ? `Last run ${latest.status}` : "No runs yet"}>READY</span>
+                <span
+                  className={`w-2 h-2 rounded-full ${latest?.status === "failed" ? "bg-error" : "bg-primary"}`}
+                />
+                <span
+                  title={latest ? `Last run ${latest.status}` : "No runs yet"}
+                >
+                  READY
+                </span>
               </>
             )}
             {onThisCanvas && canvas.nodeCount !== undefined && (
@@ -151,16 +226,46 @@ export function LiveStatusBar({ className }: { className: string }) {
               </>
             )}
             <span className="text-outline">|</span>
-            <span title={latest ? `Latest run #${latest.id}` : undefined}>
-              Latency:{" "}
-              {latest ? (
-                <span className={latest.status === "failed" ? "text-error" : undefined}>
-                  {latest.durationMs}ms{latest.status === "failed" ? " (failed)" : ""}
-                </span>
-              ) : (
-                "—"
-              )}
-            </span>
+            {onCollections ? (
+              <span
+                title={
+                  sends.list[0]
+                    ? `Latest request “${sends.list[0].name}”`
+                    : undefined
+                }
+              >
+                Latency:{" "}
+                {sends.list[0] ? (
+                  <span
+                    className={
+                      sends.list[0].error || (sends.list[0].status ?? 0) >= 400
+                        ? "text-error"
+                        : undefined
+                    }
+                  >
+                    {sends.list[0].durationMs}ms
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </span>
+            ) : (
+              <span title={latest ? `Latest run #${latest.id}` : undefined}>
+                Latency:{" "}
+                {latest ? (
+                  <span
+                    className={
+                      latest.status === "failed" ? "text-error" : undefined
+                    }
+                  >
+                    {latest.durationMs}ms
+                    {latest.status === "failed" ? " (failed)" : ""}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-space-sm font-label-sm text-label-sm text-outline shrink-0">
@@ -173,7 +278,10 @@ export function LiveStatusBar({ className }: { className: string }) {
             title={open ? "Collapse console (Esc)" : "Expand console"}
             type="button"
           >
-            <Icon name={open ? "unfold_less" : "unfold_more"} className="text-body-md" />
+            <Icon
+              name={open ? "unfold_less" : "unfold_more"}
+              className="text-body-md"
+            />
           </button>
         </div>
       </footer>

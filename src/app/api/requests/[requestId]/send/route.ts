@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { notFound, problem } from "@/lib/http";
+import { recordSend } from "@/lib/collections/history";
 import { sendRequest } from "@/lib/collections/send";
 import { getRequest, requestScopes } from "@/lib/collections/store";
 import { environmentSchema } from "@/lib/workflows/schema";
@@ -13,10 +14,20 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/request
   }
   const saved = getRequest(requestId);
   if (!saved) return notFound(`request "${requestId}"`);
-  return Response.json(
-    await sendRequest(
-      { name: saved.name, definition: saved.definition, ...requestScopes(saved.collectionId, saved.folderId) },
-      { environment: environment.data, baseUrl: request.nextUrl.origin },
-    ),
+  const outcome = await sendRequest(
+    { name: saved.name, definition: saved.definition, ...requestScopes(saved.collectionId, saved.folderId) },
+    { environment: environment.data, baseUrl: request.nextUrl.origin },
   );
+  recordSend(
+    {
+      requestId: saved.id,
+      collectionId: saved.collectionId,
+      name: saved.name,
+      method: saved.definition.method,
+      url: saved.definition.url,
+      environment: environment.data,
+    },
+    outcome,
+  );
+  return Response.json(outcome);
 }

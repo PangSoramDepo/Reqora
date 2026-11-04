@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/workflows/client";
+import type { SendRecord } from "./history";
 import type { Environment, WorkflowNode } from "@/lib/workflows/schema";
 import type {
   Collection,
@@ -65,8 +66,11 @@ export const duplicateRequest = (id: string) => request<SavedRequest>(`/api/requ
 export const sendAdHoc = (
   definition: RequestDefinition,
   environment: Environment,
-  location?: { collectionId: string; folderId: string | null },
+  location?: { collectionId: string; folderId: string | null; requestId?: string; name?: string },
 ) => request<SendOutcome>("/api/send", json("POST", { definition, environment, ...location }));
+
+/** Recent Collections sends for the Live Execution Console. */
+export const fetchRecentSends = (limit = 25) => request<{ data: SendRecord[] }>(`/api/sends?limit=${limit}`).then((r) => r.data);
 
 export type HttpNodeDraft = { name: string; config: Extract<WorkflowNode, { type: "http" }>["config"]; warnings: string[] };
 

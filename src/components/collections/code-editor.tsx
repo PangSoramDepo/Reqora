@@ -9,11 +9,15 @@ type Props = {
   label: string;
 };
 
-/** Monospaced textarea with a line-number gutter; the outer box scrolls both together. */
+/**
+ * Monospaced textarea with a line-number gutter; the outer box scrolls both together. The textarea is
+ * sized to its content (rows) instead of stretching to the box, otherwise long scripts get clipped and
+ * scroll out of step with the gutter. One spare row leaves room for its horizontal scrollbar.
+ */
 export function CodeEditor({ value, onValue, placeholder, label }: Props) {
   const lines = Math.max(1, value.split("\n").length);
   return (
-    <div className="flex-1 flex overflow-auto font-code-block text-code-block leading-relaxed bg-surface-container-lowest">
+    <div className="flex-1 min-h-0 flex items-start overflow-auto font-code-block text-code-block leading-relaxed bg-surface-container-lowest">
       <div
         aria-hidden="true"
         className="w-10 shrink-0 py-2 select-none text-right pr-2 text-outline bg-surface-container-lowest/90 font-code-block text-code-block leading-relaxed"
@@ -28,7 +32,7 @@ export function CodeEditor({ value, onValue, placeholder, label }: Props) {
         onValue={onValue}
         placeholder={placeholder}
         wrap="off"
-        rows={lines}
+        rows={lines + 1}
         onKeyDown={(e) => {
           // Tab inserts two spaces instead of leaving the editor.
           if (e.key !== "Tab" || e.shiftKey) return;
@@ -38,7 +42,7 @@ export function CodeEditor({ value, onValue, placeholder, label }: Props) {
           onValue(el.value.slice(0, s) + "  " + el.value.slice(end));
           requestAnimationFrame(() => el.setSelectionRange(s + 2, s + 2));
         }}
-        className="flex-1 min-w-0 py-2 px-3 bg-transparent text-on-surface whitespace-pre resize-none overflow-y-hidden overflow-x-auto focus:outline-none placeholder:text-outline leading-relaxed"
+        className="flex-1 min-w-0 min-h-full py-2 px-3 bg-transparent text-on-surface whitespace-pre resize-none overflow-y-hidden overflow-x-auto focus:outline-none placeholder:text-outline leading-relaxed"
       />
     </div>
   );
