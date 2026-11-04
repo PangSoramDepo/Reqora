@@ -469,6 +469,337 @@ paths:
                   status: { $ref: "#/components/schemas/RunStatus" }
         "404": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
+  /api/collections:
+    get:
+      operationId: listCollections
+      summary: List collections with their folders and request summaries (by name)
+      responses:
+        "200":
+          description: Collections
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Collection" }
+    post:
+      operationId: createCollection
+      summary: Create an empty collection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CollectionInput" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Collection" }
+        "400": { $ref: "#/components/responses/Problem" }
+  /api/collections/import:
+    post:
+      operationId: importCollection
+      summary: Import a cURL command or an OpenAPI document
+      description: |
+        `openapi` (JSON or YAML, OpenAPI 3 or Swagger 2): creates a collection named from `info.title`, with the
+        base URL from `servers[0].url`, one folder per operation's first tag, and one request per path × method.
+        `{param}` path parameters become `{{param}}` placeholders, query/header parameters are added (optional
+        query params disabled), and JSON request bodies are pre-filled from `example` when present.
+
+        `curl`: parses `-X/--request`, `-H/--header`, `-d/--data/--data-raw/--data-binary/--data-urlencode`,
+        `--json`, `-u/--user` (basic auth), `-G`, `-I`, `--url` and the URL (its query string becomes params);
+        handles single, double and ANSI-C quotes and backslash/caret line continuations. The request is added to
+        `collectionId` when given, otherwise to a new collection named after the host.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format, text]
+              properties:
+                format: { type: string, enum: [curl, openapi] }
+                text: { type: string, minLength: 1, maxLength: 2000000 }
+                collectionId: { type: string, description: "cURL only: append to this existing collection" }
+      responses:
+        "201":
+          description: The created (or, for cURL with `collectionId`, the updated) collection
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Collection" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+  /api/collections/{collectionId}:
+    parameters:
+      - $ref: "#/components/parameters/CollectionId"
+    get:
+      operationId: getCollection
+      summary: Get a collection
+      responses:
+        "200":
+          description: The collection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Collection" }
+        "404": { $ref: "#/components/responses/Problem" }
+    patch:
+      operationId: updateCollection
+      summary: Rename a collection or change its description
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                description: { type: [string, "null"], maxLength: 2000 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Collection" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteCollection
+      summary: Delete a collection with its folders, requests and examples
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/collections/{collectionId}/folders:
+    parameters:
+      - $ref: "#/components/parameters/CollectionId"
+    post:
+      operationId: createFolder
+      summary: Create a folder in a collection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NameInput" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Folder" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/collections/{collectionId}/requests:
+    parameters:
+      - $ref: "#/components/parameters/CollectionId"
+    post:
+      operationId: createRequest
+      summary: Create a saved request (defaults to an empty GET)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                folderId: { type: [string, "null"] }
+                definition: { $ref: "#/components/schemas/RequestDefinition" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedRequest" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+  /api/folders/{folderId}:
+    parameters:
+      - name: folderId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      operationId: renameFolder
+      summary: Rename a folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NameInput" }
+      responses:
+        "200":
+          description: Renamed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Folder" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteFolder
+      summary: Delete a folder and the requests inside it
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/requests/{requestId}:
+    parameters:
+      - $ref: "#/components/parameters/RequestId"
+    get:
+      operationId: getRequest
+      summary: Get a saved request
+      responses:
+        "200":
+          description: The request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedRequest" }
+        "404": { $ref: "#/components/responses/Problem" }
+    put:
+      operationId: replaceRequest
+      summary: Replace a request's name, folder and definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, folderId, definition]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                folderId: { type: [string, "null"] }
+                definition: { $ref: "#/components/schemas/RequestDefinition" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SavedRequest" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteRequest
+      summary: Delete a request and its examples
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/requests/{requestId}/send:
+    parameters:
+      - $ref: "#/components/parameters/RequestId"
+    post:
+      operationId: sendSavedRequest
+      summary: Send the request's saved definition from the server
+      description: |
+        Templates resolve like workflow runs (`{{env.NAME}}` from the chosen environment, falling back to
+        `REQORA_ENV_NAME`; `{{$guid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`). Every resolved variable value of
+        6+ characters is replaced with `[secret]` anywhere in the result (URL, headers, body, test results), so
+        an echoing upstream cannot reveal secrets. Response bodies are capped at 1 MB.
+
+        **When no HTTP response is received** (network error, timeout, missing variable, invalid JSON body
+        template, body over 1 MB) the status is still 200 and the payload is a `SendFailure`. Upstream 4xx/5xx
+        responses are returned as a normal `SendResult`.
+      parameters:
+        - name: environment
+          in: query
+          schema: { $ref: "#/components/schemas/EnvironmentName" }
+      responses:
+        "200":
+          description: The upstream response, or a SendFailure
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendOutcome" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/send:
+    post:
+      operationId: sendAdHocRequest
+      summary: Send an ad-hoc (for example unsaved) request definition
+      description: Same semantics as `sendSavedRequest`, including the 200 + `SendFailure` contract.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [definition]
+              properties:
+                definition: { $ref: "#/components/schemas/RequestDefinition" }
+                environment: { $ref: "#/components/schemas/EnvironmentName" }
+      responses:
+        "200":
+          description: The upstream response, or a SendFailure
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SendOutcome" }
+        "400": { $ref: "#/components/responses/Problem" }
+  /api/requests/{requestId}/examples:
+    parameters:
+      - $ref: "#/components/parameters/RequestId"
+    get:
+      operationId: listExamples
+      summary: List saved example responses (newest first)
+      responses:
+        "200":
+          description: Examples
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Example" }
+        "404": { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: createExample
+      summary: Save a response as a named example
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, response]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                response: { $ref: "#/components/schemas/ExampleResponse" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Example" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/examples/{exampleId}:
+    parameters:
+      - name: exampleId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: deleteExample
+      summary: Delete a saved example
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
 components:
   securitySchemes:
     sessionCookie:
@@ -488,6 +819,16 @@ components:
       schema: { type: string, enum: [24h, 7d, 30d], default: 24h }
     WorkflowId:
       name: workflowId
+      in: path
+      required: true
+      schema: { type: string }
+    CollectionId:
+      name: collectionId
+      in: path
+      required: true
+      schema: { type: string }
+    RequestId:
+      name: requestId
       in: path
       required: true
       schema: { type: string }
@@ -775,3 +1116,193 @@ components:
             body: {}
         error: { type: string }
         replayOf: { type: string, description: Id of the run this one replayed }
+    NameInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+    CollectionInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+    Collection:
+      type: object
+      required: [id, name, createdAt, updatedAt, folders, requests]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        folders:
+          type: array
+          items: { $ref: "#/components/schemas/Folder" }
+        requests:
+          type: array
+          items: { $ref: "#/components/schemas/RequestSummary" }
+    Folder:
+      type: object
+      required: [id, collectionId, name, position]
+      properties:
+        id: { type: string }
+        collectionId: { type: string }
+        name: { type: string }
+        position: { type: integer }
+    RequestSummary:
+      type: object
+      required: [id, name, method, url, folderId]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        method: { $ref: "#/components/schemas/RequestMethod" }
+        url: { type: string }
+        folderId: { type: [string, "null"] }
+    RequestMethod:
+      type: string
+      enum: [GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS]
+    KeyValue:
+      type: object
+      required: [key, value]
+      properties:
+        key: { type: string, maxLength: 500 }
+        value: { type: string, maxLength: 4000, description: template }
+        enabled: { type: boolean, default: true }
+    RequestDefinition:
+      type: object
+      description: Every string field except `key`s is a *template*. Omitted fields take their defaults.
+      properties:
+        method: { $ref: "#/components/schemas/RequestMethod" }
+        url: { type: string, maxLength: 2000, default: "", description: "Absolute, or relative to the Reqora server origin" }
+        params:
+          description: Enabled params are appended to the URL as a query string at send time
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/KeyValue" }
+        headers:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/KeyValue" }
+        auth:
+          description: Adds an Authorization (or API key) header unless an enabled header of that name is set explicitly
+          oneOf:
+            - type: object
+              required: [type]
+              properties: { type: { const: none } }
+            - type: object
+              required: [type, token]
+              properties: { type: { const: bearer }, token: { type: string } }
+            - type: object
+              required: [type, username, password]
+              properties: { type: { const: basic }, username: { type: string }, password: { type: string } }
+            - type: object
+              required: [type, header, value]
+              properties: { type: { const: apiKey }, header: { type: string }, value: { type: string } }
+        body:
+          description: Ignored for GET and HEAD. `json` text is a JSON template (see the API description); `text` is sent as-is.
+          oneOf:
+            - type: object
+              required: [type]
+              properties: { type: { const: none } }
+            - type: object
+              required: [type, text]
+              properties: { type: { enum: [json, text] }, text: { type: string, maxLength: 100000 } }
+        assertions:
+          type: array
+          maxItems: 50
+          items: { $ref: "#/components/schemas/Assertion" }
+        settings:
+          type: object
+          properties:
+            timeoutMs: { type: integer, minimum: 100, maximum: 30000, default: 10000 }
+            followRedirects: { type: boolean, default: true }
+    Assertion:
+      description: |
+        Declarative response checks (no scripting). JSON paths are dot paths such as `customer.id` or
+        `items.0.sku` (a leading `$.` and `[0]` indexes are accepted). `jsonPathEquals` compares loosely:
+        `"42"` equals 42, `"true"` equals true, objects and arrays compare by their JSON.
+      oneOf:
+        - type: object
+          required: [type, equals]
+          properties: { type: { const: status }, equals: { type: integer, minimum: 100, maximum: 599 } }
+        - type: object
+          required: [type, ms]
+          properties: { type: { const: responseTimeBelow }, ms: { type: integer, minimum: 1 } }
+        - type: object
+          required: [type, header, value]
+          properties: { type: { const: headerContains }, header: { type: string }, value: { type: string } }
+        - type: object
+          required: [type, text]
+          properties: { type: { const: bodyContains }, text: { type: string } }
+        - type: object
+          required: [type, path, value]
+          properties: { type: { const: jsonPathEquals }, path: { type: string }, value: { type: string } }
+        - type: object
+          required: [type, path]
+          properties: { type: { const: jsonPathExists }, path: { type: string } }
+    AssertionResult:
+      type: object
+      required: [assertion, passed]
+      properties:
+        assertion: { $ref: "#/components/schemas/Assertion" }
+        passed: { type: boolean }
+        actual: { type: string, description: "The observed value, when meaningful" }
+    SavedRequest:
+      type: object
+      required: [id, collectionId, folderId, name, position, definition, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        collectionId: { type: string }
+        folderId: { type: [string, "null"] }
+        name: { type: string }
+        position: { type: integer }
+        definition: { $ref: "#/components/schemas/RequestDefinition" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SendResult:
+      type: object
+      required: [status, statusText, headers, body, size, durationMs, url, assertions]
+      properties:
+        status: { type: integer }
+        statusText: { type: string }
+        headers: { type: object, additionalProperties: { type: string } }
+        body: { description: "Parsed JSON when the response content type is JSON, otherwise the text" }
+        size: { type: integer, description: Body size in bytes }
+        durationMs: { type: integer }
+        url: { type: string, description: Resolved URL with secrets scrubbed }
+        assertions:
+          type: array
+          items: { $ref: "#/components/schemas/AssertionResult" }
+    SendFailure:
+      type: object
+      description: No HTTP response was received
+      required: [error, durationMs]
+      properties:
+        error: { type: string }
+        url: { type: string }
+        durationMs: { type: integer }
+    SendOutcome:
+      oneOf:
+        - $ref: "#/components/schemas/SendResult"
+        - $ref: "#/components/schemas/SendFailure"
+    ExampleResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: integer, minimum: 100, maximum: 599 }
+        statusText: { type: string }
+        headers: { type: object, additionalProperties: { type: string } }
+        body: {}
+        size: { type: integer }
+        durationMs: { type: number }
+    Example:
+      type: object
+      required: [id, requestId, name, status, response, createdAt]
+      properties:
+        id: { type: string }
+        requestId: { type: string }
+        name: { type: string }
+        status: { type: integer }
+        response: { $ref: "#/components/schemas/ExampleResponse" }
+        createdAt: { type: string, format: date-time }
