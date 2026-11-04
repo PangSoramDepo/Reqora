@@ -474,6 +474,7 @@ export function CollectionsWorkspace() {
               error={scopeError?.key === scopeKey ? scopeError.text : null}
               onSave={saveScope}
               onOpenSource={openScope}
+              variableNames={vars?.env === environment ? vars.names : []}
             />
           ) : selectedScope ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-space-sm p-space-xl text-center">

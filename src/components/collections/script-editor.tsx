@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { Icon } from "@/components/icon";
 import type { Scope } from "@/lib/collections/inherit";
-import { CodeEditor } from "./code-editor";
+import { ScriptCodeEditor, type ScriptCodeEditorHandle } from "./script-code-editor";
 
 export type Phase = "pre" | "post";
 type Snippet = { label: string; code: string; phases: Phase[] };
@@ -65,29 +65,16 @@ type Props = {
   self: string;
   /** Scripts that run before this one (outer levels), in run order. */
   inherited: { scope: Scope; name: string; code: string }[];
+  /** Variable names in the selected environment, suggested inside rq.environment.get("…"). */
+  envNames?: string[];
 };
 
 /** Code editor for a pre-request / post-response script, with snippets, an API reference and the run order. */
-export function ScriptEditor({ phase, value, onValue, self, inherited }: Props) {
-  const box = useRef<HTMLDivElement>(null);
+export function ScriptEditor({ phase, value, onValue, self, inherited, envNames }: Props) {
+  const editor = useRef<ScriptCodeEditorHandle>(null);
   const [showApi, setShowApi] = useState(false);
 
-  const insert = (code: string) => {
-    const el = box.current?.querySelector("textarea");
-    const focused = el && document.activeElement === el;
-    const start = focused ? el.selectionStart : value.length;
-    const end = focused ? el.selectionEnd : value.length;
-    const before = value.slice(0, start);
-    const pad = before && !before.endsWith("\n") ? "\n" : "";
-    const text = `${pad}${code}\n`;
-    onValue(before + text + value.slice(end));
-    const caret = start + text.length;
-    requestAnimationFrame(() => {
-      if (!el) return;
-      el.focus();
-      el.setSelectionRange(caret, caret);
-    });
-  };
+  const insert = (code: string) => editor.current?.insert(code);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -106,8 +93,11 @@ export function ScriptEditor({ phase, value, onValue, self, inherited }: Props) 
         {inherited.length === 0 && <span>— nothing inherited</span>}
       </div>
       <div className="flex-1 flex min-h-0">
-        <div ref={box} className="flex-1 flex min-w-0 min-h-0">
-          <CodeEditor
+        <div className="flex-1 flex min-w-0 min-h-0">
+          <ScriptCodeEditor
+            handle={editor}
+            phase={phase}
+            envNames={envNames}
             label={PHASE_LABEL[phase]}
             value={value}
             onValue={onValue}

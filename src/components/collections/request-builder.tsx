@@ -343,6 +343,7 @@ export function RequestBuilder({
             value={tab === "pre" ? def.preScript : def.postScript}
             onValue={(code) => setDef((d) => (tab === "pre" ? { ...d, preScript: code } : { ...d, postScript: code }))}
             self="this request"
+            envNames={variableNames}
             inherited={tab === "pre" ? inherited.pre : inherited.post}
           />
         )}

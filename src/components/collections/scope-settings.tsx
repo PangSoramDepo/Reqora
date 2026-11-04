@@ -26,10 +26,12 @@ type Props = {
   error: string | null;
   onSave: () => void;
   onOpenSource: (source: InheritSource) => void;
+  /** Variable names in the selected environment, for script suggestions. */
+  variableNames?: string[];
 };
 
 /** Postman-style collection / folder settings: auth, headers and scripts shared by the requests inside. */
-export function ScopeSettingsPanel({ collection, folder, settings, update, dirty, saving, error, onSave, onOpenSource }: Props) {
+export function ScopeSettingsPanel({ collection, folder, settings, update, dirty, saving, error, onSave, onOpenSource, variableNames }: Props) {
   const [tab, setTab] = useState<Tab>("auth");
   const kind = folder ? "folder" : "collection";
   const name = folder?.name ?? collection.name;
@@ -141,6 +143,7 @@ export function ScopeSettingsPanel({ collection, folder, settings, update, dirty
             value={tab === "pre" ? settings.preScript : settings.postScript}
             onValue={(code) => update((s) => (tab === "pre" ? { ...s, preScript: code } : { ...s, postScript: code }))}
             self={`this ${kind}`}
+            envNames={variableNames}
             inherited={inherited ? (tab === "pre" ? inherited.pre : inherited.post) : []}
           />
         )}
