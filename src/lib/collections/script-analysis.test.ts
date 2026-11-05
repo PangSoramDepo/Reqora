@@ -11,6 +11,8 @@ describe("lintScript", () => {
   it("accepts valid scripts, including top-level return", () => {
     expect(lint('rq.environment.set("login_id", "123");\nif (!rq.variables.get("x")) return;')).toEqual([]);
     expect(lint('rq.test("ok", () => { rq.expect(rq.response.status).toBe(200).toBeTruthy(); });', "post")).toEqual([]);
+    // Scripts run as an async function: top-level await and crypto.subtle are fine.
+    expect(lint("const key = await crypto.subtle.importKey(\"raw\", new TextEncoder().encode(\"k\"), { name: \"HMAC\", hash: \"SHA-256\" }, false, [\"sign\"]);")).toEqual([]);
     expect(lint('const body = rq.response.json();\nconsole.log(body.items.length, rq.request.headers["X-A"]);', "post")).toEqual([]);
   });
 
@@ -76,7 +78,7 @@ describe("completeScript", () => {
     const partial = complete("rq.env");
     expect(partial?.from).toBe(3);
     expect(partial?.options.map((o) => o.label)).toContain("environment");
-    expect(labels("rq.environment.")).toEqual(["get", "set", "unset", "has"]);
+    expect(labels("rq.environment.")).toEqual(["get", "set", "unset", "has", "replaceIn"]);
     expect(labels("rq.response.", "post")).toContain("json");
   });
 

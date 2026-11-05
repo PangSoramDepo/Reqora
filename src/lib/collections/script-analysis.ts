@@ -78,11 +78,14 @@ function firstArg(args: SyntaxNode): SyntaxNode | null {
   return null;
 }
 
+const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as FunctionConstructor;
+
 /** The engine's own parse error message (compiles without running), or null if the code is valid. */
 function engineSyntaxError(code: string): string | null {
   try {
-    // Compile only — the function is never called. Wrapped like the sandbox runs it, so top-level return works.
-    new Function(code);
+    // Compile only — the function is never called. Wrapped like the sandbox runs it (an async function), so
+    // top-level return and await work.
+    new AsyncFunction(code);
     return null;
   } catch (error) {
     return error instanceof SyntaxError ? error.message : null;

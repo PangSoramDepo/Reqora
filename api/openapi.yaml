@@ -25,7 +25,11 @@ info:
     existing variable's kind — a secret stays encrypted — and resolve in `{{env.NAME}}` for the same send),
     `rq.test(name, fn)`,
     `rq.expect(value)` (toBe, toEqual, toContain, toBeTruthy, toBeFalsy, toBeGreaterThan, toBeLessThan,
-    toHaveProperty, toMatch) and `console`. Send responses and stored workflow runs show real values, like Postman.
+    toHaveProperty, toMatch) and `console`. Scripts run as an async function, so top-level `await` works; they
+    also have `crypto.subtle` (digest, importKey/exportKey, sign/verify with HMAC, RSASSA-PKCS1-v1_5, RSA-PSS,
+    ECDSA, Ed25519, encrypt/decrypt with RSA-OAEP, AES-GCM, AES-CBC), `crypto.getRandomValues/randomUUID`,
+    `TextEncoder`/`TextDecoder`, `btoa`/`atob`, `rq.environment.replaceIn` and `require("crypto-js" | "lodash" | "moment")`.
+    Send responses and stored workflow runs show real values, like Postman.
 
     **Authentication.** Every operation requires the `reqora_session` cookie from `POST /api/auth/login`
     (401 otherwise), except the ones marked `security: []`: the auth endpoints, the webhook entry point

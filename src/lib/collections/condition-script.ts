@@ -7,6 +7,8 @@ const TEST_NAME = "__repeat_until__";
 const MAX_LOG_LINES = 20;
 const MAX_LOG_CHARS = 2000;
 const NOT_MET = "__condition_not_met__";
+/** Lines wrapCondition adds before the condition. */
+const WRAPPER_LINES = 1;
 
 /** Script console output as display lines (most recent 20, each capped), e.g. "[warn] retrying". */
 export function logLines(logs: Pick<ScriptLog, "level" | "message">[]): string[] {
@@ -23,17 +25,11 @@ export function logLines(logs: Pick<ScriptLog, "level" | "message">[]): string[]
 export function wrapCondition(code: string): string {
   const trimmed = code.trim().replace(/;+\s*$/, "");
   const body = /(^|[^\w$.])return\b/.test(trimmed) ? trimmed : `return (${trimmed}\n);`;
-  return `const response = {
-  status: rq.response.status,
-  headers: rq.response.headers,
-  body: (() => { try { return rq.response.json(); } catch (e) { return rq.response.text(); } })(),
-};
-rq.test(${JSON.stringify(TEST_NAME)}, () => {
-  const __met = (function () {
+  // The wrapper's prefix is one line (WRAPPER_LINES), so errors report the condition's own line numbers.
+  return `const response = { status: rq.response.status, headers: rq.response.headers, body: (() => { try { return rq.response.json(); } catch (e) { return rq.response.text(); } })() }; const __met = await (async function () {
 ${body}
-  })();
-  if (!__met) throw new Error(${JSON.stringify(NOT_MET)});
-});`;
+})();
+rq.test(${JSON.stringify(TEST_NAME)}, () => { if (!__met) throw new Error(${JSON.stringify(NOT_MET)}); });`;
 }
 
 /**
@@ -59,7 +55,7 @@ export async function checkConditionScript(
     readEnv,
     response,
     state: { request: { method: "GET", url: "", params: [], headers: {} }, variables: { ...variables }, logs: [], tests: [], environment: {} },
-    scripts: [{ scope: "request", name: "repeat until", code: wrapCondition(code) }],
+    scripts: [{ scope: "request", name: "repeat until", code: wrapCondition(code), lineOffset: WRAPPER_LINES }],
   });
   const lines = logLines(state.logs);
   const logs = lines.length ? { logs: lines } : {};

@@ -112,6 +112,7 @@ export const SCRIPT_API: ApiMember[] = [
           }),
           method("unset", "(name: string): void", "Removes a value from the selected environment after the send.", { nameArg: "env" }),
           method("has", "(name: string): boolean", "Whether the environment has a value for the name.", { nameArg: "env" }),
+          method("replaceIn", "(text: string): string", "Replaces {{NAME}} and {{env.NAME}} with environment values (and {{vars.NAME}} with rq.variables)."),
         ],
       }),
       method("test", "(name: string, fn: () => void): void", "A named test. It fails if fn throws (e.g. a failed rq.expect)."),
@@ -170,6 +171,25 @@ export const SCRIPT_API: ApiMember[] = [
   prop("postman", "object", "Legacy Postman API: setEnvironmentVariable, getEnvironmentVariable, clearEnvironmentVariable…"),
   prop("tests", "Record<string, boolean>", "Legacy Postman tests: tests[\"name\"] = condition."),
   method("btoa", "(text: string): string", "Base64-encodes a Latin-1 string."),
+  prop("crypto", "Crypto", "Web Crypto: getRandomValues, randomUUID and subtle (async — use await).", {
+    members: [
+      method("getRandomValues", "(array: TypedArray): TypedArray", "Fills the array with secure random values."),
+      method("randomUUID", "(): string", "A random v4 UUID."),
+      prop("subtle", "SubtleCrypto", "Async crypto: digest, importKey, exportKey, sign, verify, encrypt, decrypt. Await the results.", {
+        members: [
+          method("digest", "(algorithm: \"SHA-1\" | \"SHA-256\" | \"SHA-384\" | \"SHA-512\", data: BufferSource): Promise<ArrayBuffer>", "Hashes data."),
+          method("importKey", "(format: \"raw\" | \"pkcs8\" | \"spki\" | \"jwk\", keyData, algorithm, extractable: boolean, usages: string[]): Promise<CryptoKey>", "Imports a key: HMAC / AES (raw), RSASSA-PKCS1-v1_5, RSA-PSS, RSA-OAEP, ECDSA, Ed25519 (pkcs8 / spki / jwk)."),
+          method("exportKey", "(format, key: CryptoKey): Promise<ArrayBuffer | JsonWebKey>", "Exports an extractable key."),
+          method("sign", "(algorithm, key: CryptoKey, data: BufferSource): Promise<ArrayBuffer>", "Signs with HMAC, RSASSA-PKCS1-v1_5 (RS256), RSA-PSS, ECDSA or Ed25519."),
+          method("verify", "(algorithm, key: CryptoKey, signature: BufferSource, data: BufferSource): Promise<boolean>", "Checks a signature."),
+          method("encrypt", "(algorithm, key: CryptoKey, data: BufferSource): Promise<ArrayBuffer>", "RSA-OAEP, AES-GCM ({ name, iv }) or AES-CBC ({ name, iv })."),
+          method("decrypt", "(algorithm, key: CryptoKey, data: BufferSource): Promise<ArrayBuffer>", "RSA-OAEP, AES-GCM or AES-CBC."),
+        ],
+      }),
+    ],
+  }),
+  prop("TextEncoder", "class", "new TextEncoder().encode(text): Uint8Array (UTF-8)."),
+  prop("TextDecoder", "class", "new TextDecoder().decode(bytes): string (UTF-8)."),
   method("atob", "(base64: string): string", "Decodes base64."),
   prop("responseBody", "string", "Legacy Postman: the response body text.", { phases: ["post"] }),
   prop("responseCode", "{ code, name }", "Legacy Postman: the response status.", { phases: ["post"] }),

@@ -1,4 +1,4 @@
-import { createCipheriv } from "node:crypto";
+import { createCipheriv, generateKeyPairSync, verify } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { SCRIPT_MODULE_NAMES } from "./script-api";
 import { runScripts, SCRIPT_MODULES, type ScriptState } from "./scripts";
@@ -295,5 +295,129 @@ console.log(typeof u, u.includes("v1"));` }],
     ]);
     expect(errors[0].message).toBe("TypeError: cannot read property 'items' of undefined (line 3: data.items.map((i) => i);)");
   });
+
+  it("says where a syntax error is, with a hint for await in a regular callback", async () => {
+    const { errors } = await runScripts({
+      phase: "pre",
+      readEnv: env,
+      state: state(),
+      scripts: [{ scope: "collection", name: "c", code: "let a = [1];\na.forEach((x) => {\n  rq.request.body = await sign(x);\n});" }],
+    });
+    expect(errors[0].message).toMatch(/^SyntaxError: .* \(line 3: rq\.request\.body = await sign\(x\);\) — await works at the top level/);
+  });
 });
 
+describe("async scripts and Web APIs", () => {
+  const run = (code: string, readEnv: (name: string) => string | undefined = env, request = state().request) =>
+    runScripts({ phase: "pre", readEnv, state: { ...state(), request }, scripts: [{ scope: "collection", name: "c", code }] });
+
+  it("supports top-level await, async functions and rejected promises", async () => {
+    const ok = await run(`async function twice(x) { return x * 2; }
+const v = await twice(await Promise.resolve(21));
+rq.request.body = String(v);`);
+    expect(ok.errors).toEqual([]);
+    expect(ok.state.request.body).toBe("42");
+
+    const rejected = await run('console.log("start");\nawait Promise.reject(new TypeError("bad key"));');
+    expect(rejected.errors[0].message).toBe('TypeError: bad key (line 2: await Promise.reject(new TypeError("bad key"));)');
+    expect(rejected.state.logs.map((l) => l.message)).toEqual(["start"]);
+
+    const stuck = await run("await new Promise(() => {});");
+    expect(stuck.errors[0].message).toMatch(/never settles/);
+  });
+
+  it("has UTF-8 TextEncoder / TextDecoder and crypto.randomUUID", async () => {
+    const { state: out, errors } = await run(`const bytes = new TextEncoder().encode("ážé €😀");
+console.log(Array.from(bytes).join(","));
+console.log(new TextDecoder().decode(bytes));
+console.log(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(crypto.randomUUID()));`);
+    expect(errors).toEqual([]);
+    expect(out.logs.map((l) => l.message)).toEqual([
+      [...Buffer.from("ážé €😀", "utf8")].join(","),
+      "ážé €😀",
+      "true",
+    ]);
+  });
+
+  it("signs an RS256 JWT with crypto.subtle (the Postman pattern), verifiable by the public key", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+    const readEnv = (name: string) => (name === "client_private_key" ? pem : undefined);
+    const { state: out, errors } = await run(
+      `rq.request.body = await sign(JSON.stringify({ payload: JSON.parse(rq.request.body) }));
+
+async function sign(bodyStr) {
+    bodyStr = JSON.stringify(JSON.parse(bodyStr).payload);
+    const privateKeyPem = rq.environment.get('client_private_key');
+    const cryptoKey = await crypto.subtle.importKey('pkcs8', pemToArrayBuffer(privateKeyPem),
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+    const encodedHeader = base64UrlEncode(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+    const encodedPayload = base64UrlEncode(bodyStr);
+    const signingInput = \`\${encodedHeader}.\${encodedPayload}\`;
+    const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(signingInput));
+    return \`\${signingInput}.\${base64UrlEncode(signature)}\`;
+}
+
+function base64UrlEncode(input) {
+    let bytes;
+    if (input instanceof ArrayBuffer) bytes = new Uint8Array(input);
+    else if (typeof input === 'string') bytes = new TextEncoder().encode(input);
+    else throw new TypeError('Input must be a string or ArrayBuffer');
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+}
+
+function pemToArrayBuffer(pem) {
+    const base64 = pem.replace(/-----BEGIN PRIVATE KEY-----/, '').replace(/-----END PRIVATE KEY-----/, '').replace(/\\s/g, '');
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes.buffer;
+}`,
+      readEnv,
+      { ...state().request, method: "POST", body: '{"amount":10,"name":"Sokha"}' },
+    );
+    expect(errors).toEqual([]);
+    const [header, payload, signature] = String(out.request.body).split(".");
+    expect(JSON.parse(Buffer.from(header, "base64url").toString())).toEqual({ alg: "RS256", typ: "JWT" });
+    expect(JSON.parse(Buffer.from(payload, "base64url").toString())).toEqual({ amount: 10, name: "Sokha" });
+    expect(verify("sha256", Buffer.from(`${header}.${payload}`), publicKey, Buffer.from(signature, "base64url"))).toBe(true);
+  });
+
+  it("digests, HMACs, verifies and AES-GCM round-trips; reports bad input clearly", async () => {
+    const { state: out, errors } = await run(`const enc = (s) => new TextEncoder().encode(s);
+const hex = (buf) => Array.from(new Uint8Array(buf), (b) => (b + 256).toString(16).slice(1)).join("");
+console.log(hex(await crypto.subtle.digest("SHA-256", enc("abc"))));
+const hmacKey = await crypto.subtle.importKey("raw", enc("secret"), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+const mac = await crypto.subtle.sign("HMAC", hmacKey, enc("msg"));
+console.log(hex(mac), await crypto.subtle.verify("HMAC", hmacKey, mac, enc("msg")), await crypto.subtle.verify("HMAC", hmacKey, mac, enc("other")));
+const aesKey = await crypto.subtle.importKey("raw", new Uint8Array(32).fill(7), "AES-GCM", false, ["encrypt", "decrypt"]);
+const iv = new Uint8Array(12).fill(1);
+const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, enc("hello"));
+console.log(new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, sealed)));
+try { await crypto.subtle.sign("HMAC", aesKey, enc("x")); } catch (e) { console.log(e.name, e.message); }
+try { await crypto.subtle.importKey("pkcs8", enc("not a key"), { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]); } catch (e) { console.log("bad key:", e.name); }`);
+    expect(errors).toEqual([]);
+    const { createHash, createHmac } = await import("node:crypto");
+    expect(out.logs.map((l) => l.message)).toEqual([
+      createHash("sha256").update("abc").digest("hex"),
+      `${createHmac("sha256", "secret").update("msg").digest("hex")} true false`,
+      "hello",
+      'InvalidAccessError the key was not imported for "sign"',
+      "bad key: Error",
+    ]);
+  });
+
+  it("replaceIn resolves {{env.NAME}} / {{NAME}} templates used in the request body", async () => {
+    const readEnv = (name: string) => ({ file_hash: "h-123", amount: "10" })[name];
+    const { state: out, errors } = await run(
+      'rq.request.body = rq.environment.replaceIn(rq.request.body);\nconsole.log(pm.environment.replaceIn("{{amount}}"));',
+      readEnv,
+      { ...state().request, method: "POST", body: '{"hash":"{{env.file_hash}}","n":"{{amount}}","x":"{{unknown}}"}' },
+    );
+    expect(errors).toEqual([]);
+    expect(out.request.body).toBe('{"hash":"h-123","n":"10","x":"{{unknown}}"}');
+    expect(out.logs.map((l) => l.message)).toEqual(["10"]);
+  });
+});

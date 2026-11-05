@@ -8,9 +8,11 @@ import variant from "@jitl/quickjs-wasmfile-release-sync";
 import {
   newQuickJSWASMModuleFromVariant,
   shouldInterruptAfterDeadline,
+  type QuickJSHandle,
   type QuickJSWASMModule,
 } from "quickjs-emscripten-core";
 import { VARIABLE_NAME } from "@/lib/workflows/schema";
+import { hostCrypto } from "./script-crypto";
 import type { DraftRequest } from "./request";
 
 /**
@@ -67,7 +69,8 @@ function modulesUsed(code: string): ScriptModuleName[] {
 
 export type ScriptPhase = "pre" | "post";
 export type ScriptScope = "collection" | "folder" | "request";
-export type ScriptSource = { scope: ScriptScope; name: string; code: string };
+/** `lineOffset`: lines a caller's wrapper adds before the user's code, so errors report the user's line numbers. */
+export type ScriptSource = { scope: ScriptScope; name: string; code: string; lineOffset?: number };
 
 /** rq.request: templates unresolved, params separate, no auth header yet (see DraftRequest). */
 export type ScriptRequest = DraftRequest;
@@ -100,12 +103,14 @@ const PRELUDE = String.raw`
 const __in = JSON.parse(__input);
 const __logs = [];
 const __tests = [];
-// Stack frames in the user's script ("<scope>-<phase>.js"), as "line N:C"; the script is wrapped in one line.
+// Stack frames in the user's script ("<scope>-<phase>.js"), as "line N:C"; __in.lineOffset = wrapper lines before it.
 const __frames = (stack) => String(stack || "").split("\n")
   .filter((l) => !l.includes("<eval>"))
   .map((l) => /\((?:collection|folder|request)-(?:pre|post)\.js:(\d+)(?::(\d+))?\)/.exec(l))
   .filter(Boolean)
-  .map((m) => "    at line " + (Number(m[1]) - 1) + (m[2] ? ":" + m[2] : ""));
+  .map((m) => ({ line: Number(m[1]) - __in.lineOffset, col: m[2] }))
+  .filter((f) => f.line >= 1)
+  .map((f) => "    at line " + f.line + (f.col ? ":" + f.col : ""));
 const __isError = (v) => v instanceof Error || (v !== null && typeof v === "object" && typeof v.message === "string" && typeof v.stack === "string");
 const __fmtError = (e) => {
   const extra = Object.keys(e).filter((k) => k !== "message" && k !== "stack");
@@ -173,6 +178,13 @@ const __expect = (actual) => {
 const __request = __in.request;
 const __variables = __in.variables;
 const __env = __in.environment;
+// Replaces {{NAME}} (Postman style) and Reqora's {{env.NAME}} / {{vars.NAME}}; unknown names are left as they are.
+const __replaceIn = (text, lookup) => String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, k) => {
+  const v = k.startsWith("env.") ? (Object.prototype.hasOwnProperty.call(__env, k.slice(4)) ? __env[k.slice(4)] : undefined)
+    : k.startsWith("vars.") ? __variables[k.slice(5)]
+    : lookup(k);
+  return v === undefined ? m : v;
+});
 const __envChanges = {};
 globalThis.rq = {
   request: __request,
@@ -197,6 +209,7 @@ globalThis.rq = {
     },
     unset: (k) => { delete __env[String(k)]; __envChanges[String(k)] = null; },
     has: (k) => Object.prototype.hasOwnProperty.call(__env, k),
+    replaceIn: (text) => __replaceIn(text, (k) => rq.environment.get(k)),
   },
   test: (name, fn) => {
     try { fn(); __tests.push({ name: String(name), passed: true }); }
@@ -230,6 +243,120 @@ globalThis.atob = (input) => {
     if (bits >= 8) { bits -= 8; out += String.fromCharCode((value >> bits) & 255); }
   }
   return out;
+};
+
+// ---- Web APIs: TextEncoder / TextDecoder (UTF-8) and crypto.subtle (run by the host, see script-crypto.ts) ----
+const __view = (src, what) => {
+  if (src instanceof ArrayBuffer) return new Uint8Array(src);
+  if (ArrayBuffer.isView(src)) return new Uint8Array(src.buffer, src.byteOffset, src.byteLength);
+  throw new TypeError((what || "data") + " must be an ArrayBuffer or typed array");
+};
+globalThis.TextEncoder = class TextEncoder {
+  get encoding() { return "utf-8"; }
+  encode(input) {
+    const s = input === undefined ? "" : String(input);
+    const out = [];
+    for (let i = 0; i < s.length; i++) {
+      let c = s.charCodeAt(i);
+      if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+        const d = s.charCodeAt(i + 1);
+        if (d >= 0xdc00 && d <= 0xdfff) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; }
+      }
+      if (c >= 0xd800 && c <= 0xdfff) c = 0xfffd;
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    }
+    return new Uint8Array(out);
+  }
+};
+globalThis.TextDecoder = class TextDecoder {
+  constructor(label) {
+    const l = String(label === undefined ? "utf-8" : label).toLowerCase();
+    if (l !== "utf-8" && l !== "utf8") throw new RangeError("TextDecoder: only utf-8 is supported in scripts");
+  }
+  get encoding() { return "utf-8"; }
+  decode(input) {
+    if (input === undefined) return "";
+    const b = __view(input, "TextDecoder.decode input");
+    let out = "";
+    for (let i = 0; i < b.length; ) {
+      const x = b[i];
+      let c = 0xfffd, n = 1;
+      if (x < 0x80) c = x;
+      else if (x >= 0xc2 && x < 0xe0 && (b[i + 1] & 0xc0) === 0x80) { c = ((x & 31) << 6) | (b[i + 1] & 63); n = 2; }
+      else if (x >= 0xe0 && x < 0xf0 && (b[i + 1] & 0xc0) === 0x80 && (b[i + 2] & 0xc0) === 0x80) { c = ((x & 15) << 12) | ((b[i + 1] & 63) << 6) | (b[i + 2] & 63); n = 3; }
+      else if (x >= 0xf0 && x < 0xf5 && (b[i + 1] & 0xc0) === 0x80 && (b[i + 2] & 0xc0) === 0x80 && (b[i + 3] & 0xc0) === 0x80) {
+        c = ((x & 7) << 18) | ((b[i + 1] & 63) << 12) | ((b[i + 2] & 63) << 6) | (b[i + 3] & 63); n = 4;
+      }
+      out += String.fromCodePoint(c);
+      i += n;
+    }
+    return out;
+  }
+};
+
+const __hostCall = globalThis.__hostCrypto;
+delete globalThis.__hostCrypto;
+const __toB64 = (src, what) => {
+  const b = __view(src, what);
+  let s = "";
+  for (let i = 0; i < b.length; i += 4096) s += String.fromCharCode.apply(null, b.subarray(i, i + 4096));
+  return btoa(s);
+};
+const __fromB64 = (b64) => {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out.buffer;
+};
+const __host = (op, args) => JSON.parse(__hostCall(op, JSON.stringify(args)));
+class CryptoKey {
+  constructor(d) {
+    this.type = d.type;
+    this.extractable = d.extractable;
+    this.algorithm = d.algorithm;
+    this.usages = d.usages;
+    Object.defineProperty(this, "__d", { value: d });
+  }
+}
+globalThis.CryptoKey = CryptoKey;
+const __key = (key) => {
+  if (!(key instanceof CryptoKey)) throw new TypeError("key must be a CryptoKey from crypto.subtle.importKey");
+  return key.__d;
+};
+// Binary members of an algorithm (iv, additionalData, label) travel as base64.
+const __alg = (alg) => {
+  if (!alg || typeof alg !== "object") return alg;
+  const out = { ...alg };
+  for (const k of ["iv", "additionalData", "label"]) if (out[k] !== undefined) out[k] = __toB64(out[k], "algorithm." + k);
+  return out;
+};
+const __async = (fn) => (...args) => { try { return Promise.resolve(fn(...args)); } catch (e) { return Promise.reject(e); } };
+const __unsupported = (name) => __async(() => { throw new Error("crypto.subtle." + name + " is not supported in scripts"); });
+globalThis.crypto.subtle = {
+  digest: __async((algorithm, data) => __fromB64(__host("digest", { algorithm, data: __toB64(data) }))),
+  importKey: __async((format, keyData, algorithm, extractable, usages) => new CryptoKey(__host("importKey", {
+    format, keyData: format === "jwk" ? keyData : __toB64(keyData, "keyData"), algorithm, extractable, usages,
+  }))),
+  exportKey: __async((format, key) => { const r = __host("exportKey", { format, key: __key(key) }); return format === "jwk" ? r : __fromB64(r); }),
+  sign: __async((algorithm, key, data) => __fromB64(__host("sign", { algorithm: __alg(algorithm), key: __key(key), data: __toB64(data) }))),
+  verify: __async((algorithm, key, signature, data) => __host("verify", { algorithm: __alg(algorithm), key: __key(key), signature: __toB64(signature, "signature"), data: __toB64(data) })),
+  encrypt: __async((algorithm, key, data) => __fromB64(__host("encrypt", { algorithm: __alg(algorithm), key: __key(key), data: __toB64(data) }))),
+  decrypt: __async((algorithm, key, data) => __fromB64(__host("decrypt", { algorithm: __alg(algorithm), key: __key(key), data: __toB64(data) }))),
+  generateKey: __unsupported("generateKey"),
+  deriveKey: __unsupported("deriveKey"),
+  deriveBits: __unsupported("deriveBits"),
+  wrapKey: __unsupported("wrapKey"),
+  unwrapKey: __unsupported("unwrapKey"),
+};
+globalThis.crypto.randomUUID = () => {
+  const b = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 15) | 64;
+  b[8] = (b[8] & 63) | 128;
+  const h = Array.from(b, (x) => (x + 256).toString(16).slice(1)).join("");
+  return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
 };
 
 /** A Postman-style header list over a plain { name: value } record. */
@@ -336,7 +463,7 @@ const __scopeVars = {
   unset: (k) => rq.variables.unset(k),
   has: (k) => rq.variables.get(k) !== undefined || rq.environment.has(k),
   toObject: () => rq.variables.toObject(),
-  replaceIn: (text) => String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, k) => { const v = __scopeVars.get(k); return v === undefined ? m : v; }),
+  replaceIn: (text) => __replaceIn(text, (k) => __scopeVars.get(k)),
 };
 /** pm.environment / pm.collectionVariables / pm.globals: all persist to the selected Reqora environment. */
 const __envVars = {
@@ -346,7 +473,7 @@ const __envVars = {
   has: (k) => rq.environment.has(k),
   clear: () => { throw new Error("clearing a whole environment isn't supported in Reqora scripts"); },
   toObject: () => { throw new Error("listing environment values isn't allowed; read names with .get(\"NAME\")"); },
-  replaceIn: (text) => String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, k) => { const v = rq.environment.get(k); return v === undefined ? m : v; }),
+  replaceIn: (text) => rq.environment.replaceIn(text),
   name: "",
 };
 
@@ -541,28 +668,44 @@ type RunInput = {
 
 /**
  * " (line 4: x.getPath();)" for the first stack frame inside the user's script — QuickJS messages such as
- * "not a function" don't say where. The script is wrapped in one line, so stack lines are off by one.
+ * "not a function" don't say where. `code` is the source as given; the async wrapper adds one line before it, and
+ * `lineOffset` more (a caller's own wrapper), which aren't counted in the reported line.
  */
-export function whereThrown(stack: string | undefined, code: string, file: string): string {
+export function whereThrown(stack: string | undefined, code: string, file: string, lineOffset = 0): string {
   if (!stack) return "";
   const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = new RegExp(`\\(${escaped}:(\\d+)`).exec(stack);
+  // Runtime frames read "at fn (file:L:C)"; syntax errors "at file:L:C".
+  const match = new RegExp(`(?:\\(|at )${escaped}:(\\d+)`).exec(stack);
   if (!match) return "";
-  const line = Number(match[1]) - 1;
-  const source = code.split("\n")[line - 1]?.trim();
-  if (!source) return ` (line ${line})`;
-  return ` (line ${line}: ${source.length > 120 ? `${source.slice(0, 120)}…` : source})`;
+  const inCode = Number(match[1]) - 1;
+  const line = inCode - lineOffset;
+  const source = code.split("\n")[inCode - 1]?.trim();
+  if (!source || line < 1) return line >= 1 ? ` (line ${line})` : "";
+  // QuickJS reports `await` outside an async function as "expecting ';'", which doesn't point at the cause.
+  // (A syntax error's stack has no "(file:L)" frame.)
+  const syntax = !stack.includes(`(${file}:`);
+  const hint = syntax && /\bawait\b/.test(source)
+    ? " — await works at the top level of a script or inside an async function, not in a regular callback"
+    : "";
+  return ` (line ${line}: ${source.length > 120 ? `${source.slice(0, 120)}…` : source})${hint}`;
 }
 
-/** Names a script reads via rq.environment.get("NAME") — resolved up front so scripts can't enumerate secrets. */
-function envNames(code: string): string[] {
+/**
+ * Names a script reads via rq.environment.get("NAME") — resolved up front so scripts can't enumerate secrets.
+ * replaceIn(…) also gets the names templated in the script and in the request itself ({{NAME}} / {{env.NAME}}),
+ * whose values the request sends anyway.
+ */
+function envNames(code: string, request?: unknown): string[] {
   // pm.variables / collectionVariables / globals / postman.get…Variable read the environment too (Postman resolution).
   const reads = /(?:environment|variables|collectionVariables|globals)\.(?:get|has)\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)|get(?:Environment|Global)Variable\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)|replaceIn\(/g;
   const names = new Set<string>();
   for (const m of code.matchAll(reads)) {
     if (m[1] ?? m[2]) names.add((m[1] ?? m[2])!);
-    // replaceIn("{{a}} {{b}}") resolves the names written inside its string.
-    else for (const t of code.matchAll(/\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g)) names.add(t[1]);
+    else {
+      const templated = /\{\{\s*(?:env\.)?([A-Za-z0-9_]+)\s*\}\}/g;
+      for (const t of code.matchAll(templated)) names.add(t[1]);
+      if (request) for (const t of JSON.stringify(request).matchAll(templated)) names.add(t[1]);
+    }
   }
   return [...names];
 }
@@ -584,7 +727,7 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
     if (!script.code.trim()) continue;
     // Literal names the script reads, plus everything earlier scripts set (unset names are left out).
     const environment = Object.fromEntries(
-      envNames(script.code).flatMap((name) => {
+      envNames(script.code, current.request).flatMap((name) => {
         const value = name in current.environment ? current.environment[name] : readEnv(name);
         return value === undefined || value === null ? [] : [[name, value]];
       }),
@@ -598,10 +741,25 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
     const context = runtime.newContext();
     try {
       const input = context.newString(
-        JSON.stringify({ request: current.request, variables: current.variables, environment, response, random: [...randomBytes(RANDOM_POOL_BYTES)] }),
+        JSON.stringify({
+          request: current.request,
+          variables: current.variables,
+          environment,
+          response,
+          random: [...randomBytes(RANDOM_POOL_BYTES)],
+          // Lines before the user's code in the evaluated source: the async wrapper, plus any caller wrapper.
+          lineOffset: 1 + (script.lineOffset ?? 0),
+        }),
       );
       context.setProp(context.global, "__input", input);
       input.dispose();
+      // crypto.subtle's host side; the prelude takes it off the global object.
+      const hostCryptoFn = context.newFunction("__hostCrypto", (opHandle, argsHandle) => {
+        const result = hostCrypto(context.getString(opHandle), JSON.parse(context.getString(argsHandle)) as Record<string, unknown>);
+        return context.newString(JSON.stringify(result ?? null));
+      });
+      context.setProp(context.global, "__hostCrypto", hostCryptoFn);
+      hostCryptoFn.dispose();
 
       const fail = (message: string) => {
         errors.push({ phase, scope: script.scope, source: script.name, message });
@@ -633,20 +791,40 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
         continue;
       }
 
-      // Wrapped so top-level `return` works and user globals don't collide with the prelude.
-      const result = context.evalCode(`(function(){\n${script.code}\n})()`, `${script.scope}-${phase}.js`);
+      // Wrapped in an async function so top-level `return` and `await` work and user globals don't collide with
+      // the prelude. The promise jobs (awaits, crypto.subtle results) run here, still under the CPU deadline.
+      const file = `${script.scope}-${phase}.js`;
+      const describe = (handle: QuickJSHandle) => {
+        const err = context.dump(handle) as { message?: string; name?: string; stack?: string } | string;
+        if (typeof err === "string") return err;
+        if (err?.message === "interrupted") return `timed out after ${TIME_LIMIT_MS}ms`;
+        return `${err?.name ?? "Error"}: ${err?.message ?? String(err)}${whereThrown(err?.stack, script.code, file, script.lineOffset)}`;
+      };
+      const result = context.evalCode(`(async function(){\n${script.code}\n})()`, file);
       let threw: string | undefined;
       if (result.error) {
-        const err = context.dump(result.error) as { message?: string; name?: string; stack?: string } | string;
-        threw =
-          typeof err === "string"
-            ? err
-            : err?.message === "interrupted"
-              ? `timed out after ${TIME_LIMIT_MS}ms`
-              : `${err?.name ?? "Error"}: ${err?.message ?? String(err)}${whereThrown(err?.stack, script.code, `${script.scope}-${phase}.js`)}`;
+        threw = describe(result.error);
         result.error.dispose();
       } else {
-        result.value.dispose();
+        const promise = result.value;
+        while (runtime.hasPendingJob()) {
+          const jobs = runtime.executePendingJobs();
+          if (jobs.error) {
+            threw = describe(jobs.error);
+            jobs.error.dispose();
+            break;
+          }
+        }
+        const settled = context.getPromiseState(promise);
+        if (settled.type === "rejected") {
+          threw ??= describe(settled.error);
+          settled.error.dispose();
+        } else if (settled.type === "fulfilled") {
+          settled.value.dispose();
+        } else {
+          threw ??= "the script finished while still awaiting a promise that never settles";
+        }
+        promise.dispose();
       }
 
       // Collect what ran even when the script threw part-way through.

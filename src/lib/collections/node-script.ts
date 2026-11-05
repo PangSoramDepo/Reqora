@@ -11,15 +11,16 @@ export type NodeScriptResult = ({ output: unknown } | { error: string }) & {
 // Reserved rq.variables keys used to pass the run context in and the return value out of the sandbox.
 const CONTEXT_KEY = "__reqora_node_context__";
 const RESULT_KEY = "__reqora_node_result__";
+/** Lines wrapNodeScript adds before the code. */
+const WRAPPER_LINES = 1;
 
 /**
  * Wraps a Script node's code: `trigger` and `nodes` (earlier node outputs by id) are defined, and the return value
  * is handed back as JSON. The code runs as a function body, so `return` works anywhere.
  */
 export function wrapNodeScript(code: string): string {
-  return `const { trigger, nodes } = JSON.parse(rq.variables.get(${JSON.stringify(CONTEXT_KEY)}));
-rq.variables.unset(${JSON.stringify(CONTEXT_KEY)});
-const __result = (function () {
+  // The prefix is one line (WRAPPER_LINES), so errors report the script's own line numbers.
+  return `const { trigger, nodes } = JSON.parse(rq.variables.get(${JSON.stringify(CONTEXT_KEY)})); rq.variables.unset(${JSON.stringify(CONTEXT_KEY)}); const __result = await (async function () {
 ${code}
 })();
 rq.variables.set(${JSON.stringify(RESULT_KEY)}, JSON.stringify(__result === undefined ? null : __result));`;
@@ -45,7 +46,7 @@ export async function runNodeScript(
       tests: [],
       environment: {},
     },
-    scripts: [{ scope: "request", name: "script node", code: wrapNodeScript(code) }],
+    scripts: [{ scope: "request", name: "script node", code: wrapNodeScript(code), lineOffset: WRAPPER_LINES }],
   });
   const vars = { ...state.variables };
   const raw = vars[RESULT_KEY];

@@ -31,7 +31,7 @@ describe("checkConditionScript", () => {
   });
 
   it("reports mistakes instead of retrying forever", async () => {
-    expect(await checkConditionScript("response.body.missing.status === 2", batchList(2), { readEnv })).toMatchObject({ error: expect.stringMatching(/threw: .*TypeError|threw: .*undefined/) });
+    expect(await checkConditionScript("response.body.missing.status === 2", batchList(2), { readEnv })).toMatchObject({ error: expect.stringMatching(/failed: TypeError: .*undefined \(line 1: /) });
     expect(await checkConditionScript("return (", batchList(2), { readEnv })).toMatchObject({ error: expect.stringMatching(/script failed/) });
     expect(await checkConditionScript("  ", batchList(2), { readEnv })).toEqual({ error: '"repeat until" script is empty' });
   });
@@ -47,6 +47,6 @@ describe("condition script logs", () => {
     const logged = await checkConditionScript('console.log("status:", response.body.data[1].status); return false;', batchList(1), { readEnv });
     expect(logged).toEqual({ met: false, logs: ["status: 1"] });
     const thrown = await checkConditionScript('console.log("before"); return response.body.nope.x;', batchList(1), { readEnv });
-    expect(thrown).toMatchObject({ logs: ["before"], error: expect.stringContaining("threw") });
+    expect(thrown).toMatchObject({ logs: ["before"], error: expect.stringContaining("failed: TypeError") });
   });
 });
