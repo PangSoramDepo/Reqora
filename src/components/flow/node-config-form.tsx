@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { conditionOperators, type WorkflowNode } from "@/lib/workflows/schema";
 import { NumberField } from "@/components/number-field";
+import { ScriptCodeEditor } from "@/components/collections/script-code-editor";
 
 type NonHttpNode = Exclude<WorkflowNode, { type: "http" }>;
 
@@ -149,6 +150,28 @@ export function NodeConfigForm({ node, onChange }: { node: NonHttpNode; onChange
             onCommit={(ms) => onChange({ ...node, config: { ms } })}
           />
         </Field>
+      );
+
+    case "script":
+      return (
+        <div className="flex flex-col gap-space-xs">
+          <span className={LABEL}>Script (JavaScript)</span>
+          <div className="h-72 flex flex-col rounded overflow-hidden shadow-inner bg-surface-container-lowest" data-testid="node-script">
+            <ScriptCodeEditor
+              key={node.id}
+              phase="pre"
+              label="Script"
+              wrap
+              value={node.config.code}
+              onValue={(code) => onChange({ ...node, config: { code } })}
+            />
+          </div>
+          <span className={HINT}>
+            <span className="text-primary font-mono">trigger</span> and <span className="text-primary font-mono">{'nodes["node-id"]'}</span> hold the
+            run so far. Use <span className="text-primary font-mono">rq.environment.set</span> / <span className="text-primary font-mono">rq.variables.set</span> to
+            pass values on; the returned object becomes <span className="text-tertiary font-mono">{`{{${node.id}.key}}`}</span>. Throw to fail the step.
+          </span>
+        </div>
       );
 
     case "response":

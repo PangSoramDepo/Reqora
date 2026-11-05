@@ -91,6 +91,19 @@ export const delayNodeSchema = z.object({
   config: z.object({ ms: z.number().int().min(0).max(10_000) }),
 });
 
+/** Longest script a Script node may hold. */
+export const MAX_NODE_SCRIPT = 20_000;
+
+/**
+ * Runs JavaScript in the script sandbox between other nodes: reads `trigger` and earlier `nodes`, rq / pm
+ * (environment, variables), lodash, moment… What it returns becomes this node's output.
+ */
+export const scriptNodeSchema = z.object({
+  ...nodeBase,
+  type: z.literal("script"),
+  config: z.object({ code: z.string().max(MAX_NODE_SCRIPT) }),
+});
+
 export const responseNodeSchema = z.object({
   ...nodeBase,
   type: z.literal("response"),
@@ -106,6 +119,7 @@ export const nodeSchema = z.discriminatedUnion("type", [
   conditionNodeSchema,
   transformNodeSchema,
   delayNodeSchema,
+  scriptNodeSchema,
   responseNodeSchema,
 ]);
 
@@ -226,6 +240,8 @@ export type Step = {
   attempts?: number;
   /** A "repeat until" node's condition checks (most recent 20): result, script console output or error. */
   checks?: RepeatCheck[];
+  /** Console output of a script node. */
+  logs?: string[];
 };
 export type RepeatCheck = { attempt: number; met: boolean; logs?: string[]; error?: string };
 
@@ -262,5 +278,6 @@ export const OUTPUT_PORTS: Record<NodeType, readonly string[]> = {
   condition: ["true", "false"],
   transform: ["out"],
   delay: ["out"],
+  script: ["out"],
   response: [],
 };

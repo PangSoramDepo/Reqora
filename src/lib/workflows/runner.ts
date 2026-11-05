@@ -2,8 +2,9 @@ import "server-only";
 
 import { checkConditionScript } from "@/lib/collections/condition-script";
 import { sendLinkedRequest } from "@/lib/collections/linked";
+import { runNodeScript } from "@/lib/collections/node-script";
 import { outboundFetch } from "@/lib/net/outbound";
-import { resolveVariable } from "@/lib/secrets/variables";
+import { resolveVariable, setVariableValue } from "@/lib/secrets/variables";
 import { executeWorkflow, type ExecutionResult, type ProgressEvent } from "./engine";
 import type { Environment, Run, RunTrigger, Workflow } from "./schema";
 import { insertRun } from "./store";
@@ -74,6 +75,19 @@ async function execute(
     fetch: doFetch,
     env,
     checkCondition: (code, output) => checkConditionScript(code, output, { readEnv: env, variables }),
+    runScript: async (code, context) => {
+      const ran = await runNodeScript(code, context, { readEnv: env, variables });
+      // rq.environment.set / unset are saved to the run's environment, like Send in Collections.
+      for (const [name, value] of Object.entries(ran.environment)) {
+        try {
+          const { kind } = setVariableValue(environment, name, value);
+          if (kind === "secret" && value !== null && value.length >= 6) resolved.add(value);
+        } catch (error) {
+          return { error: `could not save environment variable "${name}": ${(error as Error).message}`, logs: ran.logs };
+        }
+      }
+      return ran;
+    },
     baseUrl,
     sendLinked: (requestId, context) =>
       sendLinkedRequest(requestId, { environment, baseUrl, variables, context, fetch: doFetch }),

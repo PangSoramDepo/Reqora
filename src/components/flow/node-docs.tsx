@@ -41,6 +41,16 @@ export const NODE_DOCS: Record<NodeType, Doc> = {
     outputs: ["{{id.delayedMs}}"],
     tips: ["Useful for rate-limited APIs or waiting for eventual consistency."],
   },
+  script: {
+    summary: "Runs JavaScript between nodes — prepare values before a request, or check and reshape a response after one.",
+    config: [
+      "trigger.body / trigger.headers — the payload; nodes[\"node-id\"] — an earlier node's output, e.g. nodes[\"http-2\"].body.data.",
+      "rq.environment.get/set (saved to the run's environment), rq.variables (shared with linked requests), console.log, require(\"lodash\"), moment…",
+      "Throwing an error (or a failed rq.test) fails the step.",
+    ],
+    outputs: ["{{id.key}} — each key of the returned object", "{{id.value}} — a returned string, number, boolean or array"],
+    tips: ["console.log output shows under Last Run Output and in Execution History's Console Logs.", "Place it before a node to prepare data, or after one to inspect its response."],
+  },
   response: {
     summary: "Sets what the webhook caller receives: status code and JSON body.",
     config: ["Status code and a JSON body template, e.g. { \"orderId\": \"{{trigger.body.id}}\" }."],

@@ -35,3 +35,21 @@ export function repeatCheckLines(checks: RepeatCheck[]): string[] {
     ...(c.logs ?? []).map((l) => `            ${l}`),
   ]);
 }
+
+/** A script node's console output. */
+export function ScriptLogs({ logs }: { logs: string[] }) {
+  return (
+    <div className="flex flex-col gap-space-xxs" data-testid="script-logs">
+      <span className="font-label-sm text-label-sm text-outline uppercase tracking-wider flex items-center gap-1">
+        <Icon name="terminal" className="text-body-sm text-tertiary" /> Console
+      </span>
+      <ol className="flex flex-col gap-px rounded bg-surface-container-lowest p-space-xs font-mono text-[11px] max-h-48 overflow-auto">
+        {logs.map((line, i) => (
+          <li key={i} className={`whitespace-pre-wrap break-all ${line.startsWith("[error]") ? "text-error" : line.startsWith("[warn]") ? "text-tertiary" : "text-on-surface-variant"}`}>
+            {line}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}

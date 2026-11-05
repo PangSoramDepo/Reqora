@@ -11,6 +11,7 @@ export const TYPE_STYLE: Record<NodeType, TypeStyle> = {
   condition: { icon: "call_split", tag: "EXPR", bar: "bg-secondary-fixed-dim", text: "text-secondary-fixed-dim", dot: "bg-secondary-fixed-dim", minimap: "bg-secondary-fixed" },
   transform: { icon: "transform", tag: "TRANS", bar: "bg-tertiary", text: "text-tertiary", dot: "bg-tertiary", minimap: "bg-tertiary" },
   delay: { icon: "hourglass_top", tag: "WAIT", bar: "bg-outline", text: "text-outline", dot: "bg-outline", minimap: "bg-outline" },
+  script: { icon: "code", tag: "JS", bar: "bg-tertiary-fixed-dim", text: "text-tertiary-fixed-dim", dot: "bg-tertiary-fixed-dim", minimap: "bg-tertiary-fixed-dim" },
   response: { icon: "output_circle", tag: "EXIT", bar: "bg-error", text: "text-error", dot: "bg-error", minimap: "bg-error" },
 };
 
@@ -232,6 +233,22 @@ function NodeBody({ node, step }: { node: WorkflowNode; step?: Step }) {
           <span className="font-mono text-on-surface">Wait {node.config.ms}ms</span>
         </SimpleBody>
       );
+    case "script": {
+      // First lines of code (comments skipped), so the card hints at what the script does.
+      const lines = node.config.code.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("//"));
+      return (
+        <SimpleBody node={node}>
+          <pre className={CODE} data-testid="script-preview">
+            {lines.slice(0, 3).join("\n") || "(empty script)"}
+          </pre>
+          {step?.logs && step.logs.length > 0 && (
+            <span className="font-mono text-[10px] text-on-surface-variant truncate" title={step.logs.join("\n")}>
+              › {step.logs.at(-1)}
+            </span>
+          )}
+        </SimpleBody>
+      );
+    }
     case "response":
       return (
         <SimpleBody node={node}>

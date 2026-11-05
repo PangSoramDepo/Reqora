@@ -18,6 +18,7 @@ export type ProgressEvent =
 const MAX_CHECKS = 20;
 const SCRIPTS_UNAVAILABLE = '"repeat until" scripts are not available here';
 type ConditionCheck = ({ met: true } | { met: false } | { error: string }) & { logs?: string[] };
+type ScriptRun = ({ output: unknown } | { error: string }) & { logs?: string[] };
 
 export type EngineDeps = {
   fetch: typeof fetch;
@@ -35,6 +36,11 @@ export type EngineDeps = {
    * script conditions fail the step.
    */
   checkCondition?: (code: string, output: unknown) => Promise<ConditionCheck>;
+  /**
+   * Runs a Script node's code in the script sandbox with the run so far (`trigger`, earlier `nodes`). When
+   * omitted, script nodes fail the step.
+   */
+  runScript?: (code: string, context: { trigger: unknown; nodes: Record<string, unknown> }) => Promise<ScriptRun>;
   /** Live progress: a node is about to run, or a step finished (including skipped ones). */
   onProgress?: (event: ProgressEvent) => void;
   now?: () => number;
@@ -51,7 +57,14 @@ export type ExecutionResult = {
   error?: string;
 };
 
-type NodeResult = { output?: unknown; port?: string; request?: Step["request"]; attempts?: number; checks?: RepeatCheck[] };
+type NodeResult = {
+  output?: unknown;
+  port?: string;
+  request?: Step["request"];
+  attempts?: number;
+  checks?: RepeatCheck[];
+  logs?: string[];
+};
 
 class StepError extends Error {
   constructor(
@@ -131,6 +144,7 @@ export async function executeWorkflow(
         output: result.output,
         ...(result.attempts ? { attempts: result.attempts } : {}),
         ...(result.checks?.length ? { checks: result.checks } : {}),
+        ...(result.logs?.length ? { logs: result.logs } : {}),
       });
     } catch (error) {
       failure = `${node.name}: ${(error as Error).message}`;
@@ -241,6 +255,15 @@ async function runNode(
     case "delay":
       await sleep(node.config.ms);
       return { output: { delayedMs: node.config.ms } };
+
+    case "script": {
+      if (!node.config.code.trim()) throw new StepError("the script is empty");
+      if (!deps.runScript) throw new StepError("script nodes are not available here");
+      const ran = await deps.runScript(node.config.code, { trigger: ctx.trigger, nodes: { ...ctx.nodes } });
+      const logs = ran.logs?.length ? { logs: ran.logs } : {};
+      if ("error" in ran) throw new StepError(ran.error, logs);
+      return { output: ran.output, ...logs };
+    }
 
     case "response":
       return {

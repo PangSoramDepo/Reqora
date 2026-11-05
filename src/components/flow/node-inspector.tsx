@@ -9,7 +9,7 @@ import { ApiError } from "@/lib/workflows/client";
 import type { Step, WorkflowNode } from "@/lib/workflows/schema";
 import { NodeConfigForm } from "./node-config-form";
 import { NodeDocs } from "./node-docs";
-import { RepeatChecks } from "./repeat-checks";
+import { RepeatChecks, ScriptLogs } from "./repeat-checks";
 import { RepeatUntilEditor } from "./repeat-until-editor";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
@@ -395,6 +395,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
             </div>
           )}
           {step?.checks && step.checks.length > 0 && <RepeatChecks checks={step.checks} attempts={step.attempts} />}
+          {step?.logs && step.logs.length > 0 && <ScriptLogs logs={step.logs} />}
           <div className={`${CODE_BLOCK} leading-snug text-on-surface-variant max-h-56`}>
             {step?.output !== undefined
               ? JSON.stringify(step.output, null, 2)

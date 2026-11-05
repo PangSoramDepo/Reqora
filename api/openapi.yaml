@@ -1775,6 +1775,24 @@ components:
               required: [ms]
               properties:
                 ms: { type: integer, minimum: 0, maximum: 10000 }
+    ScriptNode:
+      description: >-
+        Runs JavaScript in the script sandbox between nodes. `trigger` (body, headers) and `nodes` (earlier node
+        outputs by id) are defined; rq / pm (environment, variables), console, lodash, moment and the other script
+        modules are available. rq.environment.set / unset are saved to the run's environment; rq.variables are
+        shared with linked requests. The returned object is the node's output (any other JSON value becomes
+        `{ value }`); throwing, or a failed rq.test, fails the step. Console output is recorded on the step's `logs`.
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: script }
+            config:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, maxLength: 20000 }
     ResponseNode:
       description: Terminal. Sets the run's `output` (and the webhook HTTP response). No output ports.
       allOf:
@@ -1796,6 +1814,7 @@ components:
         - $ref: "#/components/schemas/ConditionNode"
         - $ref: "#/components/schemas/TransformNode"
         - $ref: "#/components/schemas/DelayNode"
+        - $ref: "#/components/schemas/ScriptNode"
         - $ref: "#/components/schemas/ResponseNode"
       discriminator:
         propertyName: type
@@ -1917,6 +1936,10 @@ components:
               met: { type: boolean }
               logs: { type: array, items: { type: string } }
               error: { type: string }
+        logs:
+          type: array
+          items: { type: string }
+          description: "A script node's console output (most recent 20 lines)"
     Run:
       type: object
       required: [id, workflowId, workflowVersion, environment, status, trigger, startedAt, finishedAt, durationMs, steps]

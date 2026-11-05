@@ -341,4 +341,33 @@ describe("repeat until (script)", () => {
     const failing = await executeWorkflow(wf, { source: "manual" }, deps({ fetch: fetch as unknown as typeof globalThis.fetch, checkCondition: async () => ({ error: "boom" }) }));
     expect(failing.steps[1]).toMatchObject({ status: "failed", error: "boom", attempts: 1 });
   });
+
+  it("runs a script node with the run so far and passes its output on", async () => {
+    const wf: WorkflowInput = {
+      name: "script",
+      nodes: [
+        { id: "trigger", name: "T", type: "webhook", position: { x: 0, y: 0 }, config: { method: "POST", path: "/x" } },
+        { id: "script-1", name: "Prepare", type: "script", position: { x: 0, y: 0 }, config: { code: "return { total: trigger.body.a + 1 };" } },
+        { id: "out", name: "Out", type: "response", position: { x: 0, y: 0 }, config: { status: 200, body: '{ "total": "{{script-1.total}}" }' } },
+      ],
+      edges: [
+        { id: "e1", source: "trigger", sourcePort: "out", target: "script-1" },
+        { id: "e2", source: "script-1", sourcePort: "out", target: "out" },
+      ],
+    };
+    const seen: unknown[] = [];
+    const runScript: EngineDeps["runScript"] = async (code, context) => {
+      seen.push(context);
+      return code.includes("total") ? { output: { total: 42 }, logs: ["hi"] } : { error: "boom" };
+    };
+    const ok = await executeWorkflow(wf, { source: "manual", body: { a: 41 } }, deps({ runScript }));
+    expect(seen[0]).toMatchObject({ trigger: { body: { a: 41 } }, nodes: { trigger: { body: { a: 41 } } } });
+    expect(ok.steps[1]).toMatchObject({ status: "succeeded", output: { total: 42 }, logs: ["hi"] });
+    expect(ok.output).toEqual({ status: 200, body: { total: "42" } });
+
+    wf.nodes[1] = { ...wf.nodes[1], config: { code: "throw 1" } } as WorkflowInput["nodes"][number];
+    const failed = await executeWorkflow(wf, { source: "manual", body: { a: 1 } }, deps({ runScript }));
+    expect(failed.steps[1]).toMatchObject({ status: "failed", error: "boom" });
+    expect(failed.steps[2].status).toBe("skipped");
+  });
 });

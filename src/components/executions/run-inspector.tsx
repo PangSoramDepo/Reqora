@@ -6,7 +6,7 @@ import { Icon } from "@/components/icon";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import type { Run, Step } from "@/lib/workflows/schema";
 import { shortId, urlPath, utcTime } from "./format";
-import { RepeatChecks, repeatCheckLines } from "@/components/flow/repeat-checks";
+import { RepeatChecks, ScriptLogs, repeatCheckLines } from "@/components/flow/repeat-checks";
 
 type Tab = "payloads" | "headers" | "logs";
 type StepTone = "tertiary" | "primary" | "secondary" | "error" | "skipped";
@@ -110,7 +110,9 @@ function logLines(run: Run) {
     const at = `+${Math.max(0, Date.parse(step.startedAt) - start)}ms`.padStart(7);
     const what = `${step.nodeId} (${step.name})`;
     if (step.status === "skipped") return { text: `[${at}] ${step.disabled ? "OFF " : "SKIP"}  ${what}`, className: "text-outline" };
-    const checks = step.checks?.length ? `\n${repeatCheckLines(step.checks).join("\n")}` : "";
+    const checks =
+      (step.checks?.length ? `\n${repeatCheckLines(step.checks).join("\n")}` : "") +
+      (step.logs?.length ? `\n${step.logs.map((l) => `        › ${l}`).join("\n")}` : "");
     if (step.status === "failed") return { text: `[${at}] FAIL  ${what} — ${step.error}${checks}`, className: "text-error" };
     const extra = step.request ? ` ${step.request.method} ${step.request.url} → ${responseOf(step)?.status}` : step.port ? ` → ${step.port}` : "";
     return { text: `[${at}] OK    ${what}${extra} (${step.durationMs}ms)${checks}`, className: "text-on-surface-variant" };
@@ -348,6 +350,11 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
               {viewing.checks && viewing.checks.length > 0 && (
                 <div className="mb-space-xs">
                   <RepeatChecks checks={viewing.checks} attempts={viewing.attempts} />
+                </div>
+              )}
+              {viewing.logs && viewing.logs.length > 0 && (
+                <div className="mb-space-xs">
+                  <ScriptLogs logs={viewing.logs} />
                 </div>
               )}
               <pre className={`${CODE} text-on-surface`}>

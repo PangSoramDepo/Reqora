@@ -6,8 +6,16 @@ const NAMES: Record<NodeType, string> = {
   condition: "Condition",
   transform: "Data Mapping",
   delay: "Delay",
+  script: "Script",
   response: "Response",
 };
+
+/** Starter code for a new Script node. */
+export const SCRIPT_TEMPLATE = `// Runs between nodes. Read the trigger and earlier nodes, e.g. nodes["http-1"].body
+// Save values for later steps: rq.environment.set("NAME", value) or rq.variables.set("name", value)
+console.log("trigger body:", trigger.body);
+// What you return becomes this node's output: {{script-1.key}}
+return { ok: true };`;
 
 /** A fresh, valid node of the given type; `taken` ids are avoided. */
 export function newNode(type: NodeType, position: { x: number; y: number }, taken: Iterable<string>): WorkflowNode {
@@ -27,6 +35,8 @@ export function newNode(type: NodeType, position: { x: number; y: number }, take
       return { ...base, type, config: { output: { value: "{{trigger.body}}" } } };
     case "delay":
       return { ...base, type, config: { ms: 1000 } };
+    case "script":
+      return { ...base, type, config: { code: SCRIPT_TEMPLATE } };
     case "response":
       return { ...base, type, config: { status: 200, body: '{ "ok": true }' } };
   }

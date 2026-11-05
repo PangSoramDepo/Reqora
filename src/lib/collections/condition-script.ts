@@ -1,4 +1,4 @@
-import { runScripts, type ScriptResponse } from "./scripts";
+import { runScripts, type ScriptLog, type ScriptResponse } from "./scripts";
 
 /** `logs`: the script's console output for this check. */
 export type ConditionResult = ({ met: true } | { met: false } | { error: string }) & { logs?: string[] };
@@ -7,6 +7,14 @@ const TEST_NAME = "__repeat_until__";
 const MAX_LOG_LINES = 20;
 const MAX_LOG_CHARS = 2000;
 const NOT_MET = "__condition_not_met__";
+
+/** Script console output as display lines (most recent 20, each capped), e.g. "[warn] retrying". */
+export function logLines(logs: Pick<ScriptLog, "level" | "message">[]): string[] {
+  return logs
+    .map((l) => (l.level === "log" ? l.message : `[${l.level}] ${l.message}`))
+    .slice(-MAX_LOG_LINES)
+    .map((l) => (l.length > MAX_LOG_CHARS ? `${l.slice(0, MAX_LOG_CHARS)}…` : l));
+}
 
 /**
  * Wraps a condition so it runs like a post-response script. A plain expression is returned as is; code with a
@@ -53,8 +61,8 @@ export async function checkConditionScript(
     state: { request: { method: "GET", url: "", params: [], headers: {} }, variables: { ...variables }, logs: [], tests: [], environment: {} },
     scripts: [{ scope: "request", name: "repeat until", code: wrapCondition(code) }],
   });
-  const lines = state.logs.map((l) => (l.level === "log" ? l.message : `[${l.level}] ${l.message}`)).slice(-MAX_LOG_LINES);
-  const logs = lines.length ? { logs: lines.map((l) => (l.length > MAX_LOG_CHARS ? `${l.slice(0, MAX_LOG_CHARS)}…` : l)) } : {};
+  const lines = logLines(state.logs);
+  const logs = lines.length ? { logs: lines } : {};
   if (errors.length) return { error: `"repeat until" script failed: ${errors[0].message}`, ...logs };
   const test = state.tests.find((t) => t.name === TEST_NAME);
   if (!test) return { error: '"repeat until" script did not run', ...logs };
