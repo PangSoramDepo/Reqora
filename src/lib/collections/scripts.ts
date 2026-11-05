@@ -100,10 +100,26 @@ const PRELUDE = String.raw`
 const __in = JSON.parse(__input);
 const __logs = [];
 const __tests = [];
+// Stack frames in the user's script ("<scope>-<phase>.js"), as "line N:C"; the script is wrapped in one line.
+const __frames = (stack) => String(stack || "").split("\n")
+  .filter((l) => !l.includes("<eval>"))
+  .map((l) => /\((?:collection|folder|request)-(?:pre|post)\.js:(\d+)(?::(\d+))?\)/.exec(l))
+  .filter(Boolean)
+  .map((m) => "    at line " + (Number(m[1]) - 1) + (m[2] ? ":" + m[2] : ""));
+const __isError = (v) => v instanceof Error || (v !== null && typeof v === "object" && typeof v.message === "string" && typeof v.stack === "string");
+const __fmtError = (e) => {
+  const extra = Object.keys(e).filter((k) => k !== "message" && k !== "stack");
+  let text = (e.name || "Error") + ": " + e.message;
+  if (extra.length) { try { text += " " + JSON.stringify(Object.fromEntries(extra.map((k) => [k, e[k]]))); } catch (x) {} }
+  const frames = __frames(e.stack);
+  return frames.length ? text + "\n" + frames.join("\n") : text;
+};
 const __fmt = (v) => {
   if (typeof v === "string") return v;
   if (v === undefined || typeof v === "function" || typeof v === "symbol") return String(v);
-  try { return JSON.stringify(v); } catch (e) { return String(v); }
+  if (__isError(v)) return __fmtError(v);
+  // Errors nested in objects show their name and message instead of {}.
+  try { return JSON.stringify(v, (k, x) => (__isError(x) ? { name: x.name, message: x.message, ...x } : x)); } catch (e) { return String(v); }
 };
 const __log = (level) => (...args) => {
   if (__logs.length < ${MAX_LOGS}) __logs.push({ level, message: args.map(__fmt).join(" ").slice(0, ${MAX_LOG_CHARS}) });
@@ -347,17 +363,32 @@ const __queryList = () => ({
   remove: (k) => { if (__in.response) throw new Error("the request is read-only after the response"); __request.params = __request.params.filter((x) => x.key !== k); },
   toObject: () => Object.fromEntries(__request.params.map((p) => [p.key, p.value])),
 });
+// Splits a URL (possibly starting with a {{baseUrl}} template) into host, path and query.
+const __parseUrl = (url) => {
+  const m = /^(?:[a-z][a-z0-9+.-]*:)?(?:\/\/([^/?#]*)|(\{\{[^{}]*\}\}))?([^?#]*)(?:\?([^#]*))?/i.exec(String(url)) || [];
+  return { host: m[1] || m[2] || "", path: m[3] || "/", query: m[4] || "" };
+};
+const __paramString = () => __request.params.map((p) => p.key + "=" + p.value).join("&");
 const __urlObject = () => {
-  const full = () => __request.url + (__request.params.length ? "?" + __request.params.map((p) => p.key + "=" + p.value).join("&") : "");
-  const parsed = () => { const m = /^([a-z]+:)?\/\/([^/?#]*)([^?#]*)/i.exec(__request.url) || []; return { host: m[2] || "", path: m[3] || "" }; };
+  const full = () => __request.url + (__request.params.length ? "?" + __paramString() : "");
   return {
     toString: full,
-    getHost: () => parsed().host,
-    getPath: () => parsed().path || "/",
-    getQueryString: () => __request.params.map((p) => p.key + "=" + p.value).join("&"),
+    getHost: () => __parseUrl(__request.url).host,
+    getPath: () => __parseUrl(__request.url).path,
+    getQueryString: () => __paramString(),
+    getPathWithQuery: () => __parseUrl(__request.url).path + (__request.params.length ? "?" + __paramString() : ""),
     get query() { return __queryList(); },
   };
 };
+// rq.request.url is a plain string; give strings the Postman URL helpers too, so rq.request.url.getPath() works.
+// For rq.request.url the query lives in rq.request.params.
+const __ownQuery = (s) => { const q = __parseUrl(s).query; return q || (s === __request.url ? __paramString() : ""); };
+for (const [name, fn] of Object.entries({
+  getHost() { return __parseUrl(String(this)).host; },
+  getPath() { return __parseUrl(String(this)).path; },
+  getQueryString() { return __ownQuery(String(this)); },
+  getPathWithQuery() { const s = String(this), q = __ownQuery(s); return __parseUrl(s).path + (q ? "?" + q : ""); },
+})) Object.defineProperty(String.prototype, name, { value: fn, writable: true, configurable: true });
 const __pmRequest = {
   get method() { return __request.method; },
   set method(v) { if (__in.response) throw new Error("the request is read-only after the response"); __request.method = String(v).toUpperCase(); },
@@ -508,6 +539,21 @@ type RunInput = {
   response?: ScriptResponse;
 };
 
+/**
+ * " (line 4: x.getPath();)" for the first stack frame inside the user's script — QuickJS messages such as
+ * "not a function" don't say where. The script is wrapped in one line, so stack lines are off by one.
+ */
+export function whereThrown(stack: string | undefined, code: string, file: string): string {
+  if (!stack) return "";
+  const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`\\(${escaped}:(\\d+)`).exec(stack);
+  if (!match) return "";
+  const line = Number(match[1]) - 1;
+  const source = code.split("\n")[line - 1]?.trim();
+  if (!source) return ` (line ${line})`;
+  return ` (line ${line}: ${source.length > 120 ? `${source.slice(0, 120)}…` : source})`;
+}
+
 /** Names a script reads via rq.environment.get("NAME") — resolved up front so scripts can't enumerate secrets. */
 function envNames(code: string): string[] {
   // pm.variables / collectionVariables / globals / postman.get…Variable read the environment too (Postman resolution).
@@ -591,8 +637,13 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
       const result = context.evalCode(`(function(){\n${script.code}\n})()`, `${script.scope}-${phase}.js`);
       let threw: string | undefined;
       if (result.error) {
-        const err = context.dump(result.error) as { message?: string; name?: string } | string;
-        threw = typeof err === "string" ? err : err?.message === "interrupted" ? `timed out after ${TIME_LIMIT_MS}ms` : `${err?.name ?? "Error"}: ${err?.message ?? String(err)}`;
+        const err = context.dump(result.error) as { message?: string; name?: string; stack?: string } | string;
+        threw =
+          typeof err === "string"
+            ? err
+            : err?.message === "interrupted"
+              ? `timed out after ${TIME_LIMIT_MS}ms`
+              : `${err?.name ?? "Error"}: ${err?.message ?? String(err)}${whereThrown(err?.stack, script.code, `${script.scope}-${phase}.js`)}`;
         result.error.dispose();
       } else {
         result.value.dispose();

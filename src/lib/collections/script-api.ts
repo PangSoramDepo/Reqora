@@ -62,7 +62,11 @@ const PM_ENV: ApiMember[] = [
 
 const REQUEST_MEMBERS: ApiMember[] = [
   prop("method", "string", "HTTP method, e.g. \"GET\". Pre-request scripts may change it."),
-  prop("url", "string", "URL with {{templates}} still unresolved; query params are in params."),
+  prop(
+    "url",
+    "string",
+    "URL with {{templates}} still unresolved; query params are in params. Like Postman's url it has getPath(), getHost(), getQueryString() and getPathWithQuery().",
+  ),
   prop("params", "{ key, value }[]", "Query parameters (enabled ones only)."),
   prop("headers", "Record<string, string>", "Request headers. Add one with rq.request.headers[\"X-Name\"] = \"value\"."),
   prop("body", "string | undefined", "Raw body text, templates unresolved."),

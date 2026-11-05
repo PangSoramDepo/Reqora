@@ -72,7 +72,7 @@ rq.variables.set("sha", CryptoJS.SHA256("abc").toString());`,
     });
 
     const missing = await runScripts({ phase: "pre", readEnv: env, state: state(), scripts: [{ scope: "request", name: "R", code: `require("axios");` }] });
-    expect(missing.errors[0].message).toBe('Error: Cannot find module "axios". Scripts can require: crypto-js, lodash, moment');
+    expect(missing.errors[0].message).toBe('Error: Cannot find module "axios". Scripts can require: crypto-js, lodash, moment (line 1: require("axios");)');
   });
 
   it("provides lodash (require or the _ global) and moment, like Postman", async () => {
@@ -254,4 +254,46 @@ for (const m of ["fs", "child_process", "crypto", "node:fs"]) { try { require(m)
     });
     expect(errors[0].message).toMatch(/out of memory|timed out/);
   });
+
+  it("gives rq.request.url (a string) the Postman URL helpers", async () => {
+    const { state: out, errors } = await runScripts({
+      phase: "post",
+      readEnv: env,
+      state: { ...state(), request: { method: "GET", url: "{{baseUrl}}/api/v1/batches", params: [{ key: "page", value: "2" }], headers: {} } },
+      response: okResponse,
+      scripts: [{ scope: "collection", name: "c", code: `const u = rq.request.url;
+console.log(u.getPath(), u.getHost(), u.getQueryString(), u.getPathWithQuery());
+console.log("https://bank.test/a/b?x=1".getPath(), "https://bank.test/a/b?x=1".getQueryString(), pm.request.url.getPath());
+console.log(typeof u, u.includes("v1"));` }],
+    });
+    expect(errors).toEqual([]);
+    expect(out.logs.map((l) => l.message)).toEqual([
+      "/api/v1/batches {{baseUrl}} page=2 /api/v1/batches?page=2",
+      "/a/b x=1 /api/v1/batches",
+      "string true",
+    ]);
+  });
+
+  it("logs caught errors with their name, message and line, and says where an uncaught error was thrown", async () => {
+    const { state: out, errors } = await runScripts({
+      phase: "post",
+      readEnv: env,
+      state: state(),
+      response: okResponse,
+      scripts: [{ scope: "collection", name: "c", code: `try {
+  const data = undefined;
+  data.items.map((i) => i);
+} catch (error) {
+  console.log("Collection Post Script Error: ", error);
+  console.log({ failed: error });
+  throw error;
+}` }],
+    });
+    expect(out.logs.map((l) => l.message)).toEqual([
+      "Collection Post Script Error:  TypeError: cannot read property 'items' of undefined\n    at line 3:7",
+      `{"failed":{"name":"TypeError","message":"cannot read property 'items' of undefined"}}`,
+    ]);
+    expect(errors[0].message).toBe("TypeError: cannot read property 'items' of undefined (line 3: data.items.map((i) => i);)");
+  });
 });
+

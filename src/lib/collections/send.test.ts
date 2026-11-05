@@ -136,6 +136,6 @@ describe("sendRequest with inherited settings and scripts", () => {
       { environment: "production", baseUrl: "http://localhost", fetch: fake as unknown as typeof fetch },
     );
     expect(fake).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ error: "pre-request script (request “r”) failed: Error: nope" });
+    expect(result).toMatchObject({ error: "pre-request script (request “r”) failed: Error: nope (line 1: throw new Error('nope'))" });
   });
 });
