@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { beautifyJson } from "@/lib/collections/beautify";
+import { convertBody } from "@/lib/collections/request";
 import { REQUEST_METHODS, type Collection, type RequestDefinition, type RequestMethod } from "@/lib/collections/schema";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import type { Environment } from "@/lib/workflows/schema";
@@ -10,14 +11,25 @@ import { AddToFlow } from "./add-to-flow";
 import { AssertionsEditor } from "./assertions-editor";
 import { AuthPanel, type InheritSource } from "./auth-panel";
 import { BodyCodeEditor } from "./body-code-editor";
+import { BinaryBodyEditor, FormDataEditor } from "./form-data-editor";
 import { inheritanceFor, InheritedHeaders } from "./inherited";
 import { KeyValueEditor } from "./key-value-editor";
 import { PHASE_LABEL, ScriptEditor } from "./script-editor";
 import { TemplateInput, useTokenInsert } from "./template-field";
-import { FIELD, GHOST_BUTTON, LABEL, METHOD_SELECT_TONE, SELECT } from "./ui";
+import { FIELD, GHOST_BUTTON, LABEL, METHOD_SELECT_TONE } from "./ui";
 
 export type Draft = { name: string; folderId: string | null; definition: RequestDefinition };
 type Tab = "params" | "auth" | "headers" | "body" | "pre" | "post" | "tests" | "settings";
+
+/** Postman's body modes, in Postman's order. */
+const BODY_FORMATS: { type: RequestDefinition["body"]["type"]; label: string }[] = [
+  { type: "none", label: "none" },
+  { type: "formdata", label: "form-data" },
+  { type: "urlencoded", label: "x-www-form-urlencoded" },
+  { type: "json", label: "raw (JSON)" },
+  { type: "text", label: "raw (text)" },
+  { type: "binary", label: "binary" },
+];
 
 type Props = {
   requestId: string;
@@ -296,42 +308,44 @@ export function RequestBuilder({
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Editor panel */}
+      <div className="h-72 flex flex-col bg-surface-container-lowest overflow-hidden shrink-0">
         {tab === "body" && (
-          <div className="flex items-center gap-space-xs py-1">
-            <span className="font-label-sm text-label-sm text-outline">Format:</span>
-            <select
-              aria-label="Body format"
-              className={`${SELECT} py-0.5 text-primary font-semibold`}
-              value={def.body.type}
-              onChange={(e) => {
-                const type = e.target.value as RequestDefinition["body"]["type"];
-                setBeautifyHint(null);
-                setDef((d) => {
-                  const text = d.body.type === "none" ? "" : d.body.text;
-                  return { ...d, body: type === "none" ? { type } : { type, text } };
-                });
-              }}
-            >
-              <option value="none">none</option>
-              <option value="json">raw (JSON)</option>
-              <option value="text">raw (text)</option>
-            </select>
+          <div className="shrink-0 flex flex-wrap items-center gap-x-space-md gap-y-1 px-space-sm py-1.5 border-b border-outline-variant/30">
+            <div role="radiogroup" aria-label="Body format" className="flex flex-wrap items-center gap-x-space-md gap-y-1">
+              {BODY_FORMATS.map((f) => (
+                <label key={f.type} className="flex items-center gap-1.5 cursor-pointer font-label-sm text-label-sm">
+                  <input
+                    type="radio"
+                    name="body-format"
+                    value={f.type}
+                    checked={def.body.type === f.type}
+                    onChange={() => {
+                      setBeautifyHint(null);
+                      setDef((d) => ({ ...d, body: convertBody(d.body, f.type) }));
+                    }}
+                    className="w-3.5 h-3.5 accent-primary cursor-pointer"
+                  />
+                  <span className={def.body.type === f.type ? "text-primary font-semibold" : "text-on-surface-variant"}>{f.label}</span>
+                </label>
+              ))}
+            </div>
             {def.body.type === "json" && (
               <button
                 type="button"
                 onClick={beautify}
-                className="px-2 py-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors flex items-center gap-1"
+                className="ml-auto px-2 py-0.5 rounded hover:bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm transition-colors flex items-center gap-1"
               >
                 <Icon name="auto_fix_high" className="text-body-sm" /> Beautify
               </button>
             )}
           </div>
         )}
-      </div>
-
-      {/* Editor panel */}
-      <div className="h-72 flex flex-col bg-surface-container-lowest overflow-hidden shrink-0">
-        {(tab === "params" || tab === "auth" || tab === "headers" || tab === "body") && <SuggestedTokens names={variableNames} />}
+        {(tab === "params" || tab === "auth" || tab === "headers" || (tab === "body" && def.body.type !== "none" && def.body.type !== "binary")) && (
+          <SuggestedTokens names={variableNames} />
+        )}
         {tab === "params" && (
           <KeyValueEditor
             label="Query params"
@@ -387,14 +401,30 @@ export function RequestBuilder({
                   {def.method} requests are sent without a body.
                 </div>
               )}
-              <BodyCodeEditor
-                key={def.body.type}
-                language={def.body.type === "json" ? "json" : "text"}
-                label="Request body"
-                value={def.body.text}
-                placeholder={def.body.type === "json" ? '{\n  "id": "{{$guid}}"\n}' : "text body"}
-                onValue={(text) => setDef((d) => (d.body.type === "none" ? d : { ...d, body: { ...d.body, text } }))}
-              />
+              {def.body.type === "urlencoded" ? (
+                <KeyValueEditor
+                  label="Form fields"
+                  keyPlaceholder="field"
+                  rows={def.body.fields}
+                  onRows={(fn) => setDef((d) => (d.body.type === "urlencoded" ? { ...d, body: { ...d.body, fields: fn(d.body.fields) } } : d))}
+                />
+              ) : def.body.type === "binary" ? (
+                <BinaryBodyEditor file={def.body} onFile={(file) => setDef((d) => ({ ...d, body: { type: "binary", ...file } }))} />
+              ) : def.body.type === "formdata" ? (
+                <FormDataEditor
+                  fields={def.body.fields}
+                  onFields={(fn) => setDef((d) => (d.body.type === "formdata" ? { ...d, body: { ...d.body, fields: fn(d.body.fields) } } : d))}
+                />
+              ) : (
+                <BodyCodeEditor
+                  key={def.body.type}
+                  language={def.body.type === "json" ? "json" : "text"}
+                  label="Request body"
+                  value={def.body.text}
+                  placeholder={def.body.type === "json" ? '{\n  "id": "{{$guid}}"\n}' : "text body"}
+                  onValue={(text) => setDef((d) => (d.body.type === "json" || d.body.type === "text" ? { ...d, body: { ...d.body, text } } : d))}
+                />
+              )}
             </>
           ))}
         {tab === "tests" && <AssertionsEditor assertions={def.assertions} onChange={(fn) => setDef((d) => ({ ...d, assertions: fn(d.assertions) }))} />}

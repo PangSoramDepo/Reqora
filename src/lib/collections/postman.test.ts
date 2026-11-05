@@ -106,8 +106,13 @@ describe("importPostman", () => {
 
     const upload = imported.requests[0].definition;
     expect(upload.url).toBe("{{env.baseUrl}}/files/f9");
-    expect(upload.body).toEqual({ type: "text", text: "name=a b" });
-    expect(upload.headers).toContainEqual({ key: "Content-Type", value: "application/x-www-form-urlencoded", enabled: true });
+    expect(upload.body).toEqual({
+      type: "formdata",
+      fields: [
+        { kind: "text", key: "name", value: "a b", enabled: true },
+        { kind: "file", key: "file", enabled: true, fileName: "", contentType: "", data: "" },
+      ],
+    });
   });
 
   it("returns collection variables and explains what it changed", () => {
@@ -117,7 +122,7 @@ describe("importPostman", () => {
     ]);
     const notes = imported.notes.join("\n");
     expect(notes).toMatch(/Nested folders were flattened/);
-    expect(notes).toMatch(/file fields in form-data/);
+    expect(notes).toMatch(/form-data files aren't in Postman exports/);
     expect(notes).toMatch(/method PROPFIND isn't supported/);
     expect(notes).toMatch(/"oauth2" auth isn't supported/);
     expect(notes).toMatch(/api-key → api_key/);
@@ -212,5 +217,45 @@ describe("exportPostman", () => {
     expect(toPostmanScript("rq.test('x', () => rq.expect(rq.response.status).toBe(200)); rq.environment.get('a');")).toBe(
       "pm.test('x', () => pm.expect(pm.response.code).toBe(200)); pm.environment.get('a');",
     );
+  });
+});
+
+describe("Postman form bodies", () => {
+  it("round-trips urlencoded and form-data bodies", () => {
+    const urlencoded = { ...emptyDefinition(), method: "POST" as const, url: "https://x.test/a" };
+    urlencoded.body = { type: "urlencoded", fields: [{ key: "grant_type", value: "{{env.GRANT}}", enabled: true }, { key: "off", value: "1", enabled: false }] };
+    const formdata = { ...emptyDefinition(), method: "POST" as const, url: "https://x.test/b" };
+    formdata.body = {
+      type: "formdata",
+      fields: [
+        { kind: "text", key: "note", value: "hi", enabled: true },
+        { kind: "file", key: "doc", enabled: true, fileName: "a.pdf", contentType: "application/pdf", data: "JVBERg==" },
+      ],
+    };
+    const exported = exportPostman({
+      reqora: "collection",
+      version: 1,
+      collection: {
+        name: "Forms",
+        settings: emptyScopeSettings(),
+        folders: [],
+        requests: [
+          { name: "Token", definition: urlencoded, examples: [] },
+          { name: "Upload", definition: formdata, examples: [] },
+        ],
+      },
+    } as unknown as CollectionExport);
+    const items = (exported as { item: { request: { body: unknown } }[] }).item;
+    expect(items[0].request.body).toEqual({ mode: "urlencoded", urlencoded: [{ key: "grant_type", value: "{{GRANT}}" }, { key: "off", value: "1", disabled: true }] });
+    expect(items[1].request.body).toEqual({
+      mode: "formdata",
+      formdata: [
+        { key: "note", value: "hi", type: "text" },
+        { key: "doc", type: "file", src: "a.pdf", contentType: "application/pdf" },
+      ],
+    });
+    const back = importPostman(JSON.stringify(exported));
+    expect(back.requests[0].definition.body).toEqual(urlencoded.body);
+    expect(back.requests[1].definition.body).toMatchObject({ type: "formdata", fields: [formdata.body.fields[0], { kind: "file", key: "doc", data: "" }] });
   });
 });

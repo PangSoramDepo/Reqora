@@ -55,7 +55,9 @@ const sent = (p: PreparedRequest): SentRequest => ({
   method: p.method,
   url: p.url,
   headers: { ...p.headers },
-  ...(p.body === undefined ? {} : { body: p.body }),
+  ...(p.body === undefined ? {} : { body: typeof p.body === "string" ? p.body : (p.bodyText ?? "") }),
+  ...(p.form ? { form: p.form.map((part) => ({ ...part })) } : {}),
+  ...(p.file ? { file: { ...p.file } } : {}),
 });
 
 const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptReport => ({
@@ -140,7 +142,7 @@ export async function sendRequest(
   };
   let prepared;
   try {
-    prepared = renderDraft(state.request, effective.auth, def.body.type, ctx, baseUrl);
+    prepared = renderDraft(state.request, effective.auth, def.body, ctx, baseUrl);
   } catch (error) {
     const message = error instanceof TypeError ? `invalid URL: ${error.message}` : (error as Error).message;
     return finish({ error: message, durationMs: 0, scripts: report(state, []) });

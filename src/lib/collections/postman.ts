@@ -175,18 +175,27 @@ export function importPostman(text: string): PostmanImport {
         const language = isObj(body.options) && isObj(body.options.raw) ? str(body.options.raw.language) : "";
         const text = tpl(body.raw);
         def.body = language === "json" || hasType("json") || /^\s*[[{]/.test(text) ? { type: "json", text } : { type: "text", text };
-      } else if (mode === "urlencoded" || mode === "formdata") {
-        const fields = arr(body[mode]).filter(isObj).filter((f) => f.disabled !== true);
-        if (fields.some((f) => f.type === "file")) notes.add(`${where}: file fields in form-data can't be sent; they were left out.`);
-        const text = fields
-          .filter((f) => f.type !== "file")
-          .map((f) => `${encodeURIComponent(str(f.key))}=${tpl(f.value)}`)
-          .join("&");
-        def.body = { type: "text", text };
-        if (!def.headers.some((h) => h.key.toLowerCase() === "content-type")) {
-          def.headers.push({ key: "Content-Type", value: "application/x-www-form-urlencoded", enabled: true });
-        }
-        if (mode === "formdata") notes.add(`${where}: form-data body was converted to URL-encoded text.`);
+      } else if (mode === "urlencoded") {
+        def.body = {
+          type: "urlencoded",
+          fields: arr(body.urlencoded)
+            .filter(isObj)
+            .map((f) => ({ key: str(f.key), value: tpl(f.value), enabled: f.disabled !== true })),
+        };
+      } else if (mode === "formdata") {
+        const fields = arr(body.formdata).filter(isObj);
+        if (fields.some((f) => f.type === "file")) notes.add(`${where}: form-data files aren't in Postman exports; choose them again on the Body tab.`);
+        def.body = {
+          type: "formdata",
+          fields: fields.map((f) =>
+            f.type === "file"
+              ? { kind: "file" as const, key: str(f.key), enabled: f.disabled !== true, fileName: "", contentType: str(f.contentType), data: "" }
+              : { kind: "text" as const, key: str(f.key), value: tpl(f.value), enabled: f.disabled !== true },
+          ),
+        };
+      } else if (mode === "file") {
+        notes.add(`${where}: binary file bodies aren't in Postman exports; choose the file again on the Body tab.`);
+        def.body = { type: "binary", fileName: "", contentType: "", data: "" };
       } else if (mode === "graphql" && isObj(body.graphql)) {
         const variables = str(body.graphql.variables).trim();
         let parsedVariables: unknown = {};
@@ -359,15 +368,7 @@ function postmanItem(r: ExportedRequest): Obj {
       method: d.method,
       header: d.headers.map((h) => ({ key: h.key, value: toPostmanTemplate(h.value), ...(h.enabled ? {} : { disabled: true }) })),
       ...(auth ? { auth } : {}),
-      ...(d.body.type === "none"
-        ? {}
-        : {
-            body: {
-              mode: "raw",
-              raw: toPostmanTemplate(d.body.text),
-              ...(d.body.type === "json" ? { options: { raw: { language: "json" } } } : {}),
-            },
-          }),
+      ...postmanBody(d.body),
       url: { raw, ...(query.length ? { query } : {}) },
     },
     response: r.examples.map((ex) => ({
@@ -401,4 +402,37 @@ export function exportPostman(exported: CollectionExport): Obj {
       ...c.requests.map(postmanItem),
     ],
   };
+}
+
+function postmanBody(body: RequestDefinition["body"]) {
+  const off = (enabled: boolean) => (enabled ? {} : { disabled: true });
+  switch (body.type) {
+    case "none":
+      return {};
+    case "json":
+    case "text":
+      return {
+        body: { mode: "raw", raw: toPostmanTemplate(body.text), ...(body.type === "json" ? { options: { raw: { language: "json" } } } : {}) },
+      };
+    case "urlencoded":
+      return {
+        body: {
+          mode: "urlencoded",
+          urlencoded: body.fields.map((f) => ({ key: f.key, value: toPostmanTemplate(f.value), ...off(f.enabled) })),
+        },
+      };
+    case "binary":
+      return { body: { mode: "file", file: { src: body.fileName } } };
+    case "formdata":
+      return {
+        body: {
+          mode: "formdata",
+          formdata: body.fields.map((f) =>
+            f.kind === "text"
+              ? { key: f.key, value: toPostmanTemplate(f.value), type: "text", ...off(f.enabled) }
+              : { key: f.key, type: "file", src: f.fileName, ...(f.contentType ? { contentType: f.contentType } : {}), ...off(f.enabled) },
+          ),
+        },
+      };
+  }
 }

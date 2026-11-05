@@ -2062,7 +2062,46 @@ components:
         method: { type: string }
         url: { type: string }
         headers: { type: object, additionalProperties: { type: string } }
-        body: { type: string }
+        body: { type: string, description: "The body text; for multipart, a readable version with file contents left out" }
+        form:
+          type: array
+          description: Multipart form-data parts
+          items:
+            type: object
+            required: [key]
+            properties:
+              key: { type: string }
+              value: { type: string }
+              fileName: { type: string }
+              contentType: { type: string }
+              size: { type: integer }
+        file:
+          type: object
+          description: A binary body's file
+          required: [fileName, contentType, size]
+          properties:
+            fileName: { type: string }
+            contentType: { type: string }
+            size: { type: integer }
+    FormField:
+      description: A multipart form-data field. File contents are stored with the request (base64, up to 1 MB).
+      oneOf:
+        - type: object
+          required: [kind, key]
+          properties:
+            kind: { const: text }
+            key: { type: string, maxLength: 500 }
+            value: { type: string, maxLength: 4000 }
+            enabled: { type: boolean, default: true }
+        - type: object
+          required: [kind, key]
+          properties:
+            kind: { const: file }
+            key: { type: string, maxLength: 500 }
+            enabled: { type: boolean, default: true }
+            fileName: { type: string, maxLength: 255, default: "", description: Empty until a file is chosen }
+            contentType: { type: string, maxLength: 200, default: "" }
+            data: { type: string, contentEncoding: base64, default: "", description: Base64 file contents }
     RequestSummary:
       type: object
       required: [id, name, method, url, folderId]
@@ -2101,7 +2140,10 @@ components:
         preScript: { type: string, maxLength: 50000, default: "", description: "Runs after the collection's and folder's pre-request scripts" }
         postScript: { type: string, maxLength: 50000, default: "", description: "Runs after the collection's and folder's post-response scripts" }
         body:
-          description: Ignored for GET and HEAD. `json` text is a JSON template (see the API description); `text` is sent as-is.
+          description: |
+            Ignored for GET and HEAD. `json` text is a JSON template (see the API description); `text` is sent as-is.
+            `urlencoded` is sent as application/x-www-form-urlencoded; `formdata` as multipart/form-data with a
+            generated boundary (any Content-Type header is replaced); `binary` sends one file as the raw body. Field keys and text values may use templates.
           oneOf:
             - type: object
               required: [type]
@@ -2109,6 +2151,24 @@ components:
             - type: object
               required: [type, text]
               properties: { type: { enum: [json, text] }, text: { type: string, maxLength: 100000 } }
+            - type: object
+              required: [type, fields]
+              properties:
+                type: { const: urlencoded }
+                fields: { type: array, maxItems: 200, items: { $ref: "#/components/schemas/KeyValue" } }
+            - type: object
+              required: [type, fields]
+              properties:
+                type: { const: formdata }
+                fields: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/FormField" } }
+            - type: object
+              required: [type]
+              description: One file sent as the raw body, with its content type unless a Content-Type header is set
+              properties:
+                type: { const: binary }
+                fileName: { type: string, maxLength: 255, default: "" }
+                contentType: { type: string, maxLength: 200, default: "" }
+                data: { type: string, contentEncoding: base64, default: "", description: "Base64 file contents (up to 1 MB)" }
         assertions:
           type: array
           maxItems: 50

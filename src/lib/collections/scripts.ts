@@ -365,6 +365,30 @@ const __pmRequest = {
   set url(v) { if (__in.response) throw new Error("the request is read-only after the response"); __request.url = String(v); },
   headers: __headerList(__request.headers, Boolean(__in.response)),
   get body() {
+    if (__request.body === undefined && Array.isArray(__request.form)) {
+      const ro = () => { if (__in.response) throw new Error("the request is read-only after the response"); };
+      const list = {
+        all: () => __request.form.map((f) => ({ ...f })),
+        get: (k) => { const f = __request.form.find((x) => x.key === k); return f && f.value; },
+        has: (k) => __request.form.some((x) => x.key === k),
+        count: () => __request.form.length,
+        each: (fn) => __request.form.forEach((f) => fn({ ...f })),
+        map: (fn) => __request.form.map((f) => fn({ ...f })),
+        toObject: () => Object.fromEntries(__request.form.filter((f) => f.type !== "file").map((f) => [f.key, f.value])),
+        add: (f) => { ro(); __request.form.push({ key: String(f.key), value: String(f.value ?? "") }); },
+        upsert: (f) => {
+          ro();
+          const x = __request.form.find((y) => y.key === f.key && y.type !== "file");
+          if (x) x.value = String(f.value ?? ""); else __request.form.push({ key: String(f.key), value: String(f.value ?? "") });
+        },
+        remove: (k) => { ro(); __request.form = __request.form.filter((x) => x.key !== k); },
+      };
+      const mode = __request.formMode === "formdata" ? "formdata" : "urlencoded";
+      return { mode, [mode]: list, toString: () => __request.form.map((f) => f.key + "=" + f.value).join("&"), update: (v) => { __pmRequest.body = v; } };
+    }
+    if (__request.body === undefined && __request.file) {
+      return { mode: "file", file: { src: __request.file.name, contentType: __request.file.contentType, size: __request.file.size }, toString: () => "", update: (v) => { __pmRequest.body = v; } };
+    }
     if (__request.body === undefined) return undefined;
     return {
       mode: "raw",
@@ -634,5 +658,22 @@ function sanitizeRequest(next: unknown, previous: ScriptRequest): ScriptRequest 
     params,
     headers,
     body: r.body === undefined || r.body === null ? undefined : String(r.body),
+    ...sanitizeForm(r.form, previous),
+    ...(previous.file ? { file: previous.file } : {}),
   };
+}
+
+/** Form fields stay plain key/value strings; a file field may only point at a file the request already has. */
+function sanitizeForm(next: unknown, previous: ScriptRequest): Pick<ScriptRequest, "form" | "formMode"> {
+  if (previous.form === undefined) return {};
+  const files = new Set(previous.form.filter((f) => f.type === "file").map((f) => f.src));
+  const form = Array.isArray(next)
+    ? next.flatMap((f) => {
+        if (!f || typeof f !== "object" || !String(f.key ?? "").trim()) return [];
+        const key = String(f.key);
+        if (f.type === "file") return files.has(String(f.src)) ? [{ key, value: "", type: "file" as const, src: String(f.src) }] : [];
+        return [{ key, value: String(f.value ?? "") }];
+      })
+    : previous.form;
+  return { form, ...(previous.formMode ? { formMode: previous.formMode } : {}) };
 }

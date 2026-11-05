@@ -104,3 +104,45 @@ postman.setEnvironmentVariable("legacy", "1");
     expect(list.errors[0].message).toMatch(/listing environment values isn't allowed/);
   });
 });
+
+describe("form bodies in scripts", () => {
+  it("reads and edits urlencoded / form-data fields, keeping files the request already has", async () => {
+    const start: ScriptState = {
+      ...state(),
+      request: {
+        ...state().request,
+        method: "POST",
+        formMode: "formdata",
+        form: [
+          { key: "name", value: "Ann" },
+          { key: "doc", value: "", type: "file", src: "a.pdf" },
+        ],
+      },
+    };
+    const { state: out, errors } = await runScripts({
+      phase: "pre",
+      readEnv: env,
+      state: start,
+      scripts: [
+        {
+          scope: "request",
+          name: "R",
+          code: `
+const body = pm.request.body;
+console.log(body.mode, body.formdata.get("name"), body.formdata.count(), JSON.stringify(body.formdata.toObject()));
+body.formdata.upsert({ key: "name", value: "Bob" });
+body.formdata.add({ key: "ts", value: "1" });
+rq.request.form.push({ key: "evil", type: "file", src: "/etc/passwd" });`,
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
+    expect(out.logs.map((l) => l.message)).toEqual(['formdata Ann 2 {"name":"Ann"}']);
+    expect(out.request.form).toEqual([
+      { key: "name", value: "Bob" },
+      { key: "doc", value: "", type: "file", src: "a.pdf" },
+      { key: "ts", value: "1" },
+    ]);
+    expect(out.request.formMode).toBe("formdata");
+  });
+});

@@ -1,4 +1,4 @@
-import { emptyDefinition, REQUEST_METHODS, type KeyValue, type RequestDefinition, type RequestMethod } from "./schema";
+import { emptyDefinition, REQUEST_METHODS, type FormField, type KeyValue, type RequestDefinition, type RequestMethod, type SentRequest } from "./schema";
 
 export class ImportError extends Error {}
 
@@ -67,7 +67,7 @@ export function tokenize(input: string): string[] {
 const WITH_VALUE = new Set([
   "-X", "--request", "-H", "--header", "-d", "--data", "--data-raw", "--data-binary", "--data-ascii",
   "--data-urlencode", "--json", "-u", "--user", "--url", "-A", "--user-agent", "-b", "--cookie", "-e", "--referer",
-  "-m", "--max-time", "-o", "--output", "--connect-timeout", "-x", "--proxy", "-w", "--write-out", "-F", "--form",
+  "-m", "--max-time", "-o", "--output", "--connect-timeout", "-x", "--proxy", "-w", "--write-out", "-F", "--form", "--form-string",
   "--cacert", "--cert", "--key", "-T", "--upload-file", "--retry", "-c", "--cookie-jar",
 ]);
 const DATA = new Set(["-d", "--data", "--data-raw", "--data-binary", "--data-ascii", "--data-urlencode"]);
@@ -129,6 +129,7 @@ export function parseCurl(command: string): { name: string; definition: RequestD
   let timeoutMs: number | undefined;
   const headers: KeyValue[] = [];
   const data: string[] = [];
+  const form: FormField[] = [];
 
   for (let i = 1; i < words.length; i += 1) {
     let flag = words[i];
@@ -154,6 +155,21 @@ export function parseCurl(command: string): { name: string; definition: RequestD
     }
     if (DATA.has(flag)) {
       data.push(takeValue());
+    } else if (flag === "-F" || flag === "--form" || flag === "--form-string") {
+      const raw = takeValue();
+      const eq = raw.indexOf("=");
+      if (eq > 0) {
+        const key = raw.slice(0, eq);
+        const rest = raw.slice(eq + 1);
+        if (flag !== "--form-string" && rest.startsWith("@")) {
+          // A file on the importer's disk: keep the field, the file is chosen again on the Body tab.
+          const [, ...opts] = rest.slice(1).split(";");
+          const type = opts.find((o) => o.startsWith("type="))?.slice(5) ?? "";
+          form.push({ kind: "file", key, enabled: true, fileName: "", contentType: type, data: "" });
+        } else {
+          form.push({ kind: "text", key, value: flag !== "--form-string" && rest.startsWith("<") ? "" : rest, enabled: true });
+        }
+      }
     } else if (flag === "--json") {
       data.push(takeValue());
       json = true;
@@ -199,7 +215,7 @@ export function parseCurl(command: string): { name: string; definition: RequestD
     data.length = 0;
   }
 
-  const resolved = (method ?? (data.length ? "POST" : "GET")) as RequestMethod;
+  const resolved = (method ?? (data.length || form.length ? "POST" : "GET")) as RequestMethod;
   if (!REQUEST_METHODS.includes(resolved)) throw new ImportError(`unsupported method ${resolved}`);
   def.method = resolved;
 
@@ -216,7 +232,12 @@ export function parseCurl(command: string): { name: string; definition: RequestD
       : { type: "basic", username: user.slice(0, colon), password: user.slice(colon + 1) };
   }
 
-  if (data.length) {
+  if (form.length) {
+    def.body = { type: "formdata", fields: form };
+    // The boundary is generated when sending; a copied multipart Content-Type would be wrong.
+    const ct = findHeader("content-type");
+    if (ct !== -1 && headers[ct].value.toLowerCase().startsWith("multipart/")) headers.splice(ct, 1);
+  } else if (data.length) {
     const text = data.join("&");
     const contentType = headers[findHeader("content-type")]?.value ?? "";
     if (json || contentType.includes("json") || (!contentType && isJson(text))) {
@@ -238,9 +259,23 @@ export function parseCurl(command: string): { name: string; definition: RequestD
 const shellQuote = (value: string) => `'${value.replaceAll("'", String.raw`'\''`)}'`;
 
 /** A runnable cURL command (bash/zsh) for a request as it was sent. */
-export function toCurl(request: { method: string; url: string; headers: Record<string, string>; body?: string }): string {
+export function toCurl(request: Pick<SentRequest, "method" | "url" | "headers" | "body" | "form" | "file">): string {
   const parts = [`curl -X ${request.method.toUpperCase()} ${shellQuote(request.url)}`];
-  for (const [name, value] of Object.entries(request.headers)) parts.push(`-H ${shellQuote(`${name}: ${value}`)}`);
-  if (request.body !== undefined && request.body !== "") parts.push(`--data-raw ${shellQuote(request.body)}`);
+  for (const [name, value] of Object.entries(request.headers)) {
+    // curl writes its own multipart boundary for -F.
+    if (request.form && name.toLowerCase() === "content-type") continue;
+    parts.push(`-H ${shellQuote(`${name}: ${value}`)}`);
+  }
+  if (request.form) {
+    for (const f of request.form) {
+      parts.push(
+        f.fileName !== undefined
+          ? `-F ${shellQuote(`${f.key}=@${f.fileName}${f.contentType ? `;type=${f.contentType}` : ""}`)}`
+          : `--form-string ${shellQuote(`${f.key}=${f.value ?? ""}`)}`,
+      );
+    }
+  } else if (request.file) {
+    parts.push(`--data-binary ${shellQuote(`@${request.file.fileName}`)}`);
+  } else if (request.body !== undefined && request.body !== "") parts.push(`--data-raw ${shellQuote(request.body)}`);
   return parts.join(" \\\n  ");
 }

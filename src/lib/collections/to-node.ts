@@ -2,7 +2,7 @@ import { newNode } from "@/lib/workflows/defaults";
 import type { Workflow, WorkflowNode } from "@/lib/workflows/schema";
 import type { EffectiveRequest } from "./inherit";
 import { buildUrl, headerRecord } from "./request";
-import type { RequestDefinition } from "./schema";
+import { bodyText, type RequestDefinition } from "./schema";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
 export type HttpNodeDraft = { name: string; config: HttpNode["config"]; warnings: string[] };
@@ -32,6 +32,12 @@ export function requestToHttpConfig(
   if (def.body.type === "text" && def.method !== "GET" && def.body.text.trim()) {
     return { ok: false, error: "Workflow HTTP nodes send JSON bodies only — switch the body to JSON or clear it." };
   }
+  if ((def.body.type === "urlencoded" || def.body.type === "formdata") && def.method !== "GET" && def.body.fields.some((f) => f.enabled && f.key.trim())) {
+    return { ok: false, error: "Workflow HTTP nodes send JSON bodies only — drop it as a linked request to send form bodies." };
+  }
+  if (def.body.type === "binary" && def.method !== "GET" && def.body.data) {
+    return { ok: false, error: "Workflow HTTP nodes send JSON bodies only — drop it as a linked request to send a file body." };
+  }
   if (auth.type === "basic" && `${auth.username}${auth.password}`.includes("{{")) {
     return {
       ok: false,
@@ -43,7 +49,7 @@ export function requestToHttpConfig(
   const scripts = effective ? effective.preScripts.length + effective.postScripts.length : (def.preScript.trim() ? 1 : 0) + (def.postScript.trim() ? 1 : 0);
   if (scripts) warnings.push("Pre-request and post-response scripts don't run in workflows, so they were left out.");
   if (def.assertions.length) warnings.push("Tests were left out — workflow steps fail on 4xx/5xx responses instead.");
-  if (`${def.url}${def.body.type === "none" ? "" : def.body.text}`.includes("{{vars.")) {
+  if (`${def.url}${bodyText(def.body)}`.includes("{{vars.")) {
     warnings.push("{{vars.*}} values come from scripts and won't resolve in a workflow.");
   }
 

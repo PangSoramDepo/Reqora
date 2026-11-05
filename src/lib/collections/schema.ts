@@ -23,10 +23,38 @@ export const authSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("apiKey"), header: z.string().max(200), value: template() }),
 ]);
 
+/** Largest file a form-data field may carry (stored with the request, base64-encoded). */
+export const MAX_FORM_FILE_BYTES = 1024 * 1024;
+
+export const formFieldSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("text"), key: z.string().max(500), value: template(), enabled: z.boolean().default(true) }),
+  z.object({
+    kind: z.literal("file"),
+    key: z.string().max(500),
+    enabled: z.boolean().default(true),
+    /** Empty until a file is chosen. */
+    fileName: z.string().max(255).default(""),
+    contentType: z.string().max(200).default(""),
+    /** Base64 file contents. */
+    data: z.string().max(Math.ceil(MAX_FORM_FILE_BYTES / 3) * 4).default(""),
+  }),
+]);
+
 export const bodySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("none") }),
   z.object({ type: z.literal("json"), text: template(100_000) }),
   z.object({ type: z.literal("text"), text: template(100_000) }),
+  /** application/x-www-form-urlencoded */
+  z.object({ type: z.literal("urlencoded"), fields: z.array(keyValueSchema).max(200) }),
+  /** multipart/form-data */
+  z.object({ type: z.literal("formdata"), fields: z.array(formFieldSchema).max(100) }),
+  /** One file sent as the raw body. */
+  z.object({
+    type: z.literal("binary"),
+    fileName: z.string().max(255).default(""),
+    contentType: z.string().max(200).default(""),
+    data: z.string().max(Math.ceil(MAX_FORM_FILE_BYTES / 3) * 4).default(""),
+  }),
 ]);
 
 export const assertionSchema = z.discriminatedUnion("type", [
@@ -73,6 +101,10 @@ export const emptyScopeSettings = (): ScopeSettings => scopeSettingsSchema.parse
 export type KeyValue = z.infer<typeof keyValueSchema>;
 export type Auth = z.infer<typeof authSchema>;
 export type Body = z.infer<typeof bodySchema>;
+export type FormField = z.infer<typeof formFieldSchema>;
+export type BodyType = Body["type"];
+/** The text of a json/text body, or "" for the form types. */
+export const bodyText = (body: Body): string => (body.type === "json" || body.type === "text" ? body.text : "");
 export type Assertion = z.infer<typeof assertionSchema>;
 export type RequestSettings = z.infer<typeof settingsSchema>;
 export type RequestDefinition = z.infer<typeof requestDefinitionSchema>;
@@ -160,7 +192,19 @@ export type ScriptReport = {
 };
 
 /** The request exactly as it went on the wire (after scripts, templates and auth). Scrubbed in API responses; real values in the send history. */
-export type SentRequest = { method: string; url: string; headers: Record<string, string>; body?: string };
+export type SentRequest = {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  /** The body text; for multipart, a readable version with file contents left out. */
+  body?: string;
+  /** Multipart form-data parts, so the request can be shown and copied as cURL `-F` options. */
+  form?: SentFormPart[];
+  /** A binary body's file. */
+  file?: SentFile;
+};
+export type SentFile = { fileName: string; contentType: string; size: number };
+export type SentFormPart = { key: string; value?: string; fileName?: string; contentType?: string; size?: number };
 
 export type SendResult = {
   request: SentRequest;

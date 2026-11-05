@@ -105,3 +105,36 @@ describe("toCurl", () => {
     expect(parsed.body).toEqual({ type: "json", text: body });
   });
 });
+
+describe("form bodies in cURL", () => {
+  it("imports -F fields as form-data and exports them back as -F", () => {
+    const { definition } = parseCurl(`curl https://x.test/up -H 'Content-Type: multipart/form-data' -F 'name=Ann' -F 'doc=@./a.pdf;type=application/pdf'`);
+    expect(definition.method).toBe("POST");
+    expect(definition.headers).toEqual([]);
+    expect(definition.body).toEqual({
+      type: "formdata",
+      fields: [
+        { kind: "text", key: "name", value: "Ann", enabled: true },
+        { kind: "file", key: "doc", enabled: true, fileName: "", contentType: "application/pdf", data: "" },
+      ],
+    });
+    const command = toCurl({
+      method: "POST",
+      url: "https://x.test/up",
+      headers: { "Content-Type": "multipart/form-data; boundary=b", "X-A": "1" },
+      body: "ignored",
+      form: [{ key: "name", value: "Ann" }, { key: "doc", fileName: "a.pdf", contentType: "application/pdf", size: 3 }],
+    });
+    expect(command).toBe(
+      ["curl -X POST 'https://x.test/up'", "-H 'X-A: 1'", "--form-string 'name=Ann'", "-F 'doc=@a.pdf;type=application/pdf'"].join(" \\\n  "),
+    );
+  });
+});
+
+describe("binary bodies in cURL", () => {
+  it("exports the file as --data-binary @name", () => {
+    expect(toCurl({ method: "PUT", url: "https://x.test/f", headers: {}, body: "<4 bytes from pic.png>", file: { fileName: "pic.png", contentType: "image/png", size: 4 } })).toBe(
+      ["curl -X PUT 'https://x.test/f'", "--data-binary '@pic.png'"].join(" \\\n  "),
+    );
+  });
+});
