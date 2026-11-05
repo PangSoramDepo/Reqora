@@ -1,5 +1,6 @@
 import "server-only";
 
+import { checkConditionScript } from "@/lib/collections/condition-script";
 import { sendLinkedRequest } from "@/lib/collections/linked";
 import { outboundFetch } from "@/lib/net/outbound";
 import { resolveVariable } from "@/lib/secrets/variables";
@@ -36,14 +37,14 @@ type RunOptions = {
   baseUrl: string;
   environment: Environment;
   replayOf?: string;
-  /** Live step progress (secrets already scrubbed), e.g. to animate the canvas while the run executes. */
+  /** Live step progress, e.g. to animate the canvas while the run executes. */
   onProgress?: (event: ProgressEvent) => void;
 };
 
 type ExecuteOptions = {
   baseUrl: string;
   environment: Environment;
-  /** Live step progress (secrets already scrubbed). */
+  /** Live step progress. */
   onProgress?: (event: ProgressEvent) => void;
   /** Network override (tests). */
   fetch?: typeof fetch;
@@ -51,41 +52,57 @@ type ExecuteOptions = {
 
 /**
  * Executes a workflow without storing anything. `{{env.NAME}}` resolves from the environment's stored variables,
- * then falls back to the server variable `REQORA_ENV_NAME` — never arbitrary server env. Every resolved value is
- * scrubbed from the result, even if an upstream echoes it back. Http nodes linked to a Collections request send
- * it exactly like Send in Collections (scripts, tests, inherited auth).
+ * then falls back to the server variable `REQORA_ENV_NAME` — never arbitrary server env. Returns the result with
+ * real values plus every resolved value of 6+ characters (`secrets`), for callers that hand results to someone
+ * outside the app. Http nodes linked to a Collections request send it exactly like Send in Collections.
  */
-export async function executeScrubbed(
+async function execute(
   workflow: Pick<Workflow, "nodes" | "edges">,
   trigger: RunTrigger,
   { baseUrl, environment, onProgress, fetch: doFetch = outboundFetch(baseUrl) }: ExecuteOptions,
-): Promise<ExecutionResult> {
+): Promise<{ result: ExecutionResult; secrets: string[] }> {
   const resolved = new Set<string>();
   // rq.variables set by one linked request's scripts are visible to the next ones in this run.
   const variables: Record<string, string> = {};
+  const env = (name: string) => {
+    const value = resolveVariable(environment, name) ?? process.env[`${ENV_PREFIX}${name}`];
+    // Short values (e.g. "1", "true") would scrub unrelated text; only treat longer ones as sensitive.
+    if (value !== undefined && value.length >= 6) resolved.add(value);
+    return value;
+  };
   const result = await executeWorkflow(workflow, trigger, {
     fetch: doFetch,
-    env: (name) => {
-      const value = resolveVariable(environment, name) ?? process.env[`${ENV_PREFIX}${name}`];
-      // Short values (e.g. "1", "true") would scrub unrelated text; only treat longer ones as sensitive.
-      if (value !== undefined && value.length >= 6) resolved.add(value);
-      return value;
-    },
+    env,
+    checkCondition: (code, output) => checkConditionScript(code, output, { readEnv: env, variables }),
     baseUrl,
     sendLinked: (requestId, context) =>
       sendLinkedRequest(requestId, { environment, baseUrl, variables, context, fetch: doFetch }),
-    onProgress: onProgress && ((event) => onProgress(scrub(event, [...resolved]))),
+    onProgress,
   });
-  return scrub(result, [...resolved]);
+  return { result, secrets: [...resolved] };
 }
 
-/** Executes a workflow (see `executeScrubbed`) and stores the run in Execution History. */
+/** Executes a workflow (see `execute`) with every resolved secret scrubbed from the result (load tests). */
+export async function executeScrubbed(
+  workflow: Pick<Workflow, "nodes" | "edges">,
+  trigger: RunTrigger,
+  options: ExecuteOptions,
+): Promise<ExecutionResult> {
+  const { result, secrets } = await execute(workflow, trigger, options);
+  return scrub(result, secrets);
+}
+
+/**
+ * Executes a workflow and stores the run in Execution History with real values (like the Collections send
+ * history), so requests and outputs can be inspected. `secrets` lists the resolved values to scrub from anything
+ * that leaves the app (a deployed webhook's response). Incoming trigger headers stay redacted.
+ */
 export async function runWorkflow(
   workflow: Workflow,
   trigger: RunTrigger,
   { baseUrl, environment, replayOf, onProgress }: RunOptions,
-): Promise<Run> {
-  const result = await executeScrubbed(workflow, trigger, { baseUrl, environment, onProgress });
+): Promise<{ run: Run; secrets: string[] }> {
+  const { result, secrets } = await execute(workflow, trigger, { baseUrl, environment, onProgress });
   const run: Run = {
     id: `run_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`,
     workflowId: workflow.id,
@@ -96,5 +113,5 @@ export async function runWorkflow(
     ...(replayOf ? { replayOf } : {}),
   };
   insertRun(run);
-  return run;
+  return { run, secrets };
 }

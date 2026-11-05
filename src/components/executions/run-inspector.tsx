@@ -6,6 +6,7 @@ import { Icon } from "@/components/icon";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import type { Run, Step } from "@/lib/workflows/schema";
 import { shortId, urlPath, utcTime } from "./format";
+import { RepeatChecks, repeatCheckLines } from "@/components/flow/repeat-checks";
 
 type Tab = "payloads" | "headers" | "logs";
 type StepTone = "tertiary" | "primary" | "secondary" | "error" | "skipped";
@@ -80,7 +81,8 @@ function toneOf(step: Step): StepTone {
 const responseOf = (step: Step) => step.output as { status?: number; headers?: Record<string, string>; body?: unknown } | undefined;
 
 function stepDetail(step: Step) {
-  if (step.request) return `${step.request.method} ${urlPath(step.request.url)}`;
+  const tries = step.attempts ? ` · ${step.attempts} attempt${step.attempts === 1 ? "" : "s"}` : "";
+  if (step.request) return `${step.request.method} ${urlPath(step.request.url)}${tries}`;
   if (step.nodeType === "webhook") return "trigger payload";
   return step.nodeType;
 }
@@ -108,9 +110,10 @@ function logLines(run: Run) {
     const at = `+${Math.max(0, Date.parse(step.startedAt) - start)}ms`.padStart(7);
     const what = `${step.nodeId} (${step.name})`;
     if (step.status === "skipped") return { text: `[${at}] ${step.disabled ? "OFF " : "SKIP"}  ${what}`, className: "text-outline" };
-    if (step.status === "failed") return { text: `[${at}] FAIL  ${what} — ${step.error}`, className: "text-error" };
+    const checks = step.checks?.length ? `\n${repeatCheckLines(step.checks).join("\n")}` : "";
+    if (step.status === "failed") return { text: `[${at}] FAIL  ${what} — ${step.error}${checks}`, className: "text-error" };
     const extra = step.request ? ` ${step.request.method} ${step.request.url} → ${responseOf(step)?.status}` : step.port ? ` → ${step.port}` : "";
-    return { text: `[${at}] OK    ${what}${extra} (${step.durationMs}ms)`, className: "text-on-surface-variant" };
+    return { text: `[${at}] OK    ${what}${extra} (${step.durationMs}ms)${checks}`, className: "text-on-surface-variant" };
   });
 }
 
@@ -342,6 +345,11 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
                 {response?.status !== undefined && <span className="font-mono">Status: {response.status}</span>}
               </div>
               {viewing.error && <div className="text-error font-mono mb-space-xs">{viewing.error}</div>}
+              {viewing.checks && viewing.checks.length > 0 && (
+                <div className="mb-space-xs">
+                  <RepeatChecks checks={viewing.checks} attempts={viewing.attempts} />
+                </div>
+              )}
               <pre className={`${CODE} text-on-surface`}>
                 {viewing.status === "skipped"
                   ? viewing.disabled
@@ -356,7 +364,7 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
         {tab === "headers" && (
           <div className="pt-space-xs font-code-block text-code-block" role="tabpanel">
             <div className="bg-surface-container-lowest rounded p-space-sm flex flex-col gap-space-xs font-mono">
-              <span className="font-label-sm text-label-sm text-outline uppercase">Request Headers (templates, unresolved)</span>
+              <span className="font-label-sm text-label-sm text-outline uppercase">Request Headers</span>
               <HeaderList headers={viewing.request?.headers} />
               <div className="w-full h-px bg-surface-variant my-space-xs" />
               <span className={`font-label-sm text-label-sm uppercase ${viewing.status === "failed" ? "text-error" : "text-outline"}`}>

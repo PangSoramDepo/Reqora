@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Environment, Workflow, WorkflowNode } from "@/lib/workflows/schema";
 import type { TemplateContext } from "@/lib/workflows/template";
+import type { SendOutcome } from "./schema";
 import { describeAssertion } from "./assertions";
 import { resolveEffective } from "./inherit";
 import { sendRequest } from "./send";
@@ -28,10 +29,6 @@ export function linkedHttpConfig(requestId: string): { ok: true; config: HttpCon
   return { ok: true, config: { ...converted.draft.config, requestId } };
 }
 
-/** Headers kept out of run history (the Collections send log is the place to see real values). */
-const REDACTED = new Set(["authorization", "cookie", "proxy-authorization", "x-api-key"]);
-const redact = (headers: Record<string, string>) =>
-  Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, REDACTED.has(k.toLowerCase()) ? "[redacted]" : v]));
 
 export type LinkedStep = {
   ok: boolean;
@@ -66,19 +63,26 @@ export async function sendLinkedRequest(
   const saved = getRequest(requestId);
   if (!saved) return { ok: false, error: DELETED };
   const scopes = requestScopes(saved.collectionId, saved.folderId);
-  const outcome = await sendRequest(
+  // Runs keep real values (like the Collections send history), so take the outcome before it's scrubbed — that
+  // also keeps real values in the rq.variables handed to the next linked request.
+  let raw: SendOutcome | undefined;
+  const scrubbed = await sendRequest(
     { name: saved.name, definition: saved.definition, collection: scopes.collection, folder: scopes.folder },
     {
       environment: options.environment,
       baseUrl: options.baseUrl,
       variables: options.variables,
       context: options.context,
+      onUnscrubbed: (outcome) => {
+        raw = outcome;
+      },
       ...(options.fetch ? { fetch: options.fetch } : {}),
     },
   );
+  const outcome = raw ?? scrubbed;
   Object.assign(options.variables, outcome.scripts?.variables);
 
-  const request = outcome.request && { method: outcome.request.method, url: outcome.request.url, headers: redact(outcome.request.headers) };
+  const request = outcome.request && { method: outcome.request.method, url: outcome.request.url, headers: outcome.request.headers };
   if ("error" in outcome) return { ok: false, error: outcome.error, request };
 
   const tests = [
@@ -118,7 +122,8 @@ export function syncLinkedNodes<T extends Pick<Workflow, "nodes">>(workflow: T):
     nodes: workflow.nodes.map((node) => {
       if (node.type !== "http" || !node.config.requestId) return node;
       const linked = linkedHttpConfig(node.config.requestId);
-      return linked.ok ? { ...node, config: linked.config } : node;
+      // Flow-only settings (repeat until) aren't part of the saved request, so they're kept.
+      return linked.ok ? { ...node, config: { ...linked.config, ...(node.config.repeat ? { repeat: node.config.repeat } : {}) } } : node;
     }),
   };
 }

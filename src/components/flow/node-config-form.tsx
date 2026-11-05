@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { conditionOperators, type WorkflowNode } from "@/lib/workflows/schema";
+import { NumberField } from "@/components/number-field";
 
 type NonHttpNode = Exclude<WorkflowNode, { type: "http" }>;
 
@@ -136,17 +137,16 @@ export function NodeConfigForm({ node, onChange }: { node: NonHttpNode; onChange
     case "delay":
       return (
         <Field label="Delay (ms, max 10000)" id="delay-ms">
-          <input
+          <NumberField
             id="delay-ms"
+            label="Delay (ms)"
             className={FIELD}
-            type="number"
             min={0}
             max={10000}
             step={100}
+            integer
             value={node.config.ms}
-            onChange={(e) =>
-              onChange({ ...node, config: { ms: Math.min(10000, Math.max(0, Math.round(Number(e.target.value) || 0))) } })
-            }
+            onCommit={(ms) => onChange({ ...node, config: { ms } })}
           />
         </Field>
       );
@@ -155,16 +155,15 @@ export function NodeConfigForm({ node, onChange }: { node: NonHttpNode; onChange
       return (
         <>
           <Field label="Status Code" id="resp-status">
-            <input
+            <NumberField
               id="resp-status"
+              label="Status Code"
               className={FIELD}
-              type="number"
               min={100}
               max={599}
+              integer
               value={node.config.status}
-              onChange={(e) =>
-                onChange({ ...node, config: { ...node.config, status: Math.min(599, Math.max(100, Math.round(Number(e.target.value) || 200))) } })
-              }
+              onCommit={(status) => onChange({ ...node, config: { ...node.config, status } })}
             />
           </Field>
           <Field label="Body (JSON template)" id="resp-body">

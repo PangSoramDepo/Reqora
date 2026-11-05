@@ -9,7 +9,7 @@ info:
 
     **Templates.** String fields marked *template* may contain `{{path}}` placeholders resolved at run time
     against: `trigger.body.*`, `trigger.headers.*`, `env.NAME` (the run environment's stored variable, falling back to the server variable
-    `REQORA_ENV_NAME`; a missing variable fails the step; resolved values are scrubbed from stored runs), and `<nodeId>.*` (the output of an already-executed node, e.g.
+    `REQORA_ENV_NAME`; a missing variable fails the step; stored runs keep real values, but resolved values are scrubbed from a deployed webhook's response), and `<nodeId>.*` (the output of an already-executed node, e.g.
     `{{node-2.body.customer_id}}`). In an HTTP `body`, a placeholder inside a JSON string literal is inserted
     as string content; a bare placeholder is inserted as a JSON value.
 
@@ -25,7 +25,7 @@ info:
     existing variable's kind — a secret stays encrypted — and resolve in `{{env.NAME}}` for the same send),
     `rq.test(name, fn)`,
     `rq.expect(value)` (toBe, toEqual, toContain, toBeTruthy, toBeFalsy, toBeGreaterThan, toBeLessThan,
-    toHaveProperty, toMatch) and `console`. Send responses show real values, like Postman; stored workflow runs are scrubbed.
+    toHaveProperty, toMatch) and `console`. Send responses and stored workflow runs show real values, like Postman.
 
     **Authentication.** Every operation requires the `reqora_session` cookie from `POST /api/auth/login`
     (401 otherwise), except the ones marked `security: []`: the auth endpoints, the webhook entry point
@@ -362,8 +362,9 @@ paths:
         201 with `status: failed`; inspect `steps[].error`.
 
         Send `Accept: application/x-ndjson` to follow the run live: the response streams one JSON object per
-        line — `{"type":"node","nodeId"}` when a node starts, `{"type":"step","step"}` when a step finishes or is
-        skipped, then `{"type":"run","run"}` with the stored run (or `{"type":"error","message"}`).
+        line — `{"type":"node","nodeId"}` when a node starts, `{"type":"attempt","nodeId","attempt","maxAttempts","waitMs","logs"}`
+        when a "repeat until" node's condition isn't met yet and it will send again, `{"type":"step","step"}` when a
+        step finishes or is skipped, then `{"type":"run","run"}` with the stored run (or `{"type":"error","message"}`).
       requestBody:
         required: false
         content:
@@ -1700,6 +1701,36 @@ components:
                     linked nodes in the same run, and templates may also use `{{trigger.*}}` and earlier nodes. The
                     other config fields are its last copy (shown on the canvas). The step fails if the request was
                     deleted. Remove the field to unlink.
+                repeat:
+                  type: object
+                  description: |
+                    Repeat until (polling): after each send the condition is checked against this node's latest
+                    response (`{{<node-id>.body.x}}`). When true, the run continues; otherwise the node sends again after
+                    `intervalMs`, and the step fails once `maxAttempts` sends were made. A failed send (status >= 400,
+                    script error, failed test) fails the step immediately. Kept when a linked node refreshes from its
+                    saved request. `intervalMs × (maxAttempts − 1)` may be at most 10 minutes.
+                  required: [left, operator]
+                  properties:
+                    mode:
+                      type: string
+                      enum: [compare, script]
+                      default: compare
+                      description: "`compare`: left operator right. `script`: `script` returns true when done."
+                    script:
+                      type: string
+                      maxLength: 10000
+                      description: |
+                        JavaScript run in the script sandbox after each send. `response` has `status`, `headers` and the
+                        parsed `body`; rq / pm (incl. `rq.environment.get`, `rq.variables`), lodash and moment work like in
+                        request scripts. A plain expression or code with `return`; truthy = done. A thrown error fails
+                        the step. Environment changes made here aren't saved.
+                    left: { type: string, maxLength: 2000, description: "template (compare mode); an empty value fails the run" }
+                    operator:
+                      type: string
+                      enum: ["==", "!=", ">", ">=", "<", "<=", contains, exists]
+                    right: { type: string, maxLength: 2000, description: template (ignored for `exists`) }
+                    intervalMs: { type: integer, minimum: 100, maximum: 60000, default: 2000 }
+                    maxAttempts: { type: integer, minimum: 2, maximum: 100, default: 10 }
     ConditionNode:
       description: Compares two values. Output ports `true` and `false`; only the matching one continues.
       allOf:
@@ -1865,7 +1896,7 @@ components:
         durationMs: { type: integer }
         port: { type: string, description: Output port taken (condition nodes report `true`/`false`) }
         request:
-          description: HTTP nodes only. Headers are recorded unresolved so secrets are not persisted.
+          description: HTTP nodes only. The request as sent, with resolved values.
           type: object
           properties:
             method: { type: string }
@@ -1874,6 +1905,18 @@ components:
         output: {}
         error: { type: string }
         disabled: { type: boolean, description: "Skipped because the node is disabled (the run continued through it)" }
+        attempts: { type: integer, description: "How many times a repeat-until http node sent its request" }
+        checks:
+          type: array
+          description: "A repeat-until node's condition checks (most recent 20): result, the script's console output (or the compared value), error"
+          items:
+            type: object
+            required: [attempt, met]
+            properties:
+              attempt: { type: integer }
+              met: { type: boolean }
+              logs: { type: array, items: { type: string } }
+              error: { type: string }
     Run:
       type: object
       required: [id, workflowId, workflowVersion, environment, status, trigger, startedAt, finishedAt, durationMs, steps]

@@ -28,6 +28,8 @@ type Props = {
   /** Names in the selected environment, suggested inside rq.environment.get("…"). */
   envNames?: string[];
   handle?: Ref<ScriptCodeEditorHandle>;
+  /** Wrap long lines (narrow panels). */
+  wrap?: boolean;
 };
 
 type Problems = { errors: number; warnings: number; first: { line: number; message: string; from: number } | null };
@@ -122,7 +124,7 @@ function problemsOf(state: EditorState): Problems {
  * CodeMirror editor for pre-request / post-response scripts: JavaScript highlighting, autocompletion for
  * the rq API (with docs), live lint (syntax errors, unknown rq members, sandbox pitfalls) and hover docs.
  */
-export function ScriptCodeEditor({ value, onValue, phase, label, placeholder, envNames = [], handle }: Props) {
+export function ScriptCodeEditor({ value, onValue, phase, label, placeholder, envNames = [], handle, wrap = false }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const latest = useRef({ onValue, envNames });
@@ -148,6 +150,7 @@ export function ScriptCodeEditor({ value, onValue, phase, label, placeholder, en
         doc: value,
         extensions: [
           basicSetup,
+          wrap ? EditorView.lineWrapping : [],
           keymap.of([indentWithTab]),
           EditorState.tabSize.of(2),
           javascript(),

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const options = { baseUrl: request.nextUrl.origin, environment };
   // Manual runs execute the draft, so changes can be tested before they are deployed.
   if (!request.headers.get("accept")?.includes("application/x-ndjson")) {
-    const run = await runWorkflow(workflow, { source: "manual", ...trigger }, options);
+    const { run } = await runWorkflow(workflow, { source: "manual", ...trigger }, options);
     return Response.json(run, { status: 201, headers: { Location: `/api/runs/${run.id}` } });
   }
 
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       const send = (event: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}
 `));
       try {
-        const run = await runWorkflow(workflow, { source: "manual", ...trigger }, { ...options, onProgress: send });
+        const { run } = await runWorkflow(workflow, { source: "manual", ...trigger }, { ...options, onProgress: send });
         send({ type: "run", run });
       } catch (error) {
         send({ type: "error", message: (error as Error).message });

@@ -119,6 +119,22 @@ function HttpBody({ node, step }: { node: Extract<WorkflowNode, { type: "http" }
             <span className="text-tertiary font-mono truncate">{auth[1]}</span>
           </div>
         )}
+        {node.config.repeat && (
+          <div
+            className={`flex items-center gap-space-xxs ${INSET} font-label-sm text-label-sm min-w-0`}
+            title={`Sends again every ${node.config.repeat.intervalMs / 1000}s, up to ${node.config.repeat.maxAttempts} times, until the condition is true`}
+            data-testid="repeat-badge"
+          >
+            <Icon name="autorenew" className="text-tertiary text-body-sm shrink-0" />
+            <span className="text-outline shrink-0">until</span>
+            <span className="font-mono text-on-surface truncate">
+              {node.config.repeat.mode === "script"
+                ? "script returns true"
+                : `${node.config.repeat.left} ${node.config.repeat.operator}${node.config.repeat.operator === "exists" ? "" : ` ${node.config.repeat.right ?? ""}`}`}
+            </span>
+            {step?.attempts && <span className="ml-auto shrink-0 text-outline">×{step.attempts}</span>}
+          </div>
+        )}
         {refs.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {refs.map((ref) => (

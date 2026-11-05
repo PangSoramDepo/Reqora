@@ -84,11 +84,10 @@ describe("executeWorkflow", () => {
     expect(result.steps.find((s) => s.nodeId === "node-3")?.port).toBe("false");
   });
 
-  it("never records resolved secrets in step requests", async () => {
+  it("records step requests as sent, with resolved values (run history shows real values)", async () => {
     const result = await executeWorkflow(checkout, { source: "manual", body: SAMPLE_ORDER }, deps());
     const verify = result.steps.find((s) => s.nodeId === "node-2")!;
-    expect(verify.request?.headers.Authorization).toBe("Bearer {{env.STRIPE_SECRET}}");
-    expect(JSON.stringify(result)).not.toContain("sk_test");
+    expect(verify.request?.headers.authorization).toBe("Bearer sk_test");
   });
 
   it("fails the step on upstream errors and skips everything downstream", async () => {
@@ -231,5 +230,115 @@ describe("disabled nodes", () => {
     const wf = flow([], []);
     wf.nodes[0] = { ...wf.nodes[0], disabled: true };
     expect(validateGraph(wf)).toEqual([{ path: "nodes.0.disabled", message: "the webhook trigger can't be disabled" }]);
+  });
+});
+
+describe("repeat until", () => {
+  const polling = (repeat: Partial<NonNullable<Extract<WorkflowInput["nodes"][number], { type: "http" }>["config"]["repeat"]>> = {}): WorkflowInput => ({
+    name: "Payroll",
+    nodes: [
+      { id: "trigger", name: "Trigger", type: "webhook", position: { x: 0, y: 0 }, config: { method: "POST", path: "/p" } },
+      {
+        id: "http-2",
+        name: "GetBatchList",
+        type: "http",
+        position: { x: 1, y: 0 },
+        config: {
+          method: "GET",
+          url: "https://bank.test/batches",
+          headers: {},
+          timeoutMs: 1000,
+          repeat: { mode: "compare", left: "{{http-2.body.status}}", operator: "==", right: "COMPLETED", intervalMs: 2000, maxAttempts: 5, ...repeat },
+        },
+      },
+      { id: "http-3", name: "GetBatchData", type: "http", position: { x: 2, y: 0 }, config: { method: "GET", url: "https://bank.test/data", headers: {}, timeoutMs: 1000 } },
+    ],
+    edges: [
+      { id: "e1", source: "trigger", sourcePort: "out", target: "http-2" },
+      { id: "e2", source: "http-2", sourcePort: "out", target: "http-3" },
+    ],
+  });
+
+  it("sends again until the condition is true, then continues", async () => {
+    const statusesSeen = ["PENDING", "PROCESSING", "COMPLETED"];
+    let calls = 0;
+    const waits: number[] = [];
+    const events: unknown[] = [];
+    const fetch = fakeFetch((url) => (url.endsWith("/batches") ? Response.json({ status: statusesSeen[calls++] }) : Response.json({ rows: 3 })));
+    const result = await executeWorkflow(polling(), { source: "manual" }, deps({
+      fetch: fetch as unknown as typeof globalThis.fetch,
+      sleep: async (ms) => void waits.push(ms),
+      onProgress: (e) => e.type === "attempt" && events.push(e),
+    }));
+    expect(result.status).toBe("succeeded");
+    expect(calls).toBe(3);
+    expect(waits).toEqual([2000, 2000]);
+    expect(events).toEqual([
+      { type: "attempt", nodeId: "http-2", attempt: 1, maxAttempts: 5, waitMs: 2000, logs: ['{{http-2.body.status}} = "PENDING"'] },
+      { type: "attempt", nodeId: "http-2", attempt: 2, maxAttempts: 5, waitMs: 2000, logs: ['{{http-2.body.status}} = "PROCESSING"'] },
+    ]);
+    const step = result.steps.find((s) => s.nodeId === "http-2")!;
+    expect(step.checks).toEqual([
+      { attempt: 1, met: false, logs: ['{{http-2.body.status}} = "PENDING"'] },
+      { attempt: 2, met: false, logs: ['{{http-2.body.status}} = "PROCESSING"'] },
+      { attempt: 3, met: true, logs: ['{{http-2.body.status}} = "COMPLETED"'] },
+    ]);
+    expect(step.attempts).toBe(3);
+    expect((step.output as { body: unknown }).body).toEqual({ status: "COMPLETED" });
+    expect(statuses(result.steps)["http-3"]).toBe("succeeded");
+  });
+
+  it("fails the step after the last attempt and skips the rest", async () => {
+    const fetch = fakeFetch(() => Response.json({ status: "PENDING" }));
+    const result = await executeWorkflow(polling({ maxAttempts: 3 }), { source: "manual" }, deps({ fetch: fetch as unknown as typeof globalThis.fetch }));
+    expect(result.status).toBe("failed");
+    const step = result.steps.find((s) => s.nodeId === "http-2")!;
+    expect(step.attempts).toBe(3);
+    expect(step.error).toBe('condition not met after 3 attempts: {{http-2.body.status}} was "PENDING", expected == "COMPLETED"');
+    expect(statuses(result.steps)["http-3"]).toBe("skipped");
+  });
+
+  it("validates the wait limit and an empty condition", async () => {
+    const { httpNodeSchema } = await import("./schema");
+    const node = polling().nodes[1];
+    expect(httpNodeSchema.safeParse({ ...node, config: { ...node.config, repeat: { left: "x", operator: "exists", intervalMs: 60_000, maxAttempts: 12 } } }).success).toBe(false);
+    expect(httpNodeSchema.safeParse({ ...node, config: { ...node.config, repeat: { left: "x", operator: "exists", intervalMs: 60_000, maxAttempts: 11 } } }).success).toBe(true);
+    const result = await executeWorkflow(polling({ left: " " }), { source: "manual" }, deps());
+    expect(result.error).toMatch(/has no condition/);
+  });
+});
+
+describe("repeat until (script)", () => {
+  it("asks checkCondition after each send and continues once it's met", async () => {
+    let calls = 0;
+    const seen: unknown[] = [];
+    const fetch = fakeFetch(() => Response.json({ data: [{ status: calls++ < 1 ? 1 : 2 }] }));
+    const wf: WorkflowInput = {
+      name: "P",
+      nodes: [
+        { id: "t", name: "T", type: "webhook", position: { x: 0, y: 0 }, config: { method: "POST", path: "/p" } },
+        {
+          id: "http-2",
+          name: "GetBatchList",
+          type: "http",
+          position: { x: 1, y: 0 },
+          config: { method: "GET", url: "https://bank.test/b", headers: {}, timeoutMs: 1000, repeat: { mode: "script", script: "check", left: "", operator: "==", intervalMs: 500, maxAttempts: 4 } },
+        },
+      ],
+      edges: [{ id: "e", source: "t", sourcePort: "out", target: "http-2" }],
+    };
+    const result = await executeWorkflow(wf, { source: "manual" }, deps({
+      fetch: fetch as unknown as typeof globalThis.fetch,
+      checkCondition: async (code, output) => {
+        seen.push(code);
+        return { met: ((output as { body: { data: { status: number }[] } }).body.data[0].status === 2) as true | false } as { met: true } | { met: false };
+      },
+    }));
+    expect(result.status).toBe("succeeded");
+    expect(seen).toEqual(["check", "check"]);
+    expect(result.steps[1].attempts).toBe(2);
+
+    const failing = await executeWorkflow(wf, { source: "manual" }, deps({ fetch: fetch as unknown as typeof globalThis.fetch, checkCondition: async () => ({ error: "boom" }) }));
+    expect(failing.steps[1]).toMatchObject({ status: "failed", error: "boom", attempts: 1 });
   });
 });

@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
+import { NumberField } from "@/components/number-field";
 import { beautifyJson } from "@/lib/collections/beautify";
 import { convertBody } from "@/lib/collections/request";
 import { REQUEST_METHODS, type Collection, type RequestDefinition, type RequestMethod } from "@/lib/collections/schema";
@@ -432,18 +433,15 @@ export function RequestBuilder({
           <div className="flex-1 overflow-auto p-space-sm flex flex-col gap-space-md max-w-md">
             <label className="flex flex-col gap-space-xxs">
               <span className={LABEL}>Timeout (ms)</span>
-              <input
-                aria-label="Timeout"
-                type="number"
+              <NumberField
+                label="Timeout"
                 min={100}
                 max={30000}
                 step={100}
+                integer
                 className={FIELD}
                 value={def.settings.timeoutMs}
-                onChange={(e) => {
-                  const timeoutMs = Math.min(30_000, Math.max(100, Math.trunc(Number(e.target.value)) || 100));
-                  setDef((d) => ({ ...d, settings: { ...d.settings, timeoutMs } }));
-                }}
+                onCommit={(timeoutMs) => setDef((d) => ({ ...d, settings: { ...d.settings, timeoutMs } }))}
               />
               <span className="font-body-sm text-body-sm text-outline">100 – 30,000 ms. Responses over 1 MB are rejected.</span>
             </label>

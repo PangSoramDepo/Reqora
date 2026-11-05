@@ -13,7 +13,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/runs/[r
   if (!workflow) return problem(409, "Conflict", { detail: "the run's workflow no longer exists" });
 
   // Stored trigger headers are redacted, so only the body is replayed.
-  const run = await runWorkflow(
+  const { run } = await runWorkflow(
     workflow,
     { source: original.trigger.source, body: original.trigger.body },
     { baseUrl: request.nextUrl.origin, environment: original.environment, replayOf: original.id },

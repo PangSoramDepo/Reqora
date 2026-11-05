@@ -23,7 +23,7 @@ type FlowCanvasProps = {
   selectedEdgeId: string | null;
   pulsingNodeId: string | null;
   /** Set while a run executes: the node running right now (null between nodes). */
-  live?: { activeId: string | null };
+  live?: { activeId: string | null; note?: string };
   onSelect: (id: string | null) => void;
   onSelectEdge: (id: string) => void;
   onMoveNode: (id: string, x: number, y: number) => void;
@@ -410,6 +410,14 @@ export function FlowCanvas({
               onPointerCancel={endDrag}
             >
               <NodeCard node={node} step={steps.get(node.id)} selected={selected} running={active} waiting={waiting} />
+              {active && live?.note && (
+                <div
+                  data-testid="node-live-note"
+                  className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded-full bg-tertiary-container text-on-tertiary-container font-label-sm text-label-sm shadow-lg flex items-center gap-1"
+                >
+                  <Icon name="autorenew" className="text-body-sm animate-spin" /> {live.note}
+                </div>
+              )}
             </div>
           );
         })}

@@ -1,6 +1,6 @@
 import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import { topologicalOrder } from "./graph";
-import type { RunStatus, RunTrigger, Step, Workflow, WorkflowNode } from "./schema";
+import type { RepeatCheck, RunStatus, RunTrigger, Step, Workflow, WorkflowNode } from "./schema";
 import { TemplateError, renderJson, renderString, renderValue, type TemplateContext } from "./template";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -8,7 +8,16 @@ const MAX_RESPONSE_BYTES = 1_000_000;
 type HttpConfig = Extract<WorkflowNode, { type: "http" }>["config"];
 
 export type LinkedResult = { ok: boolean; error?: string; request?: Step["request"]; output?: unknown };
-export type ProgressEvent = { type: "node"; nodeId: string } | { type: "step"; step: Step };
+export type ProgressEvent =
+  | { type: "node"; nodeId: string }
+  | { type: "step"; step: Step }
+  /** A "repeat until" node's condition wasn't met yet; it sends again after `waitMs`. */
+  | { type: "attempt"; nodeId: string; attempt: number; maxAttempts: number; waitMs: number; logs?: string[] };
+
+/** Most recent "repeat until" checks kept on a step. */
+const MAX_CHECKS = 20;
+const SCRIPTS_UNAVAILABLE = '"repeat until" scripts are not available here';
+type ConditionCheck = ({ met: true } | { met: false } | { error: string }) & { logs?: string[] };
 
 export type EngineDeps = {
   fetch: typeof fetch;
@@ -21,6 +30,11 @@ export type EngineDeps = {
    * nodes send their stored copy like any other http node.
    */
   sendLinked?: (requestId: string, ctx: Pick<TemplateContext, "trigger" | "nodes">) => Promise<LinkedResult>;
+  /**
+   * Evaluates a "repeat until" script condition against a node's response (the script sandbox). When omitted,
+   * script conditions fail the step.
+   */
+  checkCondition?: (code: string, output: unknown) => Promise<ConditionCheck>;
   /** Live progress: a node is about to run, or a step finished (including skipped ones). */
   onProgress?: (event: ProgressEvent) => void;
   now?: () => number;
@@ -37,7 +51,7 @@ export type ExecutionResult = {
   error?: string;
 };
 
-type NodeResult = { output?: unknown; port?: string; request?: Step["request"] };
+type NodeResult = { output?: unknown; port?: string; request?: Step["request"]; attempts?: number; checks?: RepeatCheck[] };
 
 class StepError extends Error {
   constructor(
@@ -115,6 +129,8 @@ export async function executeWorkflow(
         port: node.type === "response" ? undefined : port,
         request: result.request,
         output: result.output,
+        ...(result.attempts ? { attempts: result.attempts } : {}),
+        ...(result.checks?.length ? { checks: result.checks } : {}),
       });
     } catch (error) {
       failure = `${node.name}: ${(error as Error).message}`;
@@ -146,10 +162,67 @@ async function runNode(
       return { output: { body: ctx.trigger.body ?? null, headers: ctx.trigger.headers ?? {} } };
 
     case "http": {
-      if (!node.config.requestId || !deps.sendLinked) return runHttp(node.config, ctx, deps);
-      const linked = await deps.sendLinked(node.config.requestId, { trigger: ctx.trigger, nodes: ctx.nodes });
-      if (!linked.ok) throw new StepError(linked.error ?? "linked request failed", { request: linked.request, output: linked.output });
-      return { output: linked.output, request: linked.request };
+      const send = async (): Promise<NodeResult> => {
+        if (!node.config.requestId || !deps.sendLinked) return runHttp(node.config, ctx, deps);
+        const linked = await deps.sendLinked(node.config.requestId, { trigger: ctx.trigger, nodes: ctx.nodes });
+        if (!linked.ok) throw new StepError(linked.error ?? "linked request failed", { request: linked.request, output: linked.output });
+        return { output: linked.output, request: linked.request };
+      };
+      const repeat = node.config.repeat;
+      if (!repeat) return send();
+      const isScript = repeat.mode === "script";
+      if (isScript ? !repeat.script?.trim() : !repeat.left.trim()) {
+        throw new StepError('"repeat until" has no condition: fill it in, or turn repeating off');
+      }
+      // One entry per check, so a run shows why it kept waiting (script logs, the value compared, errors).
+      const checks: RepeatCheck[] = [];
+      const done = (partial: NodeResult, attempt: number): NodeResult => ({ ...partial, attempts: attempt, checks: checks.slice(-MAX_CHECKS) });
+      for (let attempt = 1; ; attempt++) {
+        let result: NodeResult;
+        try {
+          result = await send();
+        } catch (error) {
+          if (error instanceof StepError) Object.assign(error.partial, { attempts: attempt, checks: checks.slice(-MAX_CHECKS) });
+          throw error;
+        }
+        // The condition reads this node's latest response, like a later node would ({{node-id.body.x}}).
+        ctx.nodes[node.id] = result.output;
+        let met: boolean;
+        let unmet: string;
+        if (isScript) {
+          if (!deps.checkCondition) throw new StepError(SCRIPTS_UNAVAILABLE, done(result, attempt));
+          const checked = await deps.checkCondition(repeat.script!, result.output);
+          const logs = checked.logs?.length ? { logs: checked.logs } : {};
+          if ("error" in checked) {
+            checks.push({ attempt, met: false, error: checked.error, ...logs });
+            throw new StepError(checked.error, done(result, attempt));
+          }
+          met = checked.met;
+          checks.push({ attempt, met, ...logs });
+          unmet = "the script returned false";
+        } else {
+          const left = renderValue(repeat.left, ctx);
+          const right = repeat.right === undefined ? undefined : renderValue(repeat.right, ctx);
+          met = compare(left, repeat.operator, right);
+          checks.push({ attempt, met, logs: [`${repeat.left} = ${JSON.stringify(left) ?? "undefined"}`] });
+          const wanted = repeat.operator === "exists" ? "to exist" : `${repeat.operator} ${JSON.stringify(right)}`;
+          unmet = `${repeat.left} was ${JSON.stringify(left) ?? "undefined"}, expected ${wanted}`;
+        }
+        if (met) return done(result, attempt);
+        if (attempt >= repeat.maxAttempts) {
+          throw new StepError(`condition not met after ${attempt} attempts: ${unmet}`, done(result, attempt));
+        }
+        const last = checks.at(-1)?.logs;
+        deps.onProgress?.({
+          type: "attempt",
+          nodeId: node.id,
+          attempt,
+          maxAttempts: repeat.maxAttempts,
+          waitMs: repeat.intervalMs,
+          ...(last ? { logs: last } : {}),
+        });
+        await sleep(repeat.intervalMs);
+      }
     }
 
     case "condition": {
@@ -185,12 +258,11 @@ async function runHttp(
   deps: EngineDeps,
 ): Promise<NodeResult> {
   const url = new URL(renderString(config.url, ctx), deps.baseUrl).toString();
-  // Record header templates, not resolved values, so secrets never land in run history.
-  const request = { method: config.method, url, headers: config.headers };
-
   const headers = new Headers();
   for (const [name, template] of Object.entries(config.headers)) headers.set(name, renderString(template, ctx));
   if (!headers.has("user-agent")) headers.set("user-agent", DEFAULT_USER_AGENT);
+  // The headers as sent (resolved), like the Collections send history.
+  const request = { method: config.method, url, headers: Object.fromEntries(headers) };
   let body: string | undefined;
   if (config.body !== undefined && config.method !== "GET") {
     body = JSON.stringify(renderJson(config.body, ctx));

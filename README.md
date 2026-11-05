@@ -31,8 +31,9 @@ In production set `REQORA_SECRET_KEY` (32 bytes, hex or base64) — the server r
   press **Deploy** to promote the draft. The canvas shows `Draft vN · live vM`.
 - **Environments.** `production`, `staging`, `sandbox`, picked in the top bar. Each has its own variables
   (Secrets page). `{{env.NAME}}` resolves from the run's environment, then falls back to the server variable
-  `REQORA_ENV_NAME`. Secret values are AES-256-GCM encrypted at rest, write-only through the API, and scrubbed
-  from stored run history even if an upstream echoes them.
+  `REQORA_ENV_NAME`. Secret values are AES-256-GCM encrypted at rest and write-only through the API. Run history and the
+  Collections send history show real values (signed-in users only); a deployed webhook's response to its caller
+  has resolved values scrubbed, even if an upstream echoes them.
 
 - **Outbound network policy.** Everything the server sends for a user (Collections sends, workflow HTTP nodes, load
   tests) is checked when each connection opens, including redirects: loopback and private networks are refused

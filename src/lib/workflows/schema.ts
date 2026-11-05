@@ -23,6 +23,34 @@ export const webhookNodeSchema = z.object({
   config: z.object({ method: httpMethod, path: z.string().max(500) }),
 });
 
+export const conditionOperators = ["==", "!=", ">", ">=", "<", "<=", "contains", "exists"] as const;
+
+/** Longest a node may keep repeating (interval × attempts). */
+export const MAX_REPEAT_WAIT_MS = 10 * 60_000;
+
+/**
+ * Repeat until: the node sends again every `intervalMs` until the condition is true (then the run continues) or
+ * `maxAttempts` sends were made (then the step fails). Templates can read this node's latest response.
+ */
+export const repeatUntilSchema = z
+  .object({
+    /** compare: `left operator right` with templates; script: JavaScript that returns true when done. */
+    mode: z.enum(["compare", "script"]).default("compare"),
+    /** Runs in the script sandbox with `response` (status, headers, parsed body), rq / pm, lodash, moment. */
+    script: z.string().max(10_000).optional(),
+    /** Empty while being edited; a run fails until it's filled in. */
+    left: z.string().max(2000),
+    operator: z.enum(conditionOperators),
+    right: z.string().max(2000).optional(),
+    intervalMs: z.number().int().min(100).max(60_000).default(2_000),
+    maxAttempts: z.number().int().min(2).max(100).default(10),
+  })
+  .refine((r) => r.intervalMs * (r.maxAttempts - 1) <= MAX_REPEAT_WAIT_MS, {
+    message: `interval × attempts can wait at most ${MAX_REPEAT_WAIT_MS / 60_000} minutes`,
+    path: ["maxAttempts"],
+  });
+export type RepeatUntil = z.infer<typeof repeatUntilSchema>;
+
 export const httpNodeSchema = z.object({
   ...nodeBase,
   type: z.literal("http"),
@@ -37,10 +65,9 @@ export const httpNodeSchema = z.object({
      * collection/folder auth and headers), so edits in Collections apply here; the fields above are its last copy.
      */
     requestId: z.string().min(1).max(100).optional(),
+    repeat: repeatUntilSchema.optional(),
   }),
 });
-
-export const conditionOperators = ["==", "!=", ">", ">=", "<", "<=", "contains", "exists"] as const;
 
 export const conditionNodeSchema = z.object({
   ...nodeBase,
@@ -195,7 +222,12 @@ export type Step = {
   error?: string;
   /** Skipped because the node is disabled (the run went on through it). */
   disabled?: boolean;
+  /** How many times a "repeat until" node sent its request. */
+  attempts?: number;
+  /** A "repeat until" node's condition checks (most recent 20): result, script console output or error. */
+  checks?: RepeatCheck[];
 };
+export type RepeatCheck = { attempt: number; met: boolean; logs?: string[]; error?: string };
 
 export type RunTrigger = {
   source: "manual" | "webhook";

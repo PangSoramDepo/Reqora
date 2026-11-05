@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { notFound, problem } from "@/lib/http";
-import { runWorkflow } from "@/lib/workflows/runner";
+import { runWorkflow, scrub } from "@/lib/workflows/runner";
 import { environmentSchema } from "@/lib/workflows/schema";
 import { getDeployedWorkflow, getWorkflow } from "@/lib/workflows/store";
 
@@ -29,13 +29,14 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/hooks/[
     }
   }
 
-  const run = await runWorkflow(
+  const { run, secrets } = await runWorkflow(
     workflow,
     { source: "webhook", body, headers: Object.fromEntries(request.headers) },
     { baseUrl: request.nextUrl.origin, environment: environment.data },
   );
 
   const headers = { "x-reqora-run-id": run.id };
-  if (run.output) return Response.json(run.output.body, { status: run.output.status, headers });
+  // The caller is outside the app: scrub resolved secrets from what it gets back (history keeps real values).
+  if (run.output) return Response.json(scrub(run.output.body, secrets), { status: run.output.status, headers });
   return Response.json({ runId: run.id, status: run.status }, { status: 202, headers });
 }

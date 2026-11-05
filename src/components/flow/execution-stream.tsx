@@ -13,7 +13,7 @@ export function ExecutionStream({
   onClear,
 }: {
   run?: Run;
-  live?: { steps: Step[]; activeName?: string };
+  live?: { steps: Step[]; activeName?: string; note?: string };
   onClear: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -129,7 +129,7 @@ export function ExecutionStream({
             <div className="flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg shrink-0 bg-primary/15 ring-1 ring-primary/40 animate-pulse">
               <Icon name="progress_activity" className="animate-spin text-body-sm text-primary" />
               <span className="text-primary font-bold text-label-sm">{live.activeName.toUpperCase()}</span>
-              <span className="text-on-surface-variant">running…</span>
+              <span className="text-on-surface-variant">{live.note ?? "running…"}</span>
             </div>
           </>
         )}

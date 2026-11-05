@@ -113,7 +113,7 @@ describe("linked http nodes", () => {
     const result = await executeWorkflow(chain(login.id, me.id), { source: "manual" }, deps(fetch));
     expect(result.status).toBe("succeeded");
     expect(header(calls[1].init, "authorization")).toBe("Bearer tok-123");
-    expect(result.steps[2].request?.headers.Authorization).toBe("[redacted]");
+    expect(result.steps[2].request?.headers.Authorization).toBe("Bearer tok-123");
   });
 
   it("fail the step on a failed test or a script error, and skip what follows", async () => {
@@ -153,7 +153,7 @@ describe("linked http nodes", () => {
     const a = savedRequest("A", { url: "https://api.test/a" });
     const events: ProgressEvent[] = [];
     await executeWorkflow(chain(a.id), { source: "manual" }, deps(capture().fetch, { onProgress: (e) => events.push(e) }));
-    expect(events.map((e) => (e.type === "node" ? `start ${e.nodeId}` : `${e.step.status} ${e.step.nodeId}`))).toEqual([
+    expect(events.map((e) => (e.type === "node" ? `start ${e.nodeId}` : e.type === "step" ? `${e.step.status} ${e.step.nodeId}` : `attempt ${e.nodeId}`))).toEqual([
       "start in",
       "succeeded in",
       "start n1",
@@ -166,6 +166,12 @@ describe("linked http nodes", () => {
     const synced = linked.syncLinkedNodes(chain(login.id));
     const node = synced.nodes[1] as Extract<WorkflowNode, { type: "http" }>;
     expect(node.config).toMatchObject({ method: "PATCH", url: "https://api.test/v3/login", requestId: login.id });
+
+    // Flow-only settings survive the refresh.
+    const withRepeat = chain(login.id);
+    const repeat = { mode: "compare" as const, left: "{{n1.body.status}}", operator: "==" as const, right: "DONE", intervalMs: 1000, maxAttempts: 5 };
+    (withRepeat.nodes[1] as Extract<WorkflowNode, { type: "http" }>).config.repeat = repeat;
+    expect((linked.syncLinkedNodes(withRepeat).nodes[1] as Extract<WorkflowNode, { type: "http" }>).config.repeat).toEqual(repeat);
 
     const gone = linked.syncLinkedNodes(chain("req_missing"));
     expect(gone.nodes[1]).toEqual(chain("req_missing").nodes[1]);

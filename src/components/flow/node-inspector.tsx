@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
+import { NumberField } from "@/components/number-field";
 import { fetchRequest } from "@/lib/collections/client";
 import { ApiError } from "@/lib/workflows/client";
 import type { Step, WorkflowNode } from "@/lib/workflows/schema";
 import { NodeConfigForm } from "./node-config-form";
 import { NodeDocs } from "./node-docs";
+import { RepeatChecks } from "./repeat-checks";
+import { RepeatUntilEditor } from "./repeat-until-editor";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
 
@@ -173,16 +176,17 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
           <label className={SECTION_LABEL} htmlFor="node-timeout">
             Timeout (ms)
           </label>
-          <input
+          <NumberField
             id="node-timeout"
+            label="Timeout (ms)"
             className={`${ROW} text-on-surface focus:outline-none`}
-            type="number"
             min={100}
             max={30000}
             step={100}
+            integer
             readOnly={linked}
             value={node.config.timeoutMs}
-            onChange={(e) => update({ timeoutMs: Math.min(30000, Math.max(100, Number(e.target.value) || 100)) })}
+            onCommit={(timeoutMs) => update({ timeoutMs })}
           />
           <span className="font-body-sm text-body-sm text-outline">Responses with status ≥ 400 fail the run.</span>
         </div>
@@ -335,6 +339,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
             </div>
 
             <HttpPanels node={node} tab={tab} onChange={onChange} />
+            <RepeatUntilEditor node={node} onChange={onChange} />
           </>
         ) : (
           <NodeConfigForm node={node} onChange={onChange} />
@@ -389,6 +394,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
               {step.error}
             </div>
           )}
+          {step?.checks && step.checks.length > 0 && <RepeatChecks checks={step.checks} attempts={step.attempts} />}
           <div className={`${CODE_BLOCK} leading-snug text-on-surface-variant max-h-56`}>
             {step?.output !== undefined
               ? JSON.stringify(step.output, null, 2)

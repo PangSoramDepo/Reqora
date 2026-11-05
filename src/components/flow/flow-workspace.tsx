@@ -65,7 +65,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const [showDeployments, setShowDeployments] = useState(false);
   const [deploymentsKey, setDeploymentsKey] = useState(0);
   // While a run executes: the steps finished so far and the node running now, replayed at a watchable pace.
-  const [live, setLive] = useState<{ steps: Step[]; activeId: string | null } | null>(null);
+  /** `note`: what the active node is doing, e.g. a "repeat until" node waiting between attempts. */
+  const [live, setLive] = useState<{ steps: Step[]; activeId: string | null; note?: string } | null>(null);
   const [deploying, setDeploying] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "saved" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -246,12 +247,20 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     const onProgress = (event: RunProgress) => {
       queue = queue.then(async () => {
         if (event.type === "node") {
-          setLive((l) => l && { ...l, activeId: event.nodeId });
+          setLive((l) => l && { ...l, activeId: event.nodeId, note: undefined });
           shownAt = Date.now();
           return;
         }
+        if (event.type === "attempt") {
+          const last = event.logs?.at(-1);
+          const note = `condition not met · attempt ${event.attempt + 1}/${event.maxAttempts} in ${formatWait(event.waitMs)}${
+            last ? ` — ${last.length > 60 ? `${last.slice(0, 60)}…` : last}` : ""
+          }`;
+          setLive((l) => l && { ...l, activeId: event.nodeId, note });
+          return;
+        }
         if (event.step.status !== "skipped") await wait(MIN_ACTIVE_MS - (Date.now() - shownAt));
-        setLive((l) => l && { steps: [...l.steps, event.step], activeId: l.activeId === event.step.nodeId ? null : l.activeId });
+        setLive((l) => l && { steps: [...l.steps, event.step], activeId: l.activeId === event.step.nodeId ? null : l.activeId, note: undefined });
         if (event.step.status === "succeeded") await wait(HANDOFF_MS); // let the wire carry the output
       });
     };
@@ -506,7 +515,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           selectedId={selectedId}
           selectedEdgeId={selectedEdgeId}
           pulsingNodeId={pulsingNodeId}
-          live={live ? { activeId: live.activeId } : undefined}
+          live={live ? { activeId: live.activeId, note: live.note } : undefined}
           onSelect={(id) => {
             setSelectedId(id);
             setSelectedEdgeId(null);
@@ -551,9 +560,13 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
       </div>
       <ExecutionStream
         run={run}
-        live={live ? { steps: live.steps, activeName } : undefined}
+        live={live ? { steps: live.steps, activeName, note: live.note } : undefined}
         onClear={() => setRun(undefined)}
       />
     </div>
   );
+}
+
+function formatWait(ms: number) {
+  return ms < 1000 ? `${ms}ms` : `${Number((ms / 1000).toFixed(1))}s`;
 }

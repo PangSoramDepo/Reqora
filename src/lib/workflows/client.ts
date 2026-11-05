@@ -100,7 +100,11 @@ export function saveWorkflow(workflow: Workflow) {
 export const startRun = (workflowId: string, trigger: Omit<RunTrigger, "source">, environment: Environment) =>
   request<Run>(`/api/workflows/${workflowId}/runs`, { method: "POST", body: JSON.stringify({ trigger, environment }) });
 
-export type RunProgress = { type: "node"; nodeId: string } | { type: "step"; step: Run["steps"][number] };
+export type RunProgress =
+  | { type: "node"; nodeId: string }
+  | { type: "step"; step: Run["steps"][number] }
+  /** A "repeat until" node is waiting to send again. */
+  | { type: "attempt"; nodeId: string; attempt: number; maxAttempts: number; waitMs: number; logs?: string[] };
 
 /** Starts a run and reports each node as it starts and finishes; resolves with the stored run. */
 export async function startRunLive(
