@@ -13,6 +13,12 @@ info:
     `{{node-2.body.customer_id}}`). In an HTTP `body`, a placeholder inside a JSON string literal is inserted
     as string content; a bare placeholder is inserted as a JSON value.
 
+    Paths also work on lists: `[0]` / `[-1]` pick an item by position, `[*]` takes every item, `['a.b']` reads
+    a key containing dots, and `[field = value]` keeps the items whose field matches (also `!=`, `>`, `>=`,
+    `<`, `<=`; the field may be a dotted path; quote the value with `'` or `"`, or leave it bare). A field
+    name after a list takes that field from every item, except `length` and positions. Example:
+    `{{http-1.body.data.records[grp='PettyCash'][0].account_number}}`.
+
     Errors use `application/problem+json` (RFC 9457).
 
     **Scripts (collections).** Pre-request and post-response scripts are JavaScript run in a QuickJS sandbox

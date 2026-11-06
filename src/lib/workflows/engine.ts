@@ -1,7 +1,7 @@
 import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import { topologicalOrder } from "./graph";
 import type { RepeatCheck, RunStatus, RunTrigger, Step, Workflow, WorkflowNode } from "./schema";
-import { TemplateError, renderJson, renderString, renderValue, type TemplateContext } from "./template";
+import { TemplateError, looseEquals, renderJson, renderString, renderValue, type TemplateContext } from "./template";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
 
@@ -375,10 +375,4 @@ function compare(left: unknown, operator: string, right: unknown): boolean {
       return a <= b;
   }
   throw new Error(`unknown operator "${operator}"`);
-}
-
-/** Template values are often strings ("500") compared to numbers (500); treat those as equal. */
-function looseEquals(a: unknown, b: unknown): boolean {
-  if (typeof a === "object" || typeof b === "object") return JSON.stringify(a) === JSON.stringify(b);
-  return String(a) === String(b);
 }

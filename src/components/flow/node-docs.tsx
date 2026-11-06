@@ -25,15 +25,20 @@ export const NODE_DOCS: Record<NodeType, Doc> = {
     config: [
       "Left / right accept templates, e.g. {{trigger.body.amount}} > 500.",
       "Operators: == != > >= < <= contains exists. Numeric comparisons need numbers on both sides.",
+      "Lists: {{node-id.body.items[status='paid'].length}} > 0 checks that some item matches; [0] / [-1] pick the first / last item.",
     ],
     outputs: ["{{id.result}} — true or false", "Connect the true and false ports to different nodes"],
     tips: ["A missing value fails the step (\"cannot compare…\"): check the field path in the previous node's output.", "Disabled conditions let the run continue down both branches."],
   },
   transform: {
     summary: "Builds a new object from templates — rename, combine or pick fields for later nodes.",
-    config: ["Each output key gets a template value, e.g. total = {{trigger.body.amount}}."],
+    config: [
+      "Each output key gets a template value, e.g. total = {{trigger.body.amount}}.",
+      "Filter a list: {{node-id.body.records[grp='PettyCash'][0].account_number}} — the first matching item's field. Also != > >= < <=.",
+      "Map a list: {{node-id.body.records.account_number}} — that field from every item, as a list. [0] / [-1] pick the first / last item; .length counts.",
+    ],
     outputs: ["{{id.key}} — each key you defined"],
-    tips: ["A template that is exactly one reference keeps its type (numbers stay numbers)."],
+    tips: ["A template that is exactly one reference keeps its type (numbers stay numbers, lists stay lists).", "No match gives an empty value; add a Condition with exists to branch on it."],
   },
   delay: {
     summary: "Waits before continuing (up to 10 seconds).",
