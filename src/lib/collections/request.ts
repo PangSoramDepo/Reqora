@@ -1,4 +1,4 @@
-import { renderJson, renderString, TemplateError, type TemplateContext } from "@/lib/workflows/template";
+import { InvalidJsonError, renderJson, renderString, TemplateError, type TemplateContext } from "@/lib/workflows/template";
 import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import type { Auth, Body, KeyValue, RequestDefinition, SentFile, SentFormPart } from "./schema";
 
@@ -246,7 +246,16 @@ export function renderDraft(
   let body: string | undefined;
   if (sendsBody && draft.body !== undefined) {
     if (bodyType === "json") {
-      body = draft.body.trim() === "" ? undefined : JSON.stringify(renderJson(draft.body, ctx));
+      if (draft.body.trim() === "") body = undefined;
+      else {
+        try {
+          body = JSON.stringify(renderJson(draft.body, ctx));
+        } catch (error) {
+          // Like Postman, a JSON body that doesn't parse (a JWT, a typo, a partial document) is sent as written.
+          if (!(error instanceof InvalidJsonError)) throw error;
+          body = render(draft.body);
+        }
+      }
       if (body !== undefined && !hasHeader("content-type")) headers["Content-Type"] = "application/json";
     } else {
       // Text, or a form body a script replaced with raw text.

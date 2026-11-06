@@ -1158,8 +1158,10 @@ paths:
         real values that were sent (secrets included), so only people allowed to use the environment should send.
         Response bodies are capped at 1 MB.
 
-        **When no HTTP response is received** (network error, timeout, missing variable, invalid JSON body
-        template, body over 1 MB) the status is still 200 and the payload is a `SendFailure`. Upstream 4xx/5xx
+        A JSON body that isn't valid JSON after interpolation is sent as written, with its templates filled in.
+
+        **When no HTTP response is received** (network error, timeout, missing variable, body over 1 MB) the
+        status is still 200 and the payload is a `SendFailure`. Upstream 4xx/5xx
         responses are returned as a normal `SendResult`.
       parameters:
         - name: environment

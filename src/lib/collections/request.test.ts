@@ -102,6 +102,17 @@ describe("prepareRequest", () => {
 
   it("throws TemplateError for missing variables", () => {
     expect(() => prepareRequest(def({ url: "https://x.dev/{{env.NOPE}}" }), ctx, "http://localhost")).toThrow(TemplateError);
+    // Also in a JSON body that isn't valid JSON.
+    expect(() => prepareRequest(def({ method: "POST", url: "https://x.dev", body: { type: "json", text: "asdf {{env.NOPE}}" } }), ctx, "http://localhost")).toThrow(TemplateError);
+  });
+
+  it("sends a JSON body that isn't valid JSON as written, with templates filled in", () => {
+    const send = (text: string) => prepareRequest(def({ method: "POST", url: "https://x.dev", body: { type: "json", text } }), ctx, "http://localhost");
+    const prepared = send("asdf");
+    expect(prepared.body).toBe("asdf");
+    expect(prepared.headers["Content-Type"]).toBe("application/json");
+    expect(send('{"token": "{{env.TOKEN}}",}').body).toBe('{"token": "tok_secret",}');
+    expect(send("eyJhbGciOi.{{env.TOKEN}}.sig").body).toBe("eyJhbGciOi.tok_secret.sig");
   });
 });
 

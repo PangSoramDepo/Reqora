@@ -1,5 +1,8 @@
 export class TemplateError extends Error {}
 
+/** The template resolved, but the result isn't valid JSON. */
+export class InvalidJsonError extends TemplateError {}
+
 export type TemplateContext = {
   trigger: { body?: unknown; headers?: Record<string, string> };
   /** Outputs of executed nodes, keyed by node id. */
@@ -77,6 +80,6 @@ export function renderJson(template: string, ctx: TemplateContext): unknown {
   try {
     return JSON.parse(out);
   } catch (error) {
-    throw new TemplateError(`body is not valid JSON after interpolation: ${(error as Error).message}`);
+    throw new InvalidJsonError(`body is not valid JSON after interpolation: ${(error as Error).message}`);
   }
 }
