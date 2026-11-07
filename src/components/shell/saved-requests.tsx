@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { LinkedRequestEditor } from "@/components/flow/linked-request-editor";
 import { Icon } from "@/components/icon";
 import { fetchCollections } from "@/lib/collections/client";
 import { flattenTree, subtreeIds } from "@/lib/collections/folders";
@@ -16,22 +18,49 @@ const METHOD_TONE: Record<string, string> = {
   DELETE: "text-error",
 };
 
-function RequestRow({ request }: { request: RequestSummary }) {
+/** How long a click waits to see whether it's the first half of a double-click (which adds to the canvas). */
+const CLICK_DELAY_MS = 250;
+
+function RequestRow({ request, onEdit }: { request: RequestSummary; onEdit: (id: string) => void }) {
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(clickTimer.current), []);
   return (
     <div
       draggable
-      title={`${request.method} ${request.url}\nDrag onto the canvas, or double-click to add`}
+      data-saved-request-id={request.id}
+      title={`${request.method} ${request.url}\nClick to edit · drag onto the canvas, or double-click to add it`}
       onDragStart={(e) => {
         e.dataTransfer.setData(REQUEST_DRAG_MIME, request.id);
         e.dataTransfer.effectAllowed = "copy";
       }}
-      onDoubleClick={() => window.dispatchEvent(new CustomEvent(ADD_REQUEST_EVENT, { detail: request.id }))}
-      className="flex items-center gap-space-xs px-space-xs py-1 rounded hover:bg-surface-container-high cursor-grab select-none"
+      onClick={() => {
+        clearTimeout(clickTimer.current);
+        clickTimer.current = setTimeout(() => onEdit(request.id), CLICK_DELAY_MS);
+      }}
+      onDoubleClick={() => {
+        clearTimeout(clickTimer.current);
+        window.dispatchEvent(new CustomEvent(ADD_REQUEST_EVENT, { detail: request.id }));
+      }}
+      className="group flex items-center gap-space-xs px-space-xs py-1 rounded hover:bg-surface-container-high cursor-pointer select-none"
     >
       <span className={`font-label-sm text-label-sm font-semibold w-11 shrink-0 ${METHOD_TONE[request.method] ?? "text-outline"}`}>
         {request.method}
       </span>
-      <span className="font-body-sm text-body-sm text-on-surface truncate">{request.name}</span>
+      <span className="font-body-sm text-body-sm text-on-surface truncate flex-1">{request.name}</span>
+      <button
+        type="button"
+        title="Edit request"
+        aria-label={`Edit ${request.name}`}
+        className="p-0.5 rounded text-outline hover:text-on-surface opacity-0 group-hover:opacity-100 focus:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation();
+          clearTimeout(clickTimer.current);
+          onEdit(request.id);
+        }}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <Icon name="edit" className="text-body-sm" />
+      </button>
     </div>
   );
 }
@@ -44,6 +73,14 @@ export function SavedRequests({ query }: { query: string }) {
   const [collections, setCollections] = useState<Collection[] | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [reloadKey, setReloadKey] = useState(0);
+  const [editing, setEditing] = useState<string | null>(null);
+  const router = useRouter();
+  // On the Collections page the main editor is right there; elsewhere edit in a dialog without leaving the page.
+  // (The path is read on click: usePathname would make the sidebar block prerendering.)
+  const edit = (id: string) => {
+    if (window.location.pathname.startsWith("/collections")) router.push(`/collections?request=${encodeURIComponent(id)}`, { scroll: false });
+    else setEditing(id);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -123,13 +160,13 @@ export function SavedRequests({ query }: { query: string }) {
                       </div>
                       <div className="pl-space-sm">
                         {requests.map((r) => (
-                          <RequestRow key={r.id} request={r} />
+                          <RequestRow key={r.id} request={r} onEdit={edit} />
                         ))}
                       </div>
                     </div>
                   ))}
                   {rootRequests.map((r) => (
-                    <RequestRow key={r.id} request={r} />
+                    <RequestRow key={r.id} request={r} onEdit={edit} />
                   ))}
                 </div>
               )}
@@ -137,6 +174,14 @@ export function SavedRequests({ query }: { query: string }) {
           );
         })}
       </div>
+      {editing && (
+        <LinkedRequestEditor
+          requestId={editing}
+          title="Editing a saved Collections request — saving applies to Collections and every flow linked to it"
+          onClose={() => setEditing(null)}
+          onSaved={() => setReloadKey((k) => k + 1)}
+        />
+      )}
     </div>
   );
 }

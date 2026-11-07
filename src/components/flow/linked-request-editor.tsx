@@ -23,18 +23,28 @@ import { fetchVariables } from "@/lib/workflows/client";
 
 type Props = {
   requestId: string;
+  /** The dialog's top line. */
+  title?: string;
   onClose: () => void;
-  /** Called after each save, so the node can refresh its copy of the request. */
-  onSaved: (request: SavedRequest) => void;
+  /** Called after each save (every save also dispatches REQUEST_SAVED_EVENT). */
+  onSaved?: (request: SavedRequest) => void;
 };
+
+/** Window event (detail: the request id) after a saved request changes, so linked flow nodes refresh their copy. */
+export const REQUEST_SAVED_EVENT = "reqora:request-saved";
 
 const toDraft = (r: SavedRequest): Draft => ({ name: r.name, folderId: r.folderId, definition: r.definition });
 
 /**
- * The Collections request editor in a dialog over the canvas: edit a linked node's saved request (params, auth,
- * headers, body, scripts, tests), send it, and save it, without leaving the flow.
+ * The Collections request editor in a dialog: edit a saved request (params, auth, headers, body, scripts, tests),
+ * send it and save it without leaving the page — from a linked flow node or the sidebar's Saved Requests.
  */
-export function LinkedRequestEditor({ requestId, onClose, onSaved }: Props) {
+export function LinkedRequestEditor({
+  requestId,
+  title = "Editing the linked Collections request — saving applies to every flow and run that uses it",
+  onClose,
+  onSaved,
+}: Props) {
   const environment = useEnvironment();
   const [request, setRequest] = useState<SavedRequest | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -90,7 +100,8 @@ export function LinkedRequestEditor({ requestId, onClose, onSaved }: Props) {
         setRequest(saved);
         setDraft(toDraft(saved));
         setNotice({ text: "Saved — Collections and every flow linked to this request use it now.", tone: "ok" });
-        onSaved(saved);
+        onSaved?.(saved);
+        window.dispatchEvent(new CustomEvent(REQUEST_SAVED_EVENT, { detail: saved.id }));
       })
       .catch((e: Error) => setNotice({ text: `Save failed: ${e.message}`, tone: "error" }))
       .finally(() => setSaving(false));
@@ -156,7 +167,7 @@ export function LinkedRequestEditor({ requestId, onClose, onSaved }: Props) {
         <div className="h-11 shrink-0 px-space-sm flex items-center gap-space-xs bg-surface-container-lowest">
           <Icon name="link" className="text-primary text-body-md" />
           <span className="font-label-md text-label-md text-on-surface-variant flex-1 truncate">
-            Editing the linked Collections request — saving applies to every flow and run that uses it
+            {title}
           </span>
           <a
             className="font-label-sm text-label-sm text-primary hover:underline flex items-center gap-1"

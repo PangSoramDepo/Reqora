@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
 import { NumberField } from "@/components/number-field";
-import { fetchRequest, requestToNodeDraft } from "@/lib/collections/client";
-import type { SavedRequest } from "@/lib/collections/schema";
+import { fetchRequest } from "@/lib/collections/client";
 import { ApiError } from "@/lib/workflows/client";
 import type { Step, WorkflowNode } from "@/lib/workflows/schema";
-import { LinkedRequestEditor } from "./linked-request-editor";
+import { LinkedRequestEditor, REQUEST_SAVED_EVENT } from "./linked-request-editor";
 import { NodeConfigForm } from "./node-config-form";
 import { NodeDocs } from "./node-docs";
 import { RepeatChecks, ScriptLogs } from "./repeat-checks";
@@ -48,9 +47,17 @@ type LinkState = { requestId: string; name?: string; missing?: boolean };
  * A node dropped from Collections stays linked to its saved request: runs rebuild it from that request, so its
  * fields are read-only here. Unlinking keeps the current copy as an ordinary, editable node.
  */
-function LinkedRequestBanner({ node, onChange, onEdit, savedName }: { node: HttpNode; onChange: (n: WorkflowNode) => void; onEdit: () => void; savedName?: string }) {
+function LinkedRequestBanner({ node, onChange, onEdit }: { node: HttpNode; onChange: (n: WorkflowNode) => void; onEdit: () => void }) {
   const requestId = node.config.requestId!;
   const [link, setLink] = useState<LinkState>({ requestId });
+  // Bumped when the request is saved from a dialog, to show its new name.
+  const [savedAt, setSavedAt] = useState(0);
+
+  useEffect(() => {
+    const onSaved = (e: Event) => (e as CustomEvent<string>).detail === requestId && setSavedAt(Date.now());
+    window.addEventListener(REQUEST_SAVED_EVENT, onSaved);
+    return () => window.removeEventListener(REQUEST_SAVED_EVENT, onSaved);
+  }, [requestId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +69,7 @@ function LinkedRequestBanner({ node, onChange, onEdit, savedName }: { node: Http
     return () => {
       cancelled = true;
     };
-  }, [requestId]);
+  }, [requestId, savedAt]);
 
   const current = link.requestId === requestId ? link : { requestId };
   const unlink = () => {
@@ -85,7 +92,7 @@ function LinkedRequestBanner({ node, onChange, onEdit, savedName }: { node: Http
             "The linked Collections request was deleted"
           ) : (
             <>
-              Linked to <span className="font-semibold">“{savedName ?? current.name ?? "…"}”</span>
+              Linked to <span className="font-semibold">“{current.name ?? "…"}”</span>
             </>
           )}
         </span>
@@ -218,22 +225,10 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
   const [tab, setTab] = useState<Tab>("Headers");
   const [showDocs, setShowDocs] = useState(false);
   const [copied, setCopied] = useState(false);
-  // The linked request open in the editor dialog, and its name after the last save there.
+  // The linked request open in the editor dialog. Saving there refreshes linked nodes (see FlowWorkspace).
   const [editing, setEditing] = useState<string | null>(null);
-  const [savedName, setSavedName] = useState<{ requestId: string; name: string } | null>(null);
   const linkedId = node.type === "http" ? node.config.requestId : undefined;
   const editLinked = () => linkedId && setEditing(linkedId);
-
-  /** After a save in the editor, refresh the node's copy (method, URL, headers, body) from the saved request. */
-  const refreshLinked = (saved: SavedRequest) => {
-    setSavedName({ requestId: saved.id, name: saved.name });
-    requestToNodeDraft({ requestId: saved.id })
-      .then((draft) => {
-        if (node.type !== "http" || node.config.requestId !== saved.id) return;
-        onChange({ ...node, config: { ...draft.config, ...(node.config.repeat ? { repeat: node.config.repeat } : {}) } });
-      })
-      .catch(() => {}); // The run rebuilds the node from the saved request anyway.
-  };
 
   const copyCurl = async () => {
     if (node.type !== "http") return;
@@ -326,12 +321,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
         {node.type === "http" ? (
           <>
             {node.config.requestId && (
-              <LinkedRequestBanner
-                node={node}
-                onChange={onChange}
-                onEdit={editLinked}
-                savedName={savedName?.requestId === node.config.requestId ? savedName.name : undefined}
-              />
+              <LinkedRequestBanner node={node} onChange={onChange} onEdit={editLinked} />
             )}
             <div className="flex flex-col gap-space-xs">
               <label className={SECTION_LABEL} htmlFor="request-target">
@@ -452,7 +442,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
           </div>
         </div>
       </div>
-      {editing && editing === linkedId && <LinkedRequestEditor requestId={editing} onClose={() => setEditing(null)} onSaved={refreshLinked} />}
+      {editing && editing === linkedId && <LinkedRequestEditor requestId={editing} onClose={() => setEditing(null)} />}
     </aside>
   );
 }

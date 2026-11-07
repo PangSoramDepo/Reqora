@@ -21,6 +21,7 @@ import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflow
 import { SAMPLE_ORDER } from "@/lib/workflows/seed";
 import { createAutosaver, type SaveState } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
+import { REQUEST_SAVED_EVENT } from "./linked-request-editor";
 import { FlowCanvas } from "./flow-canvas";
 import { DeploymentsPanel } from "./deployments-panel";
 import { LoadTestPanel } from "./load-test-panel";
@@ -144,6 +145,30 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     },
     [autosaver, flash],
   );
+
+  // A saved request edited in a dialog (Node Inspector or the sidebar): refresh the copy kept by every node
+  // linked to it, so the cards and inspector show the new method, URL, headers and body. Runs rebuild from the
+  // saved request anyway; this is what the canvas displays.
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const requestId = (event as CustomEvent<string>).detail;
+      if (!autosaver.current()?.nodes.some((n) => n.type === "http" && n.config.requestId === requestId)) return;
+      requestToNodeDraft({ requestId })
+        .then((draft) =>
+          autosaver.update((wf) => ({
+            ...wf,
+            nodes: wf.nodes.map((n) =>
+              n.type === "http" && n.config.requestId === requestId
+                ? { ...n, config: { ...draft.config, ...(n.config.repeat ? { repeat: n.config.repeat } : {}) } }
+                : n,
+            ),
+          })),
+        )
+        .catch(() => {});
+    };
+    window.addEventListener(REQUEST_SAVED_EVENT, onSaved);
+    return () => window.removeEventListener(REQUEST_SAVED_EVENT, onSaved);
+  }, [autosaver]);
 
   const connect = (source: string, sourcePort: string, target: string) => {
     const current = autosaver.current();
