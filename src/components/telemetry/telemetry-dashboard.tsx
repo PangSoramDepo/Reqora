@@ -52,73 +52,251 @@ function niceMax(v: number) {
   return [1, 2, 2.5, 5, 10].map((m) => m * p).find((m) => m >= v)!;
 }
 
-/** Runs per bucket, OK stacked under failed, with a hover tooltip. */
+/** A smooth line through the points that never overshoots them (cubic segments with level control points). */
+function smoothPath(points: { x: number; y: number }[]) {
+  return points
+    .map((p, i) => {
+      if (i === 0) return `M ${p.x},${p.y}`;
+      const prev = points[i - 1];
+      const mid = (prev.x + p.x) / 2;
+      return `C ${mid},${prev.y} ${mid},${p.y} ${p.x},${p.y}`;
+    })
+    .join(" ");
+}
+
+/** The element's width in CSS pixels, kept up to date (so SVG text and markers aren't stretched). */
+function useWidth<T extends HTMLElement>(fallback: number) {
+  const [node, setNode] = useState<T | null>(null);
+  const [width, setWidth] = useState(fallback);
+  useEffect(() => {
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(200, Math.round(entry.contentRect.width))));
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [node]);
+  return [setNode, width] as const;
+}
+
+const compact = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+const PER_BUCKET: Record<number, string> = { 60: "hour", 360: "6h", 1440: "day" };
+
+/**
+ * Successful and failed runs over the window as smooth areas (the design's "throughput & error spectrum"), with
+ * the worst error point marked, a hover crosshair and the window's success rate, error count and peak.
+ */
 function ThroughputChart({ t }: { t: Telemetry }) {
   const [hover, setHover] = useState<number | null>(null);
-  const W = 600;
-  const H = 170;
-  const pad = { top: 8, right: 4, bottom: 4, left: 30 };
-  const max = niceMax(Math.max(...t.buckets.map((b) => b.succeeded + b.failed), 1));
+  const [ref, W] = useWidth<HTMLDivElement>(600);
+  const H = 190;
+  const pad = { top: 18, right: 6, bottom: 6, left: 26 };
+  const n = t.buckets.length;
+  const max = niceMax(Math.max(...t.buckets.map((b) => Math.max(b.succeeded, b.failed)), 1));
   const plotW = W - pad.left - pad.right;
   const plotH = H - pad.top - pad.bottom;
-  const slot = plotW / t.buckets.length;
-  const barW = Math.max(1, slot - 2);
+  const x = (i: number) => pad.left + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const y = (v: number) => pad.top + plotH - (v / max) * plotH;
+  const ok = t.buckets.map((b, i) => ({ x: x(i), y: y(b.succeeded) }));
+  const bad = t.buckets.map((b, i) => ({ x: x(i), y: y(b.failed) }));
+  const area = (line: string) => `${line} L ${x(n - 1)},${y(0)} L ${x(0)},${y(0)} Z`;
+
+  // Annotate the worst error point: the latest spike, otherwise the bucket with the most failures.
+  const spikeIndex = t.spikes.last ? t.buckets.findIndex((b) => b.start === t.spikes.last!.start) : -1;
+  const worst = t.buckets.reduce((best, b, i) => (b.failed > (t.buckets[best]?.failed ?? 0) ? i : best), -1);
+  const marked = spikeIndex >= 0 ? spikeIndex : worst;
+  const mark = marked >= 0 && t.buckets[marked].failed > 0 ? t.buckets[marked] : undefined;
+  const markRate = mark ? mark.failed / (mark.succeeded + mark.failed) : 0;
+  const markLeft = marked >= 0 && x(marked) > W * 0.7;
+
   const point = hover === null ? undefined : t.buckets[hover];
-  const ticks = [0, Math.floor((t.buckets.length - 1) / 2), t.buckets.length - 1];
+  const tickCount = Math.min(7, n);
+  const ticks = Array.from({ length: tickCount }, (_, k) => Math.round((k / Math.max(1, tickCount - 1)) * (n - 1)));
 
   return (
-    <div className="relative">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full h-56"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label="Workflow runs per period, OK and failed"
-        onPointerLeave={() => setHover(null)}
-        onPointerMove={(e) => {
-          const box = e.currentTarget.getBoundingClientRect();
-          const i = Math.floor((((e.clientX - box.left) / box.width) * W - pad.left) / slot);
-          setHover(i >= 0 && i < t.buckets.length ? i : null);
-        }}
-      >
-        {[0, max / 2, max].map((v) => (
-          <g key={v}>
-            <line x1={pad.left} x2={W - pad.right} y1={y(v)} y2={y(v)} stroke="#1b2b3f" strokeDasharray="3,3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-            <text x={pad.left - 4} y={y(v) + 3} textAnchor="end" className="fill-outline text-[9px] font-mono">
-              {Number.isInteger(v) ? v : v.toFixed(1)}
-            </text>
-          </g>
-        ))}
-        {t.buckets.map((b, i) => {
-          const x = pad.left + i * slot + 1;
-          const okTop = y(b.succeeded);
-          const failTop = y(b.succeeded + b.failed);
-          return (
-            <g key={b.start} opacity={hover === null || hover === i ? 1 : 0.55}>
-              {b.succeeded > 0 && <rect x={x} y={okTop} width={barW} height={y(0) - okTop} rx={1.5} fill={OK_COLOR} />}
-              {b.failed > 0 && <rect x={x} y={failTop} width={barW} height={Math.max(0.5, okTop - failTop - (b.succeeded ? 1 : 0))} rx={1.5} fill={FAIL_COLOR} />}
-            </g>
-          );
-        })}
-      </svg>
-      <div className="flex justify-between font-label-sm text-label-sm text-outline mt-space-xs pl-[5%]">
-        {ticks.map((i) => (
-          <span key={i}>{i === t.buckets.length - 1 ? "Now" : bucketLabel(t.buckets[i].start, t.bucketMinutes)}</span>
-        ))}
-      </div>
-      {point && (
-        <div
-          className="pointer-events-none absolute top-0 -translate-x-1/2 px-space-xs py-1 rounded bg-surface-container-highest shadow-lg font-label-sm text-label-sm text-on-surface whitespace-nowrap z-10"
-          style={{ left: `${((pad.left + (hover! + 0.5) * slot) / W) * 100}%` }}
+    <div className="flex flex-col flex-1">
+      <div ref={ref} className="relative w-full pt-space-xs">
+        <svg
+          width={W}
+          height={H}
+          viewBox={`0 0 ${W} ${H}`}
+          className="block overflow-visible"
+          role="img"
+          aria-label={`Successful and failed runs per ${PER_BUCKET[t.bucketMinutes] ?? "period"}, last ${t.window}`}
+          onPointerLeave={() => setHover(null)}
+          onPointerMove={(e) => {
+            const box = e.currentTarget.getBoundingClientRect();
+            const px = e.clientX - box.left;
+            const i = Math.round(((px - pad.left) / Math.max(1, plotW)) * (n - 1));
+            setHover(i >= 0 && i < n ? i : null);
+          }}
         >
-          <div className="text-outline">{bucketLabel(point.start, t.bucketMinutes)}</div>
-          <div>
-            {point.succeeded} OK · {point.failed} failed
+          <defs>
+            <linearGradient id="okAreaGrad" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-primary)" stopOpacity={0.32} />
+              <stop offset="100%" stopColor="var(--color-primary)" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="errorAreaGrad" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-error)" stopOpacity={0.45} />
+              <stop offset="100%" stopColor="var(--color-error)" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          {[max / 4, max / 2, (max * 3) / 4, max].map((v) => (
+            <g key={v}>
+              <line x1={pad.left} x2={W - pad.right} y1={y(v)} y2={y(v)} stroke="#1b2b3f" strokeDasharray="3,3" strokeWidth={1} />
+              <text x={pad.left - 6} y={y(v) + 3} textAnchor="end" className="fill-outline font-mono" fontSize={9}>
+                {Number.isInteger(v) ? v : v.toFixed(1)}
+              </text>
+            </g>
+          ))}
+          <line x1={pad.left} x2={W - pad.right} y1={y(0)} y2={y(0)} stroke="#1b2b3f" strokeWidth={1} />
+
+          <path d={area(smoothPath(ok))} fill="url(#okAreaGrad)" />
+          <path d={smoothPath(ok)} fill="none" stroke="var(--color-primary)" strokeLinecap="round" strokeWidth={2.5} />
+          <path d={area(smoothPath(bad))} fill="url(#errorAreaGrad)" />
+          <path d={smoothPath(bad)} fill="none" stroke="var(--color-error)" strokeLinecap="round" strokeWidth={1.8} />
+
+          {mark && (
+            <g data-testid="error-spike">
+              <circle className="fill-error animate-ping origin-center [transform-box:fill-box]" cx={x(marked)} cy={y(mark.failed)} r={3.5} />
+              <circle className="fill-error" cx={x(marked)} cy={y(mark.failed)} r={3.5} />
+              <text
+                x={x(marked) + (markLeft ? -8 : 8)}
+                y={y(mark.failed) - 8}
+                textAnchor={markLeft ? "end" : "start"}
+                fill="var(--color-error)"
+                fontFamily="JetBrains Mono, monospace"
+                fontSize={9}
+              >
+                {mark.failed} failed ({pctText(markRate)}) · {bucketLabel(mark.start, t.bucketMinutes)}
+              </text>
+            </g>
+          )}
+
+          {point && (
+            <g pointerEvents="none">
+              <line x1={x(hover!)} x2={x(hover!)} y1={pad.top} y2={y(0)} stroke="var(--color-outline)" strokeOpacity={0.5} strokeWidth={1} />
+              <circle cx={x(hover!)} cy={y(point.succeeded)} r={4} fill="var(--color-primary)" stroke="#0b1c30" strokeWidth={2} />
+              <circle cx={x(hover!)} cy={y(point.failed)} r={4} fill="var(--color-error)" stroke="#0b1c30" strokeWidth={2} />
+            </g>
+          )}
+        </svg>
+        {point && (
+          <div
+            className="pointer-events-none absolute top-0 -translate-x-1/2 px-space-xs py-1 rounded bg-surface-container-highest shadow-lg font-label-sm text-label-sm text-on-surface whitespace-nowrap z-10"
+            style={{ left: Math.min(Math.max(x(hover!), 95), W - 95) }}
+          >
+            <div className="text-outline">{bucketLabel(point.start, t.bucketMinutes)}</div>
+            <div className="flex items-center gap-space-xs">
+              <span className="w-2 h-2 rounded bg-primary" /> {point.succeeded} successful
+              <span className="w-2 h-2 rounded bg-error ml-space-xs" /> {point.failed} failed
+            </div>
+          </div>
+        )}
+        <div className="flex justify-between font-label-sm text-label-sm text-outline mt-space-xs" style={{ paddingLeft: pad.left }}>
+          {ticks.map((i, k) => (
+            <span key={k}>{i === n - 1 ? "Now (Live)" : bucketLabel(t.buckets[i].start, t.bucketMinutes)}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Quick sub-metric footnotes */}
+      <div className="grid grid-cols-3 gap-space-sm mt-space-sm bg-surface-container-lowest/60 rounded p-space-xs">
+        <div className="flex flex-col">
+          <span className="font-label-sm text-label-sm text-outline">SUCCESS RATE</span>
+          <span className="font-headline-sm text-headline-sm text-primary font-bold">{t.totals.successRate === null ? "—" : pctText(t.totals.successRate)}</span>
+        </div>
+        <div className="flex flex-col">
+          <span className="font-label-sm text-label-sm text-outline">ERROR COUNT</span>
+          <span className="font-headline-sm text-headline-sm text-error font-bold">{t.totals.failed.toLocaleString()}</span>
+        </div>
+        <div className="flex flex-col">
+          <span className="font-label-sm text-label-sm text-outline">PEAK RUNS / {(PER_BUCKET[t.bucketMinutes] ?? "period").toUpperCase()}</span>
+          <span className="font-headline-sm text-headline-sm text-on-surface font-bold" title={t.peak ? bucketLabel(t.peak.start, t.bucketMinutes) : undefined}>
+            {t.peak ? `${t.peak.runs.toLocaleString()} runs` : "—"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The design's root-cause slices: three tones, then the rest grouped as "Other". */
+const CAUSE_TONES = [
+  { stroke: "text-error", dot: "bg-error", text: "text-error" },
+  { stroke: "text-tertiary", dot: "bg-tertiary", text: "text-tertiary" },
+  { stroke: "text-secondary", dot: "bg-secondary", text: "text-secondary" },
+  { stroke: "text-outline", dot: "bg-outline", text: "text-on-surface-variant" },
+];
+
+/** Failures by cause as a donut with the total in the middle, and a legend with share and count. */
+function RootCauseDonut({ t }: { t: Telemetry }) {
+  const [active, setActive] = useState<number | null>(null);
+  const total = t.rootCauses.reduce((sum, c) => sum + c.count, 0);
+  const top = t.rootCauses.slice(0, 3);
+  const rest = t.rootCauses.slice(3).reduce((sum, c) => sum + c.count, 0);
+  const slices = [...top, ...(rest ? [{ label: `Other (${t.rootCauses.length - 3} causes)`, count: rest }] : [])];
+  const GAP = slices.length > 1 ? 0.8 : 0;
+  let offset = 0;
+
+  return (
+    <>
+      <div className="my-space-md flex flex-col items-center">
+        <div className="relative w-36 h-36 flex items-center justify-center">
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 42 42" role="img" aria-label="Failures by root cause">
+            <circle className="text-surface-container-highest stroke-current" cx="21" cy="21" fill="none" r="15.91549430918954" strokeWidth="4.5" />
+            {slices.map((s, i) => {
+              const share = (s.count / total) * 100;
+              const dash = Math.max(0.5, share - GAP);
+              const el = (
+                <circle
+                  key={s.label}
+                  className={`${CAUSE_TONES[i].stroke} stroke-current transition-opacity cursor-pointer`}
+                  cx="21"
+                  cy="21"
+                  fill="none"
+                  r="15.91549430918954"
+                  strokeDasharray={`${dash} ${100 - dash}`}
+                  strokeDashoffset={-offset}
+                  strokeWidth={active === i ? 6 : 5}
+                  opacity={active === null || active === i ? 1 : 0.35}
+                  onPointerEnter={() => setActive(i)}
+                  onPointerLeave={() => setActive(null)}
+                >
+                  <title>{`${s.label}: ${s.count.toLocaleString()} (${Math.round(share)}%)`}</title>
+                </circle>
+              );
+              offset += share;
+              return el;
+            })}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span className="font-headline-md text-headline-md text-on-surface font-bold leading-none">
+              {active === null ? compact(total) : compact(slices[active].count)}
+            </span>
+            <span className="font-label-sm text-label-sm text-outline mt-space-xxs">{active === null ? "FAILS" : `${Math.round((slices[active].count / total) * 100)}%`}</span>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+      <div className="space-y-space-xs" data-testid="root-causes">
+        {slices.map((s, i) => (
+          <div
+            key={s.label}
+            className={`flex items-center justify-between gap-space-xs p-space-xs rounded transition-colors ${active === i ? "bg-surface-container-highest" : "bg-surface-container-high/60"}`}
+            onPointerEnter={() => setActive(i)}
+            onPointerLeave={() => setActive(null)}
+          >
+            <div className="flex items-center gap-space-xs min-w-0">
+              <span className={`w-2 h-2 shrink-0 rounded ${CAUSE_TONES[i].dot}`} />
+              <span className="font-label-sm text-label-sm text-on-surface truncate" title={s.label}>
+                {s.label}
+              </span>
+            </div>
+            <span className={`font-body-sm text-body-sm font-semibold whitespace-nowrap ${CAUSE_TONES[i].text}`}>
+              {Math.round((s.count / total) * 100)}% ({s.count.toLocaleString()})
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -168,7 +346,6 @@ export function TelemetryDashboard() {
 
   const now = data ? Date.parse(data.generatedAt) : 0;
   const t = data;
-  const maxCause = Math.max(1, ...(t?.rootCauses.map((c) => c.count) ?? [1]));
   const bottleneck = t?.pipeline && t.pipeline.nodes.length > 1 ? t.pipeline.nodes.reduce((a, b) => (b.sharePct > a.sharePct ? b : a)) : undefined;
   const showBottleneck = bottleneck && bottleneck.sharePct >= 40;
 
@@ -332,53 +509,61 @@ export function TelemetryDashboard() {
 
           {/* Throughput + root causes */}
           <div className="px-space-lg pt-space-md grid grid-cols-1 lg:grid-cols-12 gap-space-md">
-            <div className={`lg:col-span-8 ${CARD}`}>
-              <div className="flex flex-wrap items-center justify-between gap-space-sm mb-space-sm">
+            <div className="lg:col-span-8 bg-surface-container-low rounded-xl p-space-md shadow-md flex flex-col justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-space-sm mb-space-md">
                 <div>
-                  <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">Execution Throughput &amp; Errors</span>
+                  <div className="flex items-center gap-space-xs">
+                    <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">Execution Throughput &amp; Error Spectrum</span>
+                    <span className="font-label-sm text-label-sm text-outline px-space-xs py-space-xxs rounded bg-surface-container-high">Live {t.window}</span>
+                  </div>
                   <p className="font-body-sm text-body-sm text-on-surface-variant mt-space-xxs">
-                    Runs per {t.bucketMinutes >= 1440 ? "day" : t.bucketMinutes > 60 ? "6 hours" : "hour"}, last {t.window}
+                    Successful runs vs failed runs per {PER_BUCKET[t.bucketMinutes] ?? "period"} across your workflows
                   </p>
                 </div>
-                <div className="flex items-center gap-space-sm font-label-sm text-label-sm text-on-surface-variant">
-                  <span className="flex items-center gap-space-xs">
-                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: OK_COLOR }} /> Succeeded
-                  </span>
-                  <span className="flex items-center gap-space-xs">
-                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: FAIL_COLOR }} /> Failed
-                  </span>
-                  <Link href="/executions" className="px-space-xs py-space-xxs bg-surface-container-highest text-on-surface rounded hover:bg-surface-bright">
-                    Execution History
+                <div className="flex items-center gap-space-sm">
+                  <div className="flex items-center gap-space-xs font-label-sm text-label-sm text-on-surface-variant">
+                    <span className="w-2.5 h-2.5 rounded bg-primary" />
+                    <span>Successful</span>
+                  </div>
+                  <div className="flex items-center gap-space-xs font-label-sm text-label-sm text-on-surface-variant">
+                    <span className="w-2.5 h-2.5 rounded bg-error" />
+                    <span>Errors (failed runs)</span>
+                  </div>
+                  <Link
+                    href="/executions"
+                    className="px-space-xs py-space-xxs bg-surface-container-highest text-on-surface rounded hover:bg-surface-bright transition-colors font-label-sm text-label-sm"
+                    title="Open Execution History"
+                  >
+                    Inspect Raw
                   </Link>
                 </div>
               </div>
               {t.totals.runs ? <ThroughputChart t={t} /> : <Empty>No runs in the last {t.window}. Run a workflow to see data here.</Empty>}
             </div>
 
-            <div className={`lg:col-span-4 ${CARD} flex flex-col`}>
-              <div className="flex items-center justify-between">
-                <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">Error Root Cause</span>
-                <span className="font-label-sm text-label-sm text-outline">{t.totals.failed.toLocaleString()} failed runs</span>
-              </div>
-              <p className="font-body-sm text-body-sm text-on-surface-variant mt-space-xxs mb-space-sm">Grouped by the failing step&apos;s error</p>
-              {t.rootCauses.length === 0 ? (
-                <Empty>No failures in this window.</Empty>
-              ) : (
-                <div className="space-y-space-xs" data-testid="root-causes">
-                  {t.rootCauses.slice(0, 6).map((c) => (
-                    <div key={c.label}>
-                      <div className="flex justify-between font-label-sm text-label-sm mb-space-xxs">
-                        <span className="text-on-surface">{c.label}</span>
-                        <span className="text-on-surface-variant font-semibold">
-                          {c.count.toLocaleString()} ({Math.round((c.count / t.totals.failed) * 100)}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full" style={{ width: `${(c.count / maxCause) * 100}%`, background: FAIL_COLOR }} />
-                      </div>
-                    </div>
-                  ))}
+            <div className="lg:col-span-4 bg-surface-container-low rounded-xl p-space-md shadow-md flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="font-headline-sm text-headline-sm text-on-surface font-semibold">Error Root Cause</span>
+                  <Icon name="pie_chart" className="text-outline text-body-md" />
                 </div>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mt-space-xxs">Failures by the failing step&apos;s error</p>
+              </div>
+              {t.rootCauses.length === 0 ? (
+                <div className="my-space-md flex flex-col items-center gap-space-sm">
+                  <div className="relative w-36 h-36 flex items-center justify-center">
+                    <svg className="w-full h-full -rotate-90" viewBox="0 0 42 42" aria-hidden="true">
+                      <circle className="text-surface-container-highest stroke-current" cx="21" cy="21" fill="none" r="15.91549430918954" strokeWidth="4.5" />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="font-headline-md text-headline-md text-on-surface font-bold leading-none">0</span>
+                      <span className="font-label-sm text-label-sm text-outline mt-space-xxs">FAILS</span>
+                    </div>
+                  </div>
+                  <span className="font-body-sm text-body-sm text-outline">No failures in the last {t.window}.</span>
+                </div>
+              ) : (
+                <RootCauseDonut t={t} />
               )}
             </div>
           </div>
