@@ -1,5 +1,5 @@
 import { ImportError } from "./curl";
-import type { ImportedCollection, ImportedRequest } from "./openapi";
+import type { ImportedCollection, ImportedFolder, ImportedRequest } from "./openapi";
 import {
   emptyDefinition,
   emptyScopeSettings,
@@ -7,6 +7,7 @@ import {
   type Assertion,
   type Auth,
   type CollectionExport,
+  type ExportedFolder,
   type ExampleResponse,
   type KeyValue,
   type RequestDefinition,
@@ -17,7 +18,7 @@ import {
 /**
  * Postman Collection v2.0 / v2.1 import and export.
  *
- * Import: folders (nested ones are flattened as "Parent / Child", inheriting the parent's auth and scripts),
+ * Import: folders and sub-folders (each inheriting from the folders above it),
  * requests, auth, headers, query params, raw/urlencoded/GraphQL bodies, pre-request and test scripts (they run
  * through Reqora's `pm` compatibility layer) and saved responses. `{{name}}` becomes `{{env.name}}`, or
  * `{{vars.name}}` when the collection's scripts set it with `pm.variables.set`.
@@ -234,40 +235,28 @@ export function importPostman(text: string): PostmanImport {
     return { name: (str(item.name) || "Request").slice(0, 120), definition: def, ...(examples.length ? { examples } : {}) };
   };
 
-  const settingsOf = (node: Obj, inherited: ScopeSettings | undefined, where: string): ScopeSettings => {
+  const settingsOf = (node: Obj, where: string): ScopeSettings => {
     const { pre, post } = scriptsOf(node);
-    const join = (a: string | undefined, b: string) => [a, b].filter((s) => s && s.trim()).join("\n\n");
-    return {
-      ...emptyScopeSettings(),
-      auth: auth(node.auth, where) ?? inherited?.auth ?? { type: "inherit" },
-      headers: [],
-      preScript: join(inherited?.preScript, pre),
-      postScript: join(inherited?.postScript, post),
-    };
+    return { ...emptyScopeSettings(), auth: auth(node.auth, where) ?? { type: "inherit" }, headers: [], preScript: pre, postScript: post };
   };
 
-  const folders: ImportedCollection["folders"] = [];
-  const requests: ImportedRequest[] = [];
-  const walk = (items: unknown[], parent: { name: string; settings: ScopeSettings } | undefined) => {
+  /** Folders (and their sub-folders) and requests at one level; sub-folders inherit through the folder tree. */
+  const walk = (items: unknown[], path: string): { folders: ImportedFolder[]; requests: ImportedRequest[] } => {
+    const level = { folders: [] as ImportedFolder[], requests: [] as ImportedRequest[] };
     for (const item of items) {
       if (!isObj(item)) continue;
       const name = (str(item.name) || "Untitled").slice(0, 120);
       if (Array.isArray(item.item)) {
-        const path = parent ? `${parent.name} / ${name}`.slice(0, 120) : name;
-        if (parent) notes.add(`Nested folders were flattened (e.g. "${path}"), keeping their parent's auth and scripts.`);
-        const settings = settingsOf(item, parent?.settings, `Folder "${path}"`);
-        const folder = { name: path, settings, requests: [] as ImportedRequest[] };
-        folders.push(folder);
-        for (const child of item.item) {
-          if (isObj(child) && !Array.isArray(child.item)) folder.requests.push(request(child, `"${str(child.name)}"`));
-        }
-        walk(item.item.filter((c) => isObj(c) && Array.isArray(c.item)), { name: path, settings });
-      } else if (!parent) {
-        requests.push(request(item, `"${name}"`));
+        const where = path ? `${path} / ${name}` : name;
+        const inner = walk(item.item, where);
+        level.folders.push({ name, settings: settingsOf(item, `Folder "${where}"`), requests: inner.requests, ...(inner.folders.length ? { folders: inner.folders } : {}) });
+      } else {
+        level.requests.push(request(item, `"${name}"`));
       }
     }
+    return level;
   };
-  walk(doc.item, undefined);
+  const { folders, requests } = walk(doc.item, "");
 
   const variables = arr(doc.variable)
     .filter(isObj)
@@ -286,7 +275,7 @@ export function importPostman(text: string): PostmanImport {
   return {
     name: (str(doc.info.name) || "Postman collection").slice(0, 120),
     ...(description ? { description: description.slice(0, 2000) } : {}),
-    settings: settingsOf(doc, undefined, "Collection"),
+    settings: settingsOf(doc, "Collection"),
     folders,
     requests,
     variables,
@@ -385,7 +374,15 @@ function postmanItem(r: ExportedRequest): Obj {
 export function exportPostman(exported: CollectionExport): Obj {
   const c = exported.collection;
   const auth = postmanAuth(c.settings.auth);
-  const folderAuth = (s: ScopeSettings) => postmanAuth(s.auth);
+  const folderItem = (f: ExportedFolder): Obj => {
+    const fa = postmanAuth(f.settings.auth);
+    return {
+      name: f.name,
+      ...events(f.settings.preScript, f.settings.postScript),
+      ...(fa ? { auth: fa } : {}),
+      item: [...(f.folders ?? []).map(folderItem), ...f.requests.map(postmanItem)],
+    };
+  };
   return {
     info: {
       name: c.name,
@@ -395,10 +392,7 @@ export function exportPostman(exported: CollectionExport): Obj {
     ...events(c.settings.preScript, c.settings.postScript),
     ...(auth ? { auth } : {}),
     item: [
-      ...c.folders.map((f) => {
-        const fa = folderAuth(f.settings);
-        return { name: f.name, ...events(f.settings.preScript, f.settings.postScript), ...(fa ? { auth: fa } : {}), item: f.requests.map(postmanItem) };
-      }),
+      ...c.folders.map(folderItem),
       ...c.requests.map(postmanItem),
     ],
   };

@@ -123,7 +123,8 @@ export const collectionPatchSchema = z
   })
   .refine((v) => v.name !== undefined || v.description !== undefined || v.settings !== undefined, "provide name, description and/or settings");
 
-export const folderInputSchema = z.object({ name });
+/** `parentId`: create it inside that folder (same collection); omitted or null = top level. */
+export const folderInputSchema = z.object({ name, parentId: id.nullable().optional() });
 export const folderPatchSchema = z
   .object({ name: name.optional(), settings: scopeSettingsSchema.optional() })
   .refine((v) => v.name !== undefined || v.settings !== undefined, "provide name and/or settings");
@@ -134,7 +135,8 @@ export const requestMoveSchema = z.object({
   folderId: id.nullable(),
   index: z.number().int().min(0),
 });
-export const folderMoveSchema = z.object({ index: z.number().int().min(0) });
+/** `index` among the target parent's sub-folders; `parentId` moves it into that folder (null = top level), omitted = stays. */
+export const folderMoveSchema = z.object({ index: z.number().int().min(0), parentId: id.nullable().optional() });
 
 export const requestCreateSchema = z.object({
   name,
@@ -225,7 +227,8 @@ export type SendFailure = { error: string; url?: string; request?: SentRequest; 
 export type SendOutcome = SendResult | SendFailure;
 
 export type RequestSummary = { id: string; name: string; method: RequestMethod; url: string; folderId: string | null };
-export type Folder = { id: string; collectionId: string; name: string; position: number; settings: ScopeSettings };
+/** `parentId`: the folder it's in (null = top level of the collection). */
+export type Folder = { id: string; collectionId: string; parentId: string | null; name: string; position: number; settings: ScopeSettings };
 
 export type Collection = {
   id: string;
@@ -271,6 +274,17 @@ const exportedRequestSchema = z.object({
   examples: z.array(exampleInputSchema).max(100).default([]),
 });
 
+/** An exported folder; `folders` are its sub-folders (exports from before nesting have none). */
+const exportedFolderSchema = z.object({
+  name,
+  settings: scopeSettingsSchema.default(emptyScopeSettings),
+  requests: z.array(exportedRequestSchema).max(1000),
+  get folders() {
+    return z.array(exportedFolderSchema).max(200).optional();
+  },
+});
+export type ExportedFolder = z.infer<typeof exportedFolderSchema>;
+
 /**
  * A collection exported from Reqora: settings (auth, headers, scripts), folders with their settings, and every
  * request in order with its examples. Ids are not kept; importing creates a new collection. Environment
@@ -284,10 +298,7 @@ export const collectionExportSchema = z.object({
     name,
     description: z.string().max(2000).optional(),
     settings: scopeSettingsSchema.default(emptyScopeSettings),
-    folders: z
-      .array(z.object({ name, settings: scopeSettingsSchema.default(emptyScopeSettings), requests: z.array(exportedRequestSchema).max(1000) }))
-      .max(200)
-      .default([]),
+    folders: z.array(exportedFolderSchema).max(200).default([]),
     /** Requests at the collection root. */
     requests: z.array(exportedRequestSchema).max(1000).default([]),
   }),

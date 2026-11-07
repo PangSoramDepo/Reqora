@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
 import { NumberField } from "@/components/number-field";
-import { fetchRequest } from "@/lib/collections/client";
+import { fetchRequest, requestToNodeDraft } from "@/lib/collections/client";
+import type { SavedRequest } from "@/lib/collections/schema";
 import { ApiError } from "@/lib/workflows/client";
 import type { Step, WorkflowNode } from "@/lib/workflows/schema";
+import { LinkedRequestEditor } from "./linked-request-editor";
 import { NodeConfigForm } from "./node-config-form";
 import { NodeDocs } from "./node-docs";
 import { RepeatChecks, ScriptLogs } from "./repeat-checks";
@@ -47,7 +48,7 @@ type LinkState = { requestId: string; name?: string; missing?: boolean };
  * A node dropped from Collections stays linked to its saved request: runs rebuild it from that request, so its
  * fields are read-only here. Unlinking keeps the current copy as an ordinary, editable node.
  */
-function LinkedRequestBanner({ node, onChange }: { node: HttpNode; onChange: (n: WorkflowNode) => void }) {
+function LinkedRequestBanner({ node, onChange, onEdit, savedName }: { node: HttpNode; onChange: (n: WorkflowNode) => void; onEdit: () => void; savedName?: string }) {
   const requestId = node.config.requestId!;
   const [link, setLink] = useState<LinkState>({ requestId });
 
@@ -84,14 +85,20 @@ function LinkedRequestBanner({ node, onChange }: { node: HttpNode; onChange: (n:
             "The linked Collections request was deleted"
           ) : (
             <>
-              Linked to <span className="font-semibold">“{current.name ?? "…"}”</span>
+              Linked to <span className="font-semibold">“{savedName ?? current.name ?? "…"}”</span>
             </>
           )}
         </span>
         {!current.missing && (
-          <Link className="font-label-sm text-label-sm text-primary hover:underline shrink-0" href={`/collections?request=${requestId}`}>
-            Open
-          </Link>
+          <button
+            type="button"
+            data-testid="edit-linked-request"
+            className="flex items-center gap-1 px-space-xs py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 font-label-sm text-label-sm shrink-0"
+            title="Edit the request here: params, auth, headers, body, scripts and tests"
+            onClick={onEdit}
+          >
+            <Icon name="edit" className="text-body-sm" /> Edit request
+          </button>
         )}
         <button
           className="font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface hover:underline shrink-0"
@@ -105,13 +112,22 @@ function LinkedRequestBanner({ node, onChange }: { node: HttpNode; onChange: (n:
       <span className="font-label-sm text-label-sm text-outline">
         {current.missing
           ? "Runs of this node fail until you unlink it, which keeps the copy below."
-          : "Each run sends this request exactly like Send in Collections: inherited auth and headers, pre-request and post-response scripts, and tests (a failed test fails the step). rq.variables carry over to later linked nodes. Unlink to edit a copy here instead."}
+          : "Each run sends this request exactly like Send in Collections: inherited auth and headers, pre-request and post-response scripts, and tests (a failed test fails the step). rq.variables carry over to later linked nodes. Edit request changes it everywhere it's used; Unlink to edit a separate copy here instead."}
       </span>
     </div>
   );
 }
 
-function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChange: (n: WorkflowNode) => void }) {
+/** Read-only fields of a linked node: a click opens the request editor. */
+function EditHint({ onEdit }: { onEdit: () => void }) {
+  return (
+    <button type="button" className="self-start font-label-sm text-label-sm text-primary hover:underline flex items-center gap-1" onClick={onEdit}>
+      <Icon name="edit" className="text-body-sm" /> Read-only copy of the linked request — edit it
+    </button>
+  );
+}
+
+function HttpPanels({ node, tab, onChange, onEdit }: { node: HttpNode; tab: Tab; onChange: (n: WorkflowNode) => void; onEdit: () => void }) {
   const update = (config: Partial<HttpNode["config"]>) => onChange({ ...node, config: { ...node.config, ...config } });
   const linked = !!node.config.requestId;
 
@@ -120,6 +136,7 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
       return (
         <div className="flex flex-col gap-space-xs">
           <span className={SECTION_LABEL}>Request Headers</span>
+          {linked && <EditHint onEdit={onEdit} />}
           <div className="flex flex-col gap-space-xxs">
             {Object.entries(node.config.headers).length === 0 && (
               <span className="font-body-sm text-body-sm text-outline">No headers.</span>
@@ -142,11 +159,13 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
           <label className={SECTION_LABEL} htmlFor="node-body">
             Payload Interpolation
           </label>
+          {linked && <EditHint onEdit={onEdit} />}
           <textarea
             id="node-body"
-            className={`${CODE_BLOCK} leading-relaxed text-on-surface min-h-36 resize-y focus:outline-none focus:ring-1 focus:ring-primary/40`}
+            className={`${CODE_BLOCK} leading-relaxed text-on-surface min-h-36 resize-y focus:outline-none focus:ring-1 focus:ring-primary/40 ${linked ? "cursor-pointer" : ""}`}
             spellCheck={false}
             readOnly={linked}
+            onClick={linked ? onEdit : undefined}
             value={node.config.body ?? ""}
             placeholder={'{ "id": "{{node-1.body.id}}" }'}
             onChange={(e) => update({ body: e.target.value === "" ? undefined : e.target.value })}
@@ -188,6 +207,7 @@ function HttpPanels({ node, tab, onChange }: { node: HttpNode; tab: Tab; onChang
             value={node.config.timeoutMs}
             onCommit={(timeoutMs) => update({ timeoutMs })}
           />
+          {linked && <EditHint onEdit={onEdit} />}
           <span className="font-body-sm text-body-sm text-outline">Responses with status ≥ 400 fail the run.</span>
         </div>
       );
@@ -198,6 +218,22 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
   const [tab, setTab] = useState<Tab>("Headers");
   const [showDocs, setShowDocs] = useState(false);
   const [copied, setCopied] = useState(false);
+  // The linked request open in the editor dialog, and its name after the last save there.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [savedName, setSavedName] = useState<{ requestId: string; name: string } | null>(null);
+  const linkedId = node.type === "http" ? node.config.requestId : undefined;
+  const editLinked = () => linkedId && setEditing(linkedId);
+
+  /** After a save in the editor, refresh the node's copy (method, URL, headers, body) from the saved request. */
+  const refreshLinked = (saved: SavedRequest) => {
+    setSavedName({ requestId: saved.id, name: saved.name });
+    requestToNodeDraft({ requestId: saved.id })
+      .then((draft) => {
+        if (node.type !== "http" || node.config.requestId !== saved.id) return;
+        onChange({ ...node, config: { ...draft.config, ...(node.config.repeat ? { repeat: node.config.repeat } : {}) } });
+      })
+      .catch(() => {}); // The run rebuilds the node from the saved request anyway.
+  };
 
   const copyCurl = async () => {
     if (node.type !== "http") return;
@@ -289,7 +325,14 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
 
         {node.type === "http" ? (
           <>
-            {node.config.requestId && <LinkedRequestBanner node={node} onChange={onChange} />}
+            {node.config.requestId && (
+              <LinkedRequestBanner
+                node={node}
+                onChange={onChange}
+                onEdit={editLinked}
+                savedName={savedName?.requestId === node.config.requestId ? savedName.name : undefined}
+              />
+            )}
             <div className="flex flex-col gap-space-xs">
               <label className={SECTION_LABEL} htmlFor="request-target">
                 Request Target
@@ -310,8 +353,10 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
                 </select>
                 <input
                   id="request-target"
-                  className="bg-transparent font-mono text-body-sm text-on-surface px-space-sm py-space-xs w-full focus:outline-none"
+                  className={`bg-transparent font-mono text-body-sm text-on-surface px-space-sm py-space-xs w-full focus:outline-none ${node.config.requestId ? "cursor-pointer" : ""}`}
                   type="text"
+                  title={node.config.requestId ? "Linked request — click to edit it" : undefined}
+                  onClick={node.config.requestId ? editLinked : undefined}
                   readOnly={!!node.config.requestId}
                   value={node.config.url}
                   onChange={(e) => onChange({ ...node, config: { ...node.config, url: e.target.value } })}
@@ -338,7 +383,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
               ))}
             </div>
 
-            <HttpPanels node={node} tab={tab} onChange={onChange} />
+            <HttpPanels node={node} tab={tab} onChange={onChange} onEdit={editLinked} />
             <RepeatUntilEditor node={node} onChange={onChange} />
           </>
         ) : (
@@ -407,6 +452,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
           </div>
         </div>
       </div>
+      {editing && editing === linkedId && <LinkedRequestEditor requestId={editing} onClose={() => setEditing(null)} onSaved={refreshLinked} />}
     </aside>
   );
 }

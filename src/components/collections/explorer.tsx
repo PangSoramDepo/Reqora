@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { collectionExportUrl } from "@/lib/collections/client";
+import { subtreeIds } from "@/lib/collections/folders";
 import type { Collection, Folder, RequestSummary, ScopeSettings } from "@/lib/collections/schema";
 import { REQUEST_DRAG_MIME } from "@/lib/workflows/defaults";
 import { MethodPill } from "./ui";
@@ -25,7 +26,8 @@ type Props = {
   onSelect: (id: string) => void;
   onOpenSettings: (scope: ScopeRef) => void;
   onNewCollection: () => void;
-  onNewFolder: (collectionId: string) => void;
+  /** `parentId` creates a sub-folder inside that folder. */
+  onNewFolder: (collectionId: string, parentId?: string | null) => void;
   onNewRequest: (collectionId: string, folderId: string | null) => void;
   onRename: (kind: NodeKind, id: string, name: string) => void;
   onDelete: (kind: NodeKind, id: string, name: string) => void;
@@ -34,8 +36,8 @@ type Props = {
   onImport: (format: "curl" | "openapi" | "reqora" | "postman") => void;
   /** `index` is the position among the target container's requests, not counting the moved one. */
   onMoveRequest: (id: string, target: RequestTarget) => void;
-  /** `index` is the position among the collection's folders, not counting the moved one. */
-  onMoveFolder: (id: string, index: number) => void;
+  /** `index` is the position among `parentId`'s sub-folders (null = top level), not counting the moved one. */
+  onMoveFolder: (id: string, index: number, parentId: string | null) => void;
 };
 
 /** Folder MIME for explorer-only folder drags (never accepted by the canvas). */
@@ -239,6 +241,19 @@ export function Explorer(props: Props) {
     const rect = e.currentTarget.getBoundingClientRect();
     return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
   };
+  /** Over a folder row while dragging a folder: the top / bottom edge reorders, the middle drops it inside. */
+  const thirds = (e: DragEvent<HTMLElement>): "before" | "into" | "after" => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    return y < rect.height * 0.25 ? "before" : y > rect.height * 0.75 ? "after" : "into";
+  };
+  const expand = (id: string) =>
+    setCollapsed((s) => {
+      if (!s.has(id)) return s;
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
   /** Marks this element as the drop target; stops the tree's "nothing here" handler. */
   const accept = (e: DragEvent<HTMLElement>, id: string, where: DropAt["where"]) => {
     e.stopPropagation();
@@ -253,10 +268,22 @@ export function Explorer(props: Props) {
     if (at.where === "none") return;
     if (d.kind === "folder") {
       const c = collections.find((x) => x.id === d.collectionId);
-      if (!c || at.where === "into") return;
-      const others = c.folders.filter((f) => f.id !== d.id);
-      const i = others.findIndex((f) => f.id === at.id);
-      if (i >= 0) onMoveFolder(d.id, i + (at.where === "after" ? 1 : 0));
+      if (!c) return;
+      const others = (parentId: string | null) => c.folders.filter((f) => f.parentId === parentId && f.id !== d.id);
+      // Onto the collection header: to its top level, last.
+      if (at.id === c.id) {
+        onMoveFolder(d.id, others(null).length, null);
+        return;
+      }
+      const target = c.folders.find((f) => f.id === at.id);
+      if (!target || target.id === d.id) return;
+      if (at.where === "into") {
+        onMoveFolder(d.id, others(target.id).length, target.id);
+        expand(target.id);
+        return;
+      }
+      const siblings = others(target.parentId);
+      onMoveFolder(d.id, siblings.indexOf(target) + (at.where === "after" ? 1 : 0), target.parentId);
       return;
     }
     const siblings = (c: Collection, folderId: string | null) => c.requests.filter((r) => r.folderId === folderId && r.id !== d.id);
@@ -292,11 +319,15 @@ export function Explorer(props: Props) {
     if (index < 0 || to < 0 || to >= count) return;
     onMoveRequest(r.id, { collectionId: c.id, folderId: r.folderId, index: to });
   };
+  const folderNeighbours = (c: Collection, f: Folder) => {
+    const list = c.folders.filter((x) => x.parentId === f.parentId);
+    return { index: list.findIndex((x) => x.id === f.id), count: list.length };
+  };
   const moveFolderBy = (c: Collection, f: Folder, delta: number) => {
-    const index = c.folders.findIndex((x) => x.id === f.id);
+    const { index, count } = folderNeighbours(c, f);
     const to = index + delta;
-    if (index < 0 || to < 0 || to >= c.folders.length) return;
-    onMoveFolder(f.id, to);
+    if (index < 0 || to < 0 || to >= count) return;
+    onMoveFolder(f.id, to, f.parentId);
   };
   /** Alt+↑ / Alt+↓ on a focused row moves it. */
   const moveKeys = (e: KeyboardEvent, move: (delta: number) => void) => {
@@ -390,20 +421,37 @@ export function Explorer(props: Props) {
     );
   };
 
-  const folderBlock = (c: Collection, f: Folder) => {
+  const folderBlock = (c: Collection, f: Folder): ReactNode => {
     const requests = c.requests.filter((r) => r.folderId === f.id);
+    const subFolders = c.folders.filter((x) => x.parentId === f.id);
+    // Everything inside, sub-folders included: for counts, search and "holds the open request".
+    const inside = subtreeIds(c.folders, f.id);
+    const allRequests = c.requests.filter((r) => r.folderId !== null && inside.has(r.folderId));
     const visible = requests.filter(matches);
-    if (q && visible.length === 0 && !f.name.toLowerCase().includes(q)) return null;
+    const folderHit = (x: Folder) => x.name.toLowerCase().includes(q);
+    if (q && !allRequests.some(matches) && !c.folders.some((x) => inside.has(x.id) && folderHit(x))) return null;
     const open = isOpen(f.id);
-    const holdsSelection = requests.some((r) => r.id === selectedId);
+    const holdsSelection = allRequests.some((r) => r.id === selectedId);
     const scopeSelected = selectedScope?.kind === "folder" && selectedScope.id === f.id;
     const editing = renaming?.kind === "folder" && renaming.id === f.id;
     const target = dropAt?.id === f.id ? dropAt.where : undefined;
-    const index = c.folders.findIndex((x) => x.id === f.id);
+    const { index, count } = folderNeighbours(c, f);
     const acceptInto = (e: DragEvent<HTMLElement>) => {
       if (drag?.kind !== "request") return;
       hoverExpand(f.id);
       accept(e, f.id, "into");
+    };
+    const acceptFolder = (e: DragEvent<HTMLElement>) => {
+      if (drag?.kind !== "folder" || drag.id === f.id) return;
+      clearExpand();
+      // Folders stay in their collection and never go inside themselves.
+      if (drag.collectionId !== c.id || subtreeIds(c.folders, drag.id).has(f.id)) {
+        accept(e, f.id, "none");
+        return;
+      }
+      const where = thirds(e);
+      if (where === "into") hoverExpand(f.id);
+      accept(e, f.id, where);
     };
     return (
       <div
@@ -428,11 +476,7 @@ export function Explorer(props: Props) {
           onDragEnd={endDrag}
           onDragOver={(e) => {
             if (drag?.kind === "request") acceptInto(e);
-            else if (drag?.kind === "folder" && drag.id !== f.id) {
-              clearExpand();
-              // Folders only reorder within their own collection.
-              accept(e, f.id, drag.collectionId === c.id ? half(e) : "none");
-            }
+            else acceptFolder(e);
           }}
           onClick={() => toggle(f.id)}
           onKeyDown={(e) => {
@@ -440,7 +484,7 @@ export function Explorer(props: Props) {
             if (e.key === "Enter") toggle(f.id);
           }}
           onDoubleClick={() => setRenaming({ kind: "folder", id: f.id })}
-          title="Drag to reorder · Alt+↑/↓ to move"
+          title="Drag to reorder, or onto the middle of another folder to move it inside · Alt+↑/↓ to move"
           className={`relative px-space-xs py-1 flex items-center justify-between gap-1 cursor-pointer select-none group text-on-surface-variant rounded transition-colors ${
             target === "into" ? "bg-primary/15 ring-1 ring-primary" : target === "none" ? "ring-1 ring-error/60 cursor-no-drop" : scopeSelected ? "bg-primary/10" : ""
           }`}
@@ -462,7 +506,7 @@ export function Explorer(props: Props) {
                   type="button"
                   className={HOVER_BTN}
                   title="Move down (Alt+↓)"
-                  disabled={index >= c.folders.length - 1}
+                  disabled={index >= count - 1}
                   onClick={() => moveFolderBy(c, f, 1)}
                 >
                   <Icon name="arrow_downward" className="text-body-sm" />
@@ -472,6 +516,17 @@ export function Explorer(props: Props) {
                 </button>
                 <button type="button" className={HOVER_BTN} title="New request in folder" onClick={() => onNewRequest(c.id, f.id)}>
                   <Icon name="add" className="text-body-sm" />
+                </button>
+                <button
+                  type="button"
+                  className={HOVER_BTN}
+                  title="New sub-folder"
+                  onClick={() => {
+                    expand(f.id);
+                    onNewFolder(c.id, f.id);
+                  }}
+                >
+                  <Icon name="create_new_folder" className="text-body-sm" />
                 </button>
                 <button type="button" className={HOVER_BTN} title="Rename folder" onClick={() => setRenaming({ kind: "folder", id: f.id })}>
                   <Icon name="edit" className="text-body-sm" />
@@ -485,16 +540,18 @@ export function Explorer(props: Props) {
               </HoverActions>
               <span
                 className={`px-1 rounded font-label-sm text-label-sm ${holdsSelection ? "bg-surface-container text-primary" : "text-outline"}`}
+                title="Requests, including sub-folders"
               >
-                {requests.length}
+                {allRequests.length}
               </span>
             </>
           )}
         </div>
         {open && (
-          <div className="pl-4 pt-0.5 space-y-0.5">
+          <div className="pl-4 pt-0.5 space-y-0.5" role="group">
+            {subFolders.map((sub) => folderBlock(c, sub))}
             {visible.map((r) => requestRow(c, r))}
-            {requests.length === 0 && (
+            {requests.length === 0 && subFolders.length === 0 && (
               <div className="px-space-xs py-0.5 font-body-sm text-body-sm text-outline" onDragOver={acceptInto}>
                 {drag?.kind === "request" ? "Drop here" : "Empty folder"}
               </div>
@@ -518,9 +575,9 @@ export function Explorer(props: Props) {
       if (drag?.kind === "request") {
         hoverExpand(c.id);
         accept(e, c.id, "into");
-      } else if (drag?.kind === "folder" && drag.collectionId !== c.id) {
-        // Folders can't move across collections.
-        accept(e, c.id, "none");
+      } else if (drag?.kind === "folder") {
+        // Back to the top level of its own collection; folders can't move across collections.
+        accept(e, c.id, drag.collectionId === c.id ? "into" : "none");
       }
     };
     return (
@@ -599,7 +656,7 @@ export function Explorer(props: Props) {
         </div>
         {open && (
           <div className="pl-space-sm pr-space-xxs py-space-xxs space-y-space-xxs" role="group">
-            {c.folders.map((f) => folderBlock(c, f))}
+            {c.folders.filter((f) => f.parentId === null).map((f) => folderBlock(c, f))}
             {loose.length > 0 && <div className="space-y-0.5">{loose.map((r) => requestRow(c, r))}</div>}
             {c.requests.length === 0 && c.folders.length === 0 && (
               <button

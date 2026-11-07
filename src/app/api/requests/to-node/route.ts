@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   }
 
   const scopes = requestScopes(source.collectionId, source.folderId);
-  const effective = resolveEffective({ name: source.name, definition: source.definition }, scopes.collection, scopes.folder);
+  const effective = resolveEffective({ name: source.name, definition: source.definition }, scopes.collection, scopes.folders);
   const converted = requestToHttpConfig(source.name, source.definition, effective, { linked: "requestId" in parsed.data });
   if (!converted.ok) return problem(422, "Unprocessable Content", { detail: converted.error });
   // A saved request stays linked: runs rebuild the node from it, so later edits in Collections apply.

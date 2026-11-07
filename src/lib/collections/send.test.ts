@@ -86,10 +86,12 @@ describe("sendRequest with inherited settings and scripts", () => {
             preScript: `rq.variables.set("version", "v2"); console.log("token", rq.environment.get("TOKEN"));`,
           },
         },
-        folder: {
-          name: "Orders",
-          settings: { ...emptyScopeSettings(), preScript: `rq.variables.set("sig", "s-" + rq.variables.get("version"));` },
-        },
+        folders: [
+          {
+            name: "Orders",
+            settings: { ...emptyScopeSettings(), preScript: `rq.variables.set("sig", "s-" + rq.variables.get("version"));` },
+          },
+        ],
       },
       {
         environment: "production",

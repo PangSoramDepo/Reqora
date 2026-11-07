@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
 import { fetchCollections } from "@/lib/collections/client";
+import { flattenTree, subtreeIds } from "@/lib/collections/folders";
 import type { Collection, RequestSummary } from "@/lib/collections/schema";
 import { ADD_REQUEST_EVENT, REQUEST_DRAG_MIME } from "@/lib/workflows/defaults";
 
@@ -88,9 +89,14 @@ export function SavedRequests({ query }: { query: string }) {
       <div className="space-y-space-xxs">
         {collections?.map((collection) => {
           const rootRequests = collection.requests.filter((r) => r.folderId === null && matches(r));
-          const folders = collection.folders
-            .map((f) => ({ folder: f, requests: collection.requests.filter((r) => r.folderId === f.id && matches(r)) }))
-            .filter((f) => f.requests.length > 0);
+          // Tree order; a folder shows when it or a sub-folder holds a matching request.
+          const hits = collection.requests.filter((r) => r.folderId !== null && matches(r));
+          const folders = flattenTree(collection.folders)
+            .map(({ folder, depth }) => ({ folder, depth, requests: hits.filter((r) => r.folderId === folder.id) }))
+            .filter(({ folder }) => {
+              const inside = subtreeIds(collection.folders, folder.id);
+              return hits.some((r) => inside.has(r.folderId!));
+            });
           if (q && rootRequests.length === 0 && folders.length === 0) return null;
           // Collapsed by default; a filter expands everything that matches.
           const expanded = q ? true : (open[collection.id] ?? false);
@@ -109,8 +115,8 @@ export function SavedRequests({ query }: { query: string }) {
               </button>
               {expanded && (
                 <div className="pl-space-sm pr-space-xxs pb-space-xxs">
-                  {folders.map(({ folder, requests }) => (
-                    <div key={folder.id}>
+                  {folders.map(({ folder, depth, requests }) => (
+                    <div key={folder.id} style={{ paddingLeft: `${depth * 0.75}rem` }}>
                       <div className="flex items-center gap-1 px-space-xs py-0.5 font-body-sm text-body-sm text-on-surface-variant">
                         <Icon name="folder" className="text-tertiary-fixed-dim text-body-sm" />
                         <span className="truncate">{folder.name}</span>

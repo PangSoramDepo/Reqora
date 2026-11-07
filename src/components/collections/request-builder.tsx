@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { NumberField } from "@/components/number-field";
 import { beautifyJson } from "@/lib/collections/beautify";
+import { flattenTree, folderPath } from "@/lib/collections/folders";
 import { convertBody } from "@/lib/collections/request";
 import { REQUEST_METHODS, type Collection, type RequestDefinition, type RequestMethod } from "@/lib/collections/schema";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
@@ -46,6 +47,8 @@ type Props = {
   onSend: () => void;
   /** Opens a collection's or folder's settings (from "inherited from …" links). */
   onOpenScope: (source: InheritSource) => void;
+  /** Show "Add to Flow Canvas" (off when editing from the canvas itself). */
+  showAddToFlow?: boolean;
 };
 
 const TAB_IDLE = "px-space-sm py-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors flex items-center gap-1.5";
@@ -120,6 +123,7 @@ export function RequestBuilder({
   onSave,
   onSend,
   onOpenScope,
+  showAddToFlow = true,
 }: Props) {
   const [tab, setTab] = useState<Tab>(draft.definition.body.type !== "none" ? "body" : "params");
   const [beautifyHint, setBeautifyHint] = useState<string | null>(null);
@@ -210,9 +214,10 @@ export function RequestBuilder({
                   }}
                 >
                   <option value="">(no folder)</option>
-                  {collection?.folders.map((f) => (
+                  {/* Tree order; the closed select shows the full path, the list indents sub-folders. */}
+                  {flattenTree(collection?.folders ?? []).map(({ folder: f, depth }) => (
                     <option key={f.id} value={f.id}>
-                      {f.name}
+                      {f.id === draft.folderId ? folderPath(collection!.folders, f.id) : `${"   ".repeat(depth)}${f.name}`}
                     </option>
                   ))}
                 </select>
@@ -223,7 +228,7 @@ export function RequestBuilder({
             </div>
           </div>
           <div className="flex items-center gap-space-xs">
-            <AddToFlow name={draft.name} definition={def} collectionId={collection?.id} folderId={draft.folderId} />
+            {showAddToFlow && <AddToFlow name={draft.name} definition={def} collectionId={collection?.id} folderId={draft.folderId} />}
             <button
               type="button"
               onClick={onSave}

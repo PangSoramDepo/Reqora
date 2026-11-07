@@ -68,15 +68,14 @@ const collection = {
 describe("importPostman", () => {
   const imported = importPostman(JSON.stringify(collection));
 
-  it("maps collection, folders (flattened) and requests", () => {
+  it("maps collection, folders, sub-folders and requests", () => {
     expect(imported.name).toBe("IBB API");
     expect(imported.description).toBe("Bank API");
     expect(imported.settings).toMatchObject({ auth: { type: "bearer", token: "{{env.accessToken}}" }, preScript: 'pm.variables.set("requestId", "r-1");' });
-    expect(imported.folders.map((f) => [f.name, f.requests.map((r) => r.name)])).toEqual([
-      ["Auth", ["Login"]],
-      ["Auth / Admin", ["Users"]],
-    ]);
-    expect(imported.folders[1].settings?.auth).toEqual({ type: "basic", username: "admin", password: "{{env.adminPass}}" });
+    expect(imported.folders.map((f) => [f.name, f.requests.map((r) => r.name)])).toEqual([["Auth", ["Login"]]]);
+    const admin = imported.folders[0].folders![0];
+    expect([admin.name, admin.requests.map((r) => r.name)]).toEqual(["Admin", ["Users"]]);
+    expect(admin.settings?.auth).toEqual({ type: "basic", username: "admin", password: "{{env.adminPass}}" });
     expect(imported.requests.map((r) => r.name)).toEqual(["Upload", "Weird"]);
   });
 
@@ -101,7 +100,7 @@ describe("importPostman", () => {
       { name: "OK", response: { status: 200, statusText: "OK", headers: { "content-type": "application/json" }, body: '{"token":"t"}', size: 13, durationMs: 0 } },
     ]);
 
-    const users = imported.folders[1].requests[0].definition;
+    const users = imported.folders[0].folders![0].requests[0].definition;
     expect([users.url, users.params, users.auth]).toEqual(["{{env.baseUrl}}/users/:id", [{ key: "x", value: "1", enabled: true }], { type: "inherit" }]);
 
     const upload = imported.requests[0].definition;
@@ -121,7 +120,6 @@ describe("importPostman", () => {
       { name: "api_key", value: "k1", secret: true },
     ]);
     const notes = imported.notes.join("\n");
-    expect(notes).toMatch(/Nested folders were flattened/);
     expect(notes).toMatch(/form-data files aren't in Postman exports/);
     expect(notes).toMatch(/method PROPFIND isn't supported/);
     expect(notes).toMatch(/"oauth2" auth isn't supported/);
@@ -211,6 +209,27 @@ describe("exportPostman", () => {
     expect([d.method, d.url, d.auth]).toEqual(["POST", "{{env.baseUrl}}/orders", { type: "bearer", token: "{{env.token}}" }]);
     // "page" is set by a pm.variables script, so it comes back as {{vars.page}}.
     expect(d.params[0]).toEqual({ key: "page", value: "{{vars.page}}", enabled: true });
+  });
+
+  it("exports and re-imports sub-folders", () => {
+    const nested: CollectionExport = {
+      ...exported,
+      collection: {
+        ...exported.collection,
+        folders: [
+          {
+            name: "V1",
+            settings: { ...emptyScopeSettings(), preScript: "// v1" },
+            requests: [],
+            folders: [{ name: "Admin", settings: emptyScopeSettings(), requests: [{ name: "Create", definition: def, examples: [] }] }],
+          },
+        ],
+      },
+    };
+    const pm = exportPostman(nested) as { item: { name: string; item: { name: string; item?: { name: string }[] }[] }[] };
+    expect(pm.item[0].item[0]).toMatchObject({ name: "Admin", item: [{ name: "Create" }] });
+    const back = importPostman(JSON.stringify(pm));
+    expect(back.folders[0]).toMatchObject({ name: "V1", requests: [], settings: { preScript: "// v1" }, folders: [{ name: "Admin", requests: [{ name: "Create" }] }] });
   });
 
   it("rewrites common rq calls to pm", () => {

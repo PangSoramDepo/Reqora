@@ -26,6 +26,8 @@ import {
   updateCollection,
   updateFolderSettings,
 } from "@/lib/collections/client";
+import { subtreeIds } from "@/lib/collections/folders";
+import { stable } from "@/lib/collections/stable";
 import type { Collection, Example, SavedRequest, ScopeSettings, SendOutcome } from "@/lib/collections/schema";
 import { notifyRequestSent } from "@/lib/canvas-events";
 import { useEnvironment } from "@/lib/environment";
@@ -38,18 +40,6 @@ import { RequestBuilder, type Draft } from "./request-builder";
 import { ResponseViewer } from "./response-viewer";
 import { ScopeSettingsPanel } from "./scope-settings";
 import { TokenProvider } from "./template-field";
-
-/** Key-order independent JSON, so "dirty" survives the server re-serialising a definition. */
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${stable((value as Record<string, unknown>)[k])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
 
 const toDraft = (r: SavedRequest): Draft => ({ name: r.name, folderId: r.folderId, definition: r.definition });
 
@@ -70,12 +60,17 @@ function applyRequestMove(collections: Collection[], id: string, t: RequestTarge
   });
 }
 
-function applyFolderMove(collections: Collection[], id: string, index: number): Collection[] {
+/** Optimistically puts a folder at `index` among `parentId`'s sub-folders (sibling order is array order). */
+function applyFolderMove(collections: Collection[], id: string, index: number, parentId: string | null): Collection[] {
   return collections.map((c) => {
     const folder = c.folders.find((f) => f.id === id);
     if (!folder) return c;
+    const moved = { ...folder, parentId };
     const folders = c.folders.filter((f) => f.id !== id);
-    folders.splice(Math.min(index, folders.length), 0, folder);
+    const siblings = folders.filter((f) => f.parentId === parentId);
+    const before = siblings[index];
+    const at = before ? folders.indexOf(before) : siblings.length ? folders.indexOf(siblings[siblings.length - 1]) + 1 : folders.length;
+    folders.splice(at, 0, moved);
     return { ...c, folders };
   });
 }
@@ -274,11 +269,14 @@ export function CollectionsWorkspace() {
       });
   };
 
-  const moveFolderTo = (id: string, index: number) => {
-    const from = collections.find((c) => c.folders.some((f) => f.id === id));
-    if (from && from.folders.findIndex((f) => f.id === id) === index) return;
-    setCollections((cs) => applyFolderMove(cs, id, index));
-    moveFolder(id, index)
+  const moveFolderTo = (id: string, index: number, parentId: string | null) => {
+    const folder = collections.flatMap((c) => c.folders).find((f) => f.id === id);
+    if (!folder) return;
+    const from = collections.find((c) => c.id === folder.collectionId);
+    const siblingIndex = from?.folders.filter((f) => f.parentId === parentId).findIndex((f) => f.id === id);
+    if (folder.parentId === parentId && siblingIndex === index) return;
+    setCollections((cs) => applyFolderMove(cs, id, index, parentId));
+    moveFolder(id, index, parentId)
       .then(refresh)
       .catch((e: Error) => {
         fail(e);
@@ -365,8 +363,8 @@ export function CollectionsWorkspace() {
     createCollection("New Collection")
       .then((c) => refresh().then(() => setRenaming({ kind: "collection", id: c.id })))
       .catch(fail);
-  const newFolder = (collectionId: string) =>
-    createFolder(collectionId, "New Folder")
+  const newFolder = (collectionId: string, parentId: string | null = null) =>
+    createFolder(collectionId, "New Folder", parentId)
       .then((f) => refresh().then(() => setRenaming({ kind: "folder", id: f.id })))
       .catch(fail);
   const newRequest = (collectionId: string, folderId: string | null) =>
@@ -412,21 +410,29 @@ export function CollectionsWorkspace() {
   };
 
   const remove = (kind: NodeKind, id: string, name: string) => {
+    // A folder takes its sub-folders with it.
+    const removedFolders = kind === "folder" ? subtreeIds(collections.flatMap((c) => c.folders), id) : new Set<string>();
     const containsSelected =
       kind === "request"
         ? id === selectedId
         : kind === "folder"
-          ? collections.some((c) => c.requests.some((r) => r.folderId === id && r.id === selectedId))
+          ? collections.some((c) => c.requests.some((r) => r.folderId !== null && removedFolders.has(r.folderId) && r.id === selectedId))
           : collections.some((c) => c.id === id && c.requests.some((r) => r.id === selectedId));
     const what =
-      kind === "request" ? `request “${name}”` : kind === "folder" ? `folder “${name}” and all requests in it` : `collection “${name}” with all its folders and requests`;
+      kind === "request"
+        ? `request “${name}”`
+        : kind === "folder"
+          ? `folder “${name}” with its sub-folders and all requests in them`
+          : `collection “${name}” with all its folders and requests`;
     if (!window.confirm(`Delete ${what}? This cannot be undone.`)) return;
     const op = kind === "request" ? deleteRequest(id) : kind === "folder" ? deleteFolder(id) : deleteCollection(id);
     const containsScope =
       selectedScope !== null &&
-      (kind === selectedScope.kind
-        ? id === selectedScope.id
-        : kind === "collection" && selectedScope.kind === "folder" && collections.some((c) => c.id === id && c.folders.some((f) => f.id === selectedScope.id)));
+      (kind === "folder"
+        ? selectedScope.kind === "folder" && removedFolders.has(selectedScope.id)
+        : kind === selectedScope.kind
+          ? id === selectedScope.id
+          : kind === "collection" && selectedScope.kind === "folder" && collections.some((c) => c.id === id && c.folders.some((f) => f.id === selectedScope.id)));
     op.then(() => {
       if (containsSelected || containsScope) {
         setEdit(null);

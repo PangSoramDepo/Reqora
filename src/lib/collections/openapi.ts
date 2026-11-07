@@ -14,11 +14,12 @@ export type ImportedRequest = {
   definition: RequestDefinition;
   examples?: { name: string; response: ExampleResponse }[];
 };
+export type ImportedFolder = { name: string; settings?: ScopeSettings; requests: ImportedRequest[]; folders?: ImportedFolder[] };
 export type ImportedCollection = {
   name: string;
   description?: string;
   settings?: ScopeSettings;
-  folders: { name: string; settings?: ScopeSettings; requests: ImportedRequest[] }[];
+  folders: ImportedFolder[];
   /** Operations without tags. */
   requests: ImportedRequest[];
 };

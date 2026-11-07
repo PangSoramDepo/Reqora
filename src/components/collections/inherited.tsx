@@ -1,7 +1,8 @@
 "use client";
 
 import { resolveEffective, type EffectiveRequest, type Scope } from "@/lib/collections/inherit";
-import { emptyDefinition, type Collection, type KeyValue, type RequestDefinition, type ScopeSettings } from "@/lib/collections/schema";
+import { folderChain } from "@/lib/collections/folders";
+import { emptyDefinition, type Collection, type Folder, type KeyValue, type RequestDefinition, type ScopeSettings } from "@/lib/collections/schema";
 import type { InheritSource } from "./auth-panel";
 
 /** What a request (or a folder's own settings, treated as the innermost level) inherits from its parents. */
@@ -23,14 +24,16 @@ export function inheritanceFor(
   collection: Collection | undefined,
   folderId: string | null,
 ): Inheritance {
-  const folder = collection?.folders.find((f) => f.id === folderId);
-  const effective = resolveEffective({ name, definition }, collection, folder);
+  const chain = collection ? folderChain(collection.folders, folderId) : [];
+  const effective = resolveEffective({ name, definition }, collection, chain);
   const src = effective.authSource;
+  // The innermost folder that sets auth is the one it came from.
+  const authFolder = src === "folder" ? chain.findLast((f) => f.settings.auth.type !== "inherit") : undefined;
   const authSource: InheritSource | null =
     src === "collection" && collection
       ? { scope: "collection", id: collection.id, name: collection.name }
-      : src === "folder" && folder
-        ? { scope: "folder", id: folder.id, name: folder.name }
+      : authFolder
+        ? { scope: "folder", id: authFolder.id, name: authFolder.name }
         : null;
   return {
     effective,
@@ -41,11 +44,9 @@ export function inheritanceFor(
   };
 }
 
-/** A folder's settings as the innermost level under its collection. */
-export function folderInheritance(name: string, settings: ScopeSettings, collection: Collection | undefined): Inheritance {
-  const definition = { ...emptyDefinition(), ...settings };
-  const result = inheritanceFor(name, definition, collection, null);
-  return result;
+/** A folder's settings as the innermost level under its collection and the folders above it. */
+export function folderInheritance(folder: Folder, settings: ScopeSettings, collection: Collection | undefined): Inheritance {
+  return inheritanceFor(folder.name, { ...emptyDefinition(), ...settings }, collection, folder.parentId);
 }
 
 const SCOPE_TONE: Record<Scope, string> = {

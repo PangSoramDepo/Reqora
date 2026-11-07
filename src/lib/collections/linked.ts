@@ -23,7 +23,7 @@ export function linkedHttpConfig(requestId: string): { ok: true; config: HttpCon
     return { ok: false, error: DELETED };
   }
   const scopes = requestScopes(saved.collectionId, saved.folderId);
-  const effective = resolveEffective({ name: saved.name, definition: saved.definition }, scopes.collection, scopes.folder);
+  const effective = resolveEffective({ name: saved.name, definition: saved.definition }, scopes.collection, scopes.folders);
   const converted = requestToHttpConfig(saved.name, saved.definition, effective, { linked: true });
   if (!converted.ok) return { ok: false, error: `the linked request “${saved.name}” can't run in a workflow: ${converted.error}` };
   return { ok: true, config: { ...converted.draft.config, requestId } };
@@ -67,7 +67,7 @@ export async function sendLinkedRequest(
   // also keeps real values in the rq.variables handed to the next linked request.
   let raw: SendOutcome | undefined;
   const scrubbed = await sendRequest(
-    { name: saved.name, definition: saved.definition, collection: scopes.collection, folder: scopes.folder },
+    { name: saved.name, definition: saved.definition, collection: scopes.collection, folders: scopes.folders },
     {
       environment: options.environment,
       baseUrl: options.baseUrl,

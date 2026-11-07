@@ -36,7 +36,8 @@ async function readCapped(response: Response): Promise<Uint8Array> {
 }
 
 type Scope = { name: string; settings: ScopeSettings };
-export type SendTarget = { name: string; definition: RequestDefinition; collection?: Scope; folder?: Scope };
+/** `folders`: the request's folder chain, outermost first. */
+export type SendTarget = { name: string; definition: RequestDefinition; collection?: Scope; folders?: Scope[] };
 type SendOptions = {
   environment: Environment;
   baseUrl: string;
@@ -107,7 +108,7 @@ export async function sendRequest(
     onUnscrubbed?.(outcome);
     return scrub(outcome, secrets());
   };
-  const effective = resolveEffective({ name: target.name, definition: def }, target.collection, target.folder);
+  const effective = resolveEffective({ name: target.name, definition: def }, target.collection, target.folders);
 
   // 1. Pre-request scripts.
   let state: ScriptState = {

@@ -904,12 +904,19 @@ paths:
       - $ref: "#/components/parameters/CollectionId"
     post:
       operationId: createFolder
-      summary: Create a folder in a collection
+      summary: Create a folder (or a sub-folder) in a collection
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/NameInput" }
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                parentId:
+                  type: [string, "null"]
+                  description: Create it inside this folder (same collection); omitted or null = top level
       responses:
         "201":
           description: Created
@@ -920,6 +927,7 @@ paths:
               schema: { $ref: "#/components/schemas/Folder" }
         "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
   /api/collections/{collectionId}/requests:
     parameters:
       - $ref: "#/components/parameters/CollectionId"
@@ -977,7 +985,7 @@ paths:
         "404": { $ref: "#/components/responses/Problem" }
     delete:
       operationId: deleteFolder
-      summary: Delete a folder and the requests inside it
+      summary: Delete a folder with its sub-folders and every request inside them
       responses:
         "204": { description: Deleted }
         "404": { $ref: "#/components/responses/Problem" }
@@ -990,7 +998,7 @@ paths:
     post:
       operationId: duplicateFolder
       summary: Duplicate a folder
-      description: Copies the folder's settings and its requests (in order, with saved examples) as "<name> Copy", placed right after the original; later folders shift down.
+      description: Copies the folder's settings, sub-folders and requests (in order, with saved examples) as "<name> Copy", placed right after the original under the same parent; later folders shift down.
       responses:
         "201":
           description: The copy
@@ -1008,7 +1016,7 @@ paths:
         schema: { type: string }
     post:
       operationId: moveFolder
-      summary: Reorder a folder within its collection
+      summary: Reorder a folder, or move it into another folder of the same collection
       requestBody:
         required: true
         content:
@@ -1017,7 +1025,10 @@ paths:
               type: object
               required: [index]
               properties:
-                index: { type: integer, minimum: 0, description: Zero-based position among the collection's folders }
+                index: { type: integer, minimum: 0, description: Zero-based position among the target parent's sub-folders }
+                parentId:
+                  type: [string, "null"]
+                  description: Move it into this folder (null = top level); omitted = keep its parent. Not itself or one of its sub-folders.
       responses:
         "200":
           description: Moved
@@ -1026,6 +1037,7 @@ paths:
               schema: { $ref: "#/components/schemas/Folder" }
         "400": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
   /api/requests/{requestId}/move:
     parameters:
       - $ref: "#/components/parameters/RequestId"
@@ -1981,11 +1993,6 @@ components:
             body: {}
         error: { type: string }
         replayOf: { type: string, description: Id of the run this one replayed }
-    NameInput:
-      type: object
-      required: [name]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 120 }
     CollectionInput:
       type: object
       required: [name]
@@ -2010,10 +2017,14 @@ components:
           items: { $ref: "#/components/schemas/RequestSummary" }
     Folder:
       type: object
-      required: [id, collectionId, name, position, settings]
+      description: |
+        Folders nest through `parentId`. A request inherits from its collection, then every folder from the
+        outermost down to its own, then its own settings.
+      required: [id, collectionId, parentId, name, position, settings]
       properties:
         id: { type: string }
         collectionId: { type: string }
+        parentId: { type: [string, "null"], description: The folder it's in; null = top level of the collection }
         name: { type: string }
         position: { type: integer }
         settings: { $ref: "#/components/schemas/ScopeSettings" }
@@ -2370,17 +2381,22 @@ components:
             settings: { $ref: "#/components/schemas/ScopeSettings" }
             folders:
               type: array
-              items:
-                type: object
-                required: [name, requests]
-                properties:
-                  name: { type: string }
-                  settings: { $ref: "#/components/schemas/ScopeSettings" }
-                  requests: { type: array, items: { $ref: "#/components/schemas/ExportedRequest" } }
+              items: { $ref: "#/components/schemas/ExportedFolder" }
             requests:
               type: array
               description: Requests at the collection root.
               items: { $ref: "#/components/schemas/ExportedRequest" }
+    ExportedFolder:
+      type: object
+      required: [name, requests]
+      properties:
+        name: { type: string }
+        settings: { $ref: "#/components/schemas/ScopeSettings" }
+        requests: { type: array, items: { $ref: "#/components/schemas/ExportedRequest" } }
+        folders:
+          type: array
+          description: Sub-folders (absent in exports made before sub-folders existed).
+          items: { $ref: "#/components/schemas/ExportedFolder" }
     Example:
       type: object
       required: [id, requestId, name, status, response, createdAt]

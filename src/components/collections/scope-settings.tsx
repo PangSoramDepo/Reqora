@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
+import { folderChain, subtreeIds } from "@/lib/collections/folders";
 import type { Collection, Folder, ScopeSettings } from "@/lib/collections/schema";
 import { AuthPanel, type InheritSource } from "./auth-panel";
 import { folderInheritance, InheritedHeaders } from "./inherited";
@@ -35,8 +36,11 @@ export function ScopeSettingsPanel({ collection, folder, settings, update, dirty
   const [tab, setTab] = useState<Tab>("auth");
   const kind = folder ? "folder" : "collection";
   const name = folder?.name ?? collection.name;
-  const inherited = folder ? folderInheritance(folder.name, settings, collection) : null;
-  const requestCount = folder ? collection.requests.filter((r) => r.folderId === folder.id).length : collection.requests.length;
+  const inherited = folder ? folderInheritance(folder, settings, collection) : null;
+  // Requests anywhere inside, sub-folders included.
+  const inside = folder ? subtreeIds(collection.folders, folder.id) : null;
+  const requestCount = inside ? collection.requests.filter((r) => r.folderId !== null && inside.has(r.folderId)).length : collection.requests.length;
+  const ancestors = folder ? folderChain(collection.folders, folder.parentId) : [];
 
   const enabledHeaders = settings.headers.filter((h) => h.enabled && h.key.trim()).length;
   const authSet = folder ? settings.auth.type !== "inherit" : settings.auth.type !== "inherit" && settings.auth.type !== "none";
@@ -71,6 +75,14 @@ export function ScopeSettingsPanel({ collection, folder, settings, update, dirty
                     <button type="button" className="hover:text-primary truncate" onClick={() => onOpenSource({ scope: "collection", id: collection.id, name: collection.name })}>
                       {collection.name}
                     </button>
+                    {ancestors.map((a) => (
+                      <span key={a.id} className="contents">
+                        <span className="text-outline">/</span>
+                        <button type="button" className="hover:text-primary truncate" onClick={() => onOpenSource({ scope: "folder", id: a.id, name: a.name })}>
+                          {a.name}
+                        </button>
+                      </span>
+                    ))}
                     <span className="text-outline">/</span>
                     <span className="text-primary font-medium truncate">{folder.name}</span>
                   </>
@@ -94,7 +106,7 @@ export function ScopeSettingsPanel({ collection, folder, settings, update, dirty
           <Icon name="info" className="text-body-sm text-primary mt-0.5" />
           <span>
             {folder
-              ? "Requests in this folder inherit its auth (when set to Inherit), its headers and its scripts. The folder itself inherits from the collection: headers merge (the most specific wins), scripts run collection → folder → request."
+              ? "Requests and sub-folders in this folder inherit its auth (when set to Inherit), its headers and its scripts. The folder itself inherits from the collection and the folders above it: headers merge (the most specific wins), scripts run collection → outer folders → this folder → request."
               : "Every request in this collection inherits these unless a folder or request overrides them: auth applies to requests set to Inherit, headers merge (the most specific wins), scripts run collection → folder → request."}
           </span>
         </p>

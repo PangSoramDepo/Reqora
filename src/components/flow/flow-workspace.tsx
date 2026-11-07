@@ -212,7 +212,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target as HTMLElement;
-      if (el.closest("input, textarea, select, [contenteditable=true]")) return;
+      // Not while typing, nor inside a dialog over the canvas (e.g. the linked request editor).
+      if (el.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
       if ((event.key === "d" || event.key === "D") && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
         toggleRef.current();

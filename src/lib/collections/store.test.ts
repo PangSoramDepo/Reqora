@@ -98,6 +98,82 @@ describe("duplicateCollection", () => {
   });
 });
 
+describe("sub-folders", () => {
+  function nested() {
+    const { col, folder, other, a } = seed();
+    const sub = store.createFolder(col.id, "Admin", folder.id)!;
+    store.updateFolder(sub.id, { settings: { ...sub.settings, preScript: "// admin" } });
+    const deep = store.createFolder(col.id, "Deep", sub.id)!;
+    const r = store.createRequest(col.id, { name: "Deep req", folderId: deep.id });
+    if (!r.ok) throw new Error(r.reason);
+    return { col, folder, other, a, sub, deep, deepReq: r.request };
+  }
+  const names = (collectionId: string, parentId: string | null) =>
+    store.getCollection(collectionId)!.folders.filter((f) => f.parentId === parentId).map((f) => f.name);
+
+  it("creates folders inside folders, in the same collection only", () => {
+    const { col, folder, sub, deep } = nested();
+    expect([sub.parentId, deep.parentId]).toEqual([folder.id, sub.id]);
+    expect(names(col.id, folder.id)).toEqual(["Admin"]);
+    const elsewhere = store.createCollection({ name: "Elsewhere" });
+    expect(store.createFolder(elsewhere.id, "X", folder.id)).toBeUndefined();
+  });
+
+  it("inherits from every folder above a request, outermost first", () => {
+    const { col, deep } = nested();
+    expect(store.requestScopes(col.id, deep.id).folders.map((f) => f.name)).toEqual(["Users", "Admin", "Deep"]);
+    expect(store.requestScopes(col.id, null).folders).toEqual([]);
+  });
+
+  it("moves folders between parents, never into themselves", () => {
+    const { col, folder, other, sub, deep } = nested();
+    expect(store.moveFolder(sub.id, 0, other.id)).toMatchObject({ ok: true, folder: { parentId: other.id } });
+    expect(store.moveFolder(sub.id, 0, deep.id)).toEqual({ ok: false, reason: "into_itself" });
+    expect(store.moveFolder(sub.id, 0, sub.id)).toEqual({ ok: false, reason: "into_itself" });
+    expect(store.moveFolder(sub.id, 1, null)).toMatchObject({ ok: true, folder: { parentId: null } });
+    expect(names(col.id, null)).toEqual(["Users", "Admin", "Other"]);
+    // Reorder without changing the parent.
+    expect(store.moveFolder(folder.id, 5)).toMatchObject({ ok: true, folder: { parentId: null } });
+    expect(names(col.id, null)).toEqual(["Admin", "Other", "Users"]);
+  });
+
+  it("deletes a folder with its sub-folders and their requests", () => {
+    const { col, folder, other, deepReq } = nested();
+    store.deleteFolder(folder.id);
+    const after = store.getCollection(col.id)!;
+    expect(after.folders.map((f) => f.id)).toEqual([other.id]);
+    expect(store.getRequest(deepReq.id)).toBeUndefined();
+    expect(after.requests.map((r) => r.name)).toEqual(["Root"]);
+  });
+
+  it("duplicates a folder with its sub-folders", () => {
+    const { col, folder } = nested();
+    const copy = store.duplicateFolder(folder.id)!;
+    const sub = store.getCollection(col.id)!.folders.find((f) => f.parentId === copy.id)!;
+    expect([sub.name, sub.settings.preScript]).toEqual(["Admin", "// admin"]);
+    const deep = store.getCollection(col.id)!.folders.find((f) => f.parentId === sub.id)!;
+    expect(folderRequests(col.id, deep.id).map((r) => r.name)).toEqual(["Deep req"]);
+  });
+
+  it("keeps the tree through duplicate collection and export / import", async () => {
+    const { collectionExportSchema } = await import("./schema");
+    const { col } = nested();
+    const tree = (id: string) => {
+      const c = store.getCollection(id)!;
+      const path = (fid: string | null): string => {
+        const f = c.folders.find((x) => x.id === fid);
+        return f ? `${path(f.parentId)}/${f.name}` : "";
+      };
+      return c.requests.map((r) => `${path(r.folderId)}/${r.name}`).sort();
+    };
+    expect(tree(col.id)).toContain("/Users/Admin/Deep/Deep req");
+    expect(tree(store.duplicateCollection(col.id)!.id)).toEqual(tree(col.id));
+    const file = collectionExportSchema.parse(JSON.parse(JSON.stringify(store.exportCollection(col.id))));
+    expect(file.collection.folders[0].folders?.[0].name).toBe("Admin");
+    expect(tree(store.insertImported(file.collection).id)).toEqual(tree(col.id));
+  });
+});
+
 describe("exportCollection / import", () => {
   it("round-trips settings, folders, request order, definitions, scripts and examples", async () => {
     const { collectionExportSchema } = await import("./schema");

@@ -14,20 +14,21 @@ export type EffectiveRequest = {
 };
 
 /**
- * Postman-style inheritance. Scripts run outermost first (collection → folder → request) for both
- * phases; headers merge in the same order so the most specific level wins.
+ * Postman-style inheritance. Scripts run outermost first (collection → each folder from the outermost in →
+ * request) for both phases; headers merge in the same order so the most specific level wins. `folders` is the
+ * request's folder chain, outermost first (a single folder is accepted too).
  */
 export function resolveEffective(
   request: { name: string; definition: RequestDefinition },
   collection?: Named<ScopeSettings>,
-  folder?: Named<ScopeSettings>,
+  folders?: Named<ScopeSettings> | Named<ScopeSettings>[],
 ): EffectiveRequest {
   const levels: { scope: Scope; name: string; auth: Auth; headers: KeyValue[]; pre: string; post: string }[] = [];
   if (collection) {
     const s = collection.settings;
     levels.push({ scope: "collection", name: collection.name, auth: s.auth, headers: s.headers, pre: s.preScript, post: s.postScript });
   }
-  if (folder) {
+  for (const folder of folders === undefined ? [] : Array.isArray(folders) ? folders : [folders]) {
     const s = folder.settings;
     levels.push({ scope: "folder", name: folder.name, auth: s.auth, headers: s.headers, pre: s.preScript, post: s.postScript });
   }

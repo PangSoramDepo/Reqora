@@ -18,7 +18,7 @@ export const NODE_DOCS: Record<NodeType, Doc> = {
       "Relative URLs (/api/...) go to Reqora itself; private network addresses are blocked unless allowed.",
     ],
     outputs: ["{{id.status}} — HTTP status", "{{id.body.field}} — parsed JSON body", "{{id.headers.name}} — response headers", "{{id.durationMs}}"],
-    tips: ["Copy cURL (next to Run) shows the request with templates unresolved.", "Linked nodes: edit in Collections, or Unlink to edit here."],
+    tips: ["Copy cURL (next to Run) shows the request with templates unresolved.", "Linked nodes: Edit request (or click the URL, headers or body) edits the saved request in a dialog without leaving the canvas; Unlink to edit a separate copy instead."],
   },
   condition: {
     summary: "Compares two values and continues down the TRUE or FALSE output.",

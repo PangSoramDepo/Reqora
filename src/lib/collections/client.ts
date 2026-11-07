@@ -37,13 +37,15 @@ export const deleteCollection = (id: string) => request<void>(`/api/collections/
 /** Copies a collection with its folders, requests and examples as "<name> Copy". */
 export const duplicateCollection = (id: string) => request<Collection>(`/api/collections/${id}/duplicate`, { method: "POST" });
 
-export const createFolder = (collectionId: string, name: string) =>
-  request<Folder>(`/api/collections/${collectionId}/folders`, json("POST", { name }));
+/** `parentId` creates a sub-folder inside that folder. */
+export const createFolder = (collectionId: string, name: string, parentId: string | null = null) =>
+  request<Folder>(`/api/collections/${collectionId}/folders`, json("POST", { name, parentId }));
 export const renameFolder = (id: string, name: string) => request<Folder>(`/api/folders/${id}`, json("PATCH", { name }));
 export const updateFolderSettings = (id: string, settings: ScopeSettings) =>
   request<Folder>(`/api/folders/${id}`, json("PATCH", { settings }));
-/** Reorders a folder within its collection. */
-export const moveFolder = (id: string, index: number) => request<Folder>(`/api/folders/${id}/move`, json("POST", { index }));
+/** Puts a folder at `index` among `parentId`'s sub-folders (null = top level). */
+export const moveFolder = (id: string, index: number, parentId: string | null) =>
+  request<Folder>(`/api/folders/${id}/move`, json("POST", { index, parentId }));
 export const deleteFolder = (id: string) => request<void>(`/api/folders/${id}`, { method: "DELETE" });
 /** Copies a folder with its requests as "<name> Copy", right after the original. */
 export const duplicateFolder = (id: string) => request<Folder>(`/api/folders/${id}/duplicate`, { method: "POST" });

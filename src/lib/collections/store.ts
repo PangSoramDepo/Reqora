@@ -2,8 +2,10 @@ import "server-only";
 
 import type { DatabaseSync } from "node:sqlite";
 import { db } from "@/lib/workflows/store";
-import type { ImportedCollection } from "./openapi";
+import { folderChain, subtreeIds } from "./folders";
+import type { ImportedCollection, ImportedFolder } from "./openapi";
 import {
+  type ExportedFolder,
   emptyDefinition,
   emptyScopeSettings,
   requestDefinitionSchema,
@@ -66,6 +68,11 @@ function conn(): DatabaseSync {
       const cols = database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
       if (!cols.some((c) => c.name === "settings")) database.exec(`ALTER TABLE ${table} ADD COLUMN settings TEXT`);
     }
+    // Sub-folders arrived later too: NULL = a top-level folder.
+    const folderCols = database.prepare("PRAGMA table_info(collection_folders)").all() as { name: string }[];
+    if (!folderCols.some((c) => c.name === "parent_id")) {
+      database.exec("ALTER TABLE collection_folders ADD COLUMN parent_id TEXT REFERENCES collection_folders(id) ON DELETE CASCADE");
+    }
     ready = true;
   }
   return database;
@@ -82,7 +89,7 @@ type CollectionRow = {
   updated_at: string;
   settings: string | null;
 };
-type FolderRow = { id: string; collection_id: string; name: string; position: number; settings: string | null };
+type FolderRow = { id: string; collection_id: string; parent_id: string | null; name: string; position: number; settings: string | null };
 
 function parseSettings(json: string | null): ScopeSettings {
   if (!json) return emptyScopeSettings();
@@ -109,6 +116,7 @@ function parseDefinition(json: string): RequestDefinition {
 const toFolder = (r: FolderRow): Folder => ({
   id: r.id,
   collectionId: r.collection_id,
+  parentId: r.parent_id ?? null,
   name: r.name,
   position: r.position,
   settings: parseSettings(r.settings),
@@ -198,15 +206,19 @@ function nextPosition(table: "collection_folders" | "requests", collectionId: st
   return (max ?? -1) + 1;
 }
 
-export function createFolder(collectionId: string, name: string): Folder | undefined {
-  if (!getCollection(collectionId)) return undefined;
+/** Creates a folder at the top level, or inside `parentId` (which must be in the same collection). */
+export function createFolder(collectionId: string, name: string, parentId: string | null = null): Folder | undefined {
+  if (!getCollection(collectionId) || !folderOk(collectionId, parentId)) return undefined;
   const id = newId("fld");
   conn()
-    .prepare("INSERT INTO collection_folders (id, collection_id, name, position) VALUES (?, ?, ?, ?)")
-    .run(id, collectionId, name, nextPosition("collection_folders", collectionId));
+    .prepare("INSERT INTO collection_folders (id, collection_id, parent_id, name, position) VALUES (?, ?, ?, ?, ?)")
+    .run(id, collectionId, parentId, name, nextPosition("collection_folders", collectionId));
   touch(collectionId);
   return getFolder(id);
 }
+
+const collectionFolders = (collectionId: string) =>
+  (conn().prepare("SELECT * FROM collection_folders WHERE collection_id = ? ORDER BY position, name").all(collectionId) as FolderRow[]).map(toFolder);
 
 export function getFolder(id: string): Folder | undefined {
   const row = conn().prepare("SELECT * FROM collection_folders WHERE id = ?").get(id) as FolderRow | undefined;
@@ -237,21 +249,36 @@ function transaction<T>(fn: () => T): T {
   }
 }
 
-/** Moves a folder to `index` among its collection's folders and renumbers them 0..n. */
-export function moveFolder(id: string, index: number): Folder | undefined {
+export type FolderMoveResult =
+  | { ok: true; folder: Folder }
+  | { ok: false; reason: "folder_not_found" | "parent_mismatch" | "into_itself" };
+
+/**
+ * Moves a folder to `index` among its parent's sub-folders, and into another parent when `parentId` is given
+ * (null = top level; same collection only, never into itself or one of its own sub-folders). Siblings are renumbered.
+ */
+export function moveFolder(id: string, index: number, parentId?: string | null): FolderMoveResult {
   const folder = getFolder(id);
-  if (!folder) return undefined;
+  if (!folder) return { ok: false, reason: "folder_not_found" };
+  const parent = parentId === undefined ? folder.parentId : parentId;
+  if (!folderOk(folder.collectionId, parent)) return { ok: false, reason: "parent_mismatch" };
+  if (parent !== null && subtreeIds(collectionFolders(folder.collectionId), id).has(parent)) return { ok: false, reason: "into_itself" };
   transaction(() => {
     const c = conn();
-    const ids = (c.prepare("SELECT id FROM collection_folders WHERE collection_id = ? ORDER BY position, name").all(folder.collectionId) as { id: string }[])
-      .map((r) => r.id)
-      .filter((x) => x !== id);
+    const ids = (
+      c.prepare("SELECT id FROM collection_folders WHERE collection_id = ? AND parent_id IS ? AND id != ? ORDER BY position, name").all(
+        folder.collectionId,
+        parent,
+        id,
+      ) as { id: string }[]
+    ).map((r) => r.id);
     ids.splice(Math.min(index, ids.length), 0, id);
+    c.prepare("UPDATE collection_folders SET parent_id = ? WHERE id = ?").run(parent, id);
     const set = c.prepare("UPDATE collection_folders SET position = ? WHERE id = ?");
     ids.forEach((fid, i) => set.run(i, fid));
   });
   touch(folder.collectionId);
-  return getFolder(id);
+  return { ok: true, folder: getFolder(id)! };
 }
 
 export type MoveResult =
@@ -290,30 +317,27 @@ export function moveRequest(id: string, target: { collectionId: string; folderId
   return { ok: true, request: getRequest(id)! };
 }
 
-/** The collection and folder a request inherits from, as names + settings. */
+/** The collection and the folders a request inherits from (its folder and every folder above it, outermost first). */
 export function requestScopes(collectionId: string | undefined, folderId: string | null | undefined) {
   const collection = collectionId ? getCollection(collectionId) : undefined;
-  const folder = folderId ? getFolder(folderId) : undefined;
   return {
     collection: collection && { name: collection.name, settings: collection.settings },
-    folder: folder && folder.collectionId === collection?.id ? { name: folder.name, settings: folder.settings } : undefined,
+    folders: collection ? folderChain(collection.folders, folderId).map((f) => ({ name: f.name, settings: f.settings })) : [],
   };
 }
 
-/** Deletes the folder and the requests inside it. */
+/** Deletes the folder, its sub-folders and every request inside them. */
 export function deleteFolder(id: string): boolean {
   const folder = getFolder(id);
   if (!folder) return false;
-  const c = conn();
-  c.exec("BEGIN");
-  try {
-    c.prepare("DELETE FROM requests WHERE folder_id = ?").run(id);
-    c.prepare("DELETE FROM collection_folders WHERE id = ?").run(id);
-    c.exec("COMMIT");
-  } catch (error) {
-    c.exec("ROLLBACK");
-    throw error;
-  }
+  const ids = [...subtreeIds(collectionFolders(folder.collectionId), id)];
+  transaction(() => {
+    const c = conn();
+    const deleteRequests = c.prepare("DELETE FROM requests WHERE folder_id = ?");
+    for (const fid of ids) deleteRequests.run(fid);
+    const deleteRow = c.prepare("DELETE FROM collection_folders WHERE id = ?");
+    for (const fid of ids.reverse()) deleteRow.run(fid);
+  });
   touch(folder.collectionId);
   return true;
 }
@@ -445,17 +469,17 @@ export function insertImported(imported: ImportedCollection): Collection {
       at,
       imported.settings ? JSON.stringify(imported.settings) : null,
     );
-    imported.folders.forEach((folder, index) => {
-      const folderId = newId("fld");
-      c.prepare("INSERT INTO collection_folders (id, collection_id, name, position, settings) VALUES (?, ?, ?, ?, ?)").run(
-        folderId,
-        collectionId,
-        folder.name,
-        index,
-        folder.settings ? JSON.stringify(folder.settings) : null,
-      );
-      for (const r of folder.requests) insertRequest(r, folderId);
-    });
+    const insertFolder = c.prepare(
+      "INSERT INTO collection_folders (id, collection_id, parent_id, name, position, settings) VALUES (?, ?, ?, ?, ?, ?)",
+    );
+    const insertFolders = (folders: ImportedFolder[], parentId: string | null) =>
+      folders.forEach((folder, index) => {
+        const folderId = newId("fld");
+        insertFolder.run(folderId, collectionId, parentId, folder.name, index, folder.settings ? JSON.stringify(folder.settings) : null);
+        for (const r of folder.requests) insertRequest(r, folderId);
+        insertFolders(folder.folders ?? [], folderId);
+      });
+    insertFolders(imported.folders, null);
     for (const r of imported.requests) insertRequest(r, null);
     c.exec("COMMIT");
   } catch (error) {
@@ -512,32 +536,41 @@ export function duplicateRequest(id: string): SavedRequest | undefined {
   return getRequest(copyId);
 }
 
-/** Copies a folder (settings, requests in order, their examples) as "<name> Copy", placed right after the original. */
+/**
+ * Copies a folder (settings, sub-folders, requests in order, their examples) as "<name> Copy", placed right after
+ * the original under the same parent.
+ */
 export function duplicateFolder(id: string): Folder | undefined {
   const c = conn();
   const row = c.prepare("SELECT * FROM collection_folders WHERE id = ?").get(id) as FolderRow | undefined;
   if (!row) return undefined;
   const copyId = transaction(() => {
-    const folderId = newId("fld");
-    c.prepare("INSERT INTO collection_folders (id, collection_id, name, position, settings) VALUES (?, ?, ?, ?, ?)").run(
-      folderId,
-      row.collection_id,
-      copyName(row.name),
-      0,
-      row.settings,
+    const rows = c.prepare("SELECT * FROM collection_folders WHERE collection_id = ? ORDER BY position, name").all(row.collection_id) as FolderRow[];
+    const insertFolder = c.prepare(
+      "INSERT INTO collection_folders (id, collection_id, parent_id, name, position, settings) VALUES (?, ?, ?, ?, ?, ?)",
     );
+    const requestsIn = c.prepare("SELECT * FROM requests WHERE folder_id = ? ORDER BY position, name");
+    const copyTree = (source: FolderRow, parentId: string | null, name: string, position: number): string => {
+      const folderId = newId("fld");
+      insertFolder.run(folderId, row.collection_id, parentId, name, position, source.settings);
+      (requestsIn.all(source.id) as RequestRow[]).forEach((r, i) =>
+        copyRequestRow(r, { collectionId: row.collection_id, folderId, name: r.name, position: i }),
+      );
+      rows.filter((r) => r.parent_id === source.id).forEach((child, i) => copyTree(child, folderId, child.name, i));
+      return folderId;
+    };
+    const folderId = copyTree(row, row.parent_id, copyName(row.name), 0);
+
     const siblings = (
-      c.prepare("SELECT id FROM collection_folders WHERE collection_id = ? AND id != ? ORDER BY position, name").all(
+      c.prepare("SELECT id FROM collection_folders WHERE collection_id = ? AND parent_id IS ? AND id != ? ORDER BY position, name").all(
         row.collection_id,
+        row.parent_id,
         folderId,
       ) as { id: string }[]
     ).map((r) => r.id);
     siblings.splice(siblings.indexOf(id) + 1, 0, folderId);
     const set = c.prepare("UPDATE collection_folders SET position = ? WHERE id = ?");
     siblings.forEach((fid, i) => set.run(i, fid));
-
-    const requests = c.prepare("SELECT * FROM requests WHERE folder_id = ? ORDER BY position, name").all(id) as RequestRow[];
-    requests.forEach((r, i) => copyRequestRow(r, { collectionId: row.collection_id, folderId, name: r.name, position: i }));
     return folderId;
   });
   touch(row.collection_id);
@@ -565,6 +598,9 @@ export function duplicateCollection(id: string): Collection | undefined {
       folderIds.set(f.id, folderId);
       insertFolder.run(folderId, collectionId, f.name, i, f.settings);
     });
+    // Link sub-folders once every copy exists.
+    const setParent = c.prepare("UPDATE collection_folders SET parent_id = ? WHERE id = ?");
+    for (const f of folders) if (f.parent_id) setParent.run(folderIds.get(f.parent_id) ?? null, folderIds.get(f.id)!);
     const requests = c.prepare("SELECT * FROM requests WHERE collection_id = ? ORDER BY position, name").all(id) as RequestRow[];
     requests.forEach((r, i) =>
       copyRequestRow(r, {
@@ -591,6 +627,13 @@ export function exportCollection(id: string): CollectionExport | undefined {
     definition: parseDefinition(r.definition),
     examples: (exampleRows.all(r.id) as ExampleRow[]).map((ex) => ({ name: ex.name, response: JSON.parse(ex.response) as ExampleResponse })),
   });
+  const folderExports = (parentId: string | null): ExportedFolder[] =>
+    collection.folders
+      .filter((f) => f.parentId === parentId)
+      .map((f) => {
+        const sub = folderExports(f.id);
+        return { name: f.name, settings: f.settings, requests: rows.filter((r) => r.folder_id === f.id).map(exported), ...(sub.length ? { folders: sub } : {}) };
+      });
   return {
     reqora: "collection",
     version: 1,
@@ -599,11 +642,7 @@ export function exportCollection(id: string): CollectionExport | undefined {
       name: collection.name,
       ...(collection.description ? { description: collection.description } : {}),
       settings: collection.settings,
-      folders: collection.folders.map((f) => ({
-        name: f.name,
-        settings: f.settings,
-        requests: rows.filter((r) => r.folder_id === f.id).map(exported),
-      })),
+      folders: folderExports(null),
       requests: rows.filter((r) => r.folder_id === null).map(exported),
     },
   };
