@@ -88,6 +88,11 @@ describe("executeWorkflow", () => {
     const result = await executeWorkflow(checkout, { source: "manual", body: SAMPLE_ORDER }, deps());
     const verify = result.steps.find((s) => s.nodeId === "node-2")!;
     expect(verify.request?.headers.authorization).toBe("Bearer sk_test");
+    // The body as sent, templates filled in.
+    expect(JSON.parse(verify.request!.body!)).toEqual({ account_token: "ord_9941a", expected_amount: 749.5, risk_eval: true });
+    // Also kept when the step fails.
+    const failed = await executeWorkflow(checkout, { source: "manual", body: SAMPLE_ORDER }, deps({ fetch: fakeFetch(() => Response.json({}, { status: 500 })) as unknown as typeof fetch }));
+    expect(failed.steps.find((s) => s.nodeId === "node-2")!.request?.body).toContain("ord_9941a");
   });
 
   it("fails the step on upstream errors and skips everything downstream", async () => {

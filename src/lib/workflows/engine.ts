@@ -1,6 +1,6 @@
 import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import { topologicalOrder } from "./graph";
-import type { RepeatCheck, RunStatus, RunTrigger, Step, Workflow, WorkflowNode } from "./schema";
+import { capStepBody, type RepeatCheck, type RunStatus, type RunTrigger, type Step, type StepRequest, type Workflow, type WorkflowNode } from "./schema";
 import { TemplateError, looseEquals, renderJson, renderString, renderValue, type TemplateContext } from "./template";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -285,12 +285,12 @@ async function runHttp(
   for (const [name, template] of Object.entries(config.headers)) headers.set(name, renderString(template, ctx));
   if (!headers.has("user-agent")) headers.set("user-agent", DEFAULT_USER_AGENT);
   // The headers as sent (resolved), like the Collections send history.
-  const request = { method: config.method, url, headers: Object.fromEntries(headers) };
   let body: string | undefined;
   if (config.body !== undefined && config.method !== "GET") {
     body = JSON.stringify(renderJson(config.body, ctx));
     if (!headers.has("content-type")) headers.set("content-type", "application/json");
   }
+  const request: StepRequest = { method: config.method, url, headers: Object.fromEntries(headers), ...(body !== undefined ? { body: capStepBody(body) } : {}) };
 
   const started = Date.now();
   let response: Response;

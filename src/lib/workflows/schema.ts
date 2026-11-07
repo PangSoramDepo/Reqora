@@ -223,6 +223,26 @@ export type Variable = {
 export type RunStatus = "succeeded" | "failed";
 export type StepStatus = "succeeded" | "failed" | "skipped";
 
+/** Longest request body kept on a step; longer ones are cut (with a note). */
+export const MAX_STEP_BODY = 1_000_000;
+
+/** An http step's request as it was sent (templates, scripts and auth applied). */
+export type StepRequest = {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  /** The body text; for multipart, a readable version with file contents left out. */
+  body?: string;
+  /** Multipart form-data parts (for display and cURL `-F`). */
+  form?: { key: string; value?: string; fileName?: string; contentType?: string; size?: number }[];
+  /** A binary body's file. */
+  file?: { fileName: string; contentType: string; size: number };
+};
+
+/** Cuts a request body to MAX_STEP_BODY for storage on a step. */
+export const capStepBody = (body: string) =>
+  body.length > MAX_STEP_BODY ? `${body.slice(0, MAX_STEP_BODY)}\n… (truncated: ${body.length} characters in total)` : body;
+
 export type Step = {
   nodeId: string;
   nodeType: NodeType;
@@ -231,7 +251,7 @@ export type Step = {
   startedAt: string;
   durationMs: number;
   port?: string;
-  request?: { method: string; url: string; headers: Record<string, string> };
+  request?: StepRequest;
   output?: unknown;
   error?: string;
   /** Skipped because the node is disabled (the run went on through it). */

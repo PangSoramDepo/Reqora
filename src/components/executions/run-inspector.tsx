@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Icon } from "@/components/icon";
+import { toCurl } from "@/lib/collections/curl";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import type { Run, Step } from "@/lib/workflows/schema";
 import { shortId, urlPath, utcTime } from "./format";
@@ -95,9 +96,21 @@ function stepResult(step: Step) {
   return status ? `${status} OK` : "OK";
 }
 
-/** What went into a step: the HTTP request, or the trigger payload for the webhook. */
+/** A JSON request body as a value (shown indented), any other body as its text. */
+function bodyValue(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+/** What went into a step: the HTTP request (with its body), or the trigger payload for the webhook. */
 function stepInput(step: Step, run: Run): unknown {
-  if (step.request) return step.request;
+  if (step.request) {
+    const { body, ...rest } = step.request;
+    return body === undefined || step.request.form ? step.request : { ...rest, body: bodyValue(body) };
+  }
   if (step.nodeType === "webhook") return run.trigger.body ?? null;
   return undefined;
 }
@@ -129,6 +142,14 @@ type RunInspectorProps = {
 export function RunInspector({ run, workflowName, replaying, onReplay }: RunInspectorProps) {
   const [tab, setTab] = useState<Tab>("payloads");
   const [chosen, setChosen] = useState<{ runId: string; nodeId: string } | null>(null);
+  // Which copy button just copied (shows a check briefly).
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (what: string, text: string) => {
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(what);
+      setTimeout(() => setCopied((c) => (c === what ? null : c)), 1500);
+    });
+  };
 
   if (!run) {
     return (
@@ -309,13 +330,25 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
             <span className="font-label-sm text-label-sm text-outline font-mono">
               Viewing: Step {viewingIndex + 1} ({STEP_STYLES[toneOf(viewing)].verdict})
             </span>
+            {viewing.request && (
+              <button
+                className="px-space-xs py-space-xxs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm flex items-center gap-1"
+                onClick={() => copy("curl", toCurl(viewing.request!))}
+                title="Copy this step's request as a cURL command (real values, as sent)"
+                type="button"
+                data-testid="copy-curl"
+              >
+                <Icon name={copied === "curl" ? "check" : "terminal"} className="text-body-sm" />
+                {copied === "curl" ? "Copied" : "Copy as cURL"}
+              </button>
+            )}
             <button
               className="p-space-xxs rounded hover:bg-surface-container-high text-outline hover:text-on-surface"
-              onClick={() => void navigator.clipboard?.writeText(copyText[tab])}
+              onClick={() => copy("tab", copyText[tab])}
               title="Copy as JSON / text"
               type="button"
             >
-              <Icon name="content_copy" className="text-body-md" />
+              <Icon name={copied === "tab" ? "check" : "content_copy"} className="text-body-md" />
             </button>
           </div>
         </div>
@@ -328,7 +361,20 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
                   <Icon name="input" className="text-primary text-body-md" />
                   {viewing.request ? "Request" : "Input"}
                 </span>
-                {input !== undefined && <span>JSON ({new TextEncoder().encode(json(input)).length} bytes)</span>}
+                <span className="flex items-center gap-space-xs">
+                  {input !== undefined && <span>JSON ({new TextEncoder().encode(json(input)).length} bytes)</span>}
+                  {viewing.request && (
+                    <button
+                      type="button"
+                      className="normal-case text-primary hover:underline flex items-center gap-0.5"
+                      title="Copy this request as a cURL command"
+                      onClick={() => copy("curl", toCurl(viewing.request!))}
+                    >
+                      <Icon name={copied === "curl" ? "check" : "terminal"} className="text-body-sm" />
+                      cURL
+                    </button>
+                  )}
+                </span>
               </div>
               <pre className={`${CODE} text-on-surface-variant`}>
                 {input === undefined ? `// ${viewing.nodeType} nodes read from earlier steps via templates` : json(input)}

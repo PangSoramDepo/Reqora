@@ -97,6 +97,8 @@ describe("linked http nodes", () => {
     expect(header(calls[0].init, "x-tenant")).toBe("acme");
     expect(header(calls[0].init, "x-sig")).toBe("signed-abc");
     expect(result.steps[1].output).toMatchObject({ status: 200, tests: [{ name: "has token", passed: true }], logs: ["logged in"] });
+    // The step keeps the body as sent, for Execution History and Copy as cURL.
+    expect(JSON.parse(result.steps[1].request!.body!)).toEqual({ user: "ann" });
   });
 
   it("share rq.variables between linked requests in one run", async () => {

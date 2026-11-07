@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Environment, Workflow, WorkflowNode } from "@/lib/workflows/schema";
+import { capStepBody, type Environment, type StepRequest, type Workflow, type WorkflowNode } from "@/lib/workflows/schema";
 import type { TemplateContext } from "@/lib/workflows/template";
 import type { SendOutcome } from "./schema";
 import { describeAssertion } from "./assertions";
@@ -33,7 +33,7 @@ export function linkedHttpConfig(requestId: string): { ok: true; config: HttpCon
 export type LinkedStep = {
   ok: boolean;
   error?: string;
-  request?: { method: string; url: string; headers: Record<string, string> };
+  request?: StepRequest;
   output?: {
     status: number;
     headers: Record<string, string>;
@@ -82,7 +82,15 @@ export async function sendLinkedRequest(
   const outcome = raw ?? scrubbed;
   Object.assign(options.variables, outcome.scripts?.variables);
 
-  const request = outcome.request && { method: outcome.request.method, url: outcome.request.url, headers: outcome.request.headers };
+  const sent = outcome.request;
+  const request: StepRequest | undefined = sent && {
+    method: sent.method,
+    url: sent.url,
+    headers: sent.headers,
+    ...(sent.body !== undefined ? { body: capStepBody(sent.body) } : {}),
+    ...(sent.form ? { form: sent.form } : {}),
+    ...(sent.file ? { file: sent.file } : {}),
+  };
   if ("error" in outcome) return { ok: false, error: outcome.error, request };
 
   const tests = [

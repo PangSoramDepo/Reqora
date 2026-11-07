@@ -1945,6 +1945,29 @@ components:
             method: { type: string }
             url: { type: string }
             headers: { type: object, additionalProperties: { type: string } }
+            body:
+              type: string
+              description: The body text as sent (absent without a body; runs from before this field have none). Over 1,000,000 characters it is cut, with a note. Multipart bodies are a readable version without file contents.
+            form:
+              type: array
+              description: Multipart form-data parts (text values; file names, types and sizes).
+              items:
+                type: object
+                required: [key]
+                properties:
+                  key: { type: string }
+                  value: { type: string }
+                  fileName: { type: string }
+                  contentType: { type: string }
+                  size: { type: integer }
+            file:
+              type: object
+              description: A binary body's file (its contents aren't stored).
+              required: [fileName, contentType, size]
+              properties:
+                fileName: { type: string }
+                contentType: { type: string }
+                size: { type: integer }
         output: {}
         error: { type: string }
         disabled: { type: boolean, description: "Skipped because the node is disabled (the run continued through it)" }
