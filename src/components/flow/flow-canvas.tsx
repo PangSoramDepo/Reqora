@@ -13,7 +13,7 @@ const MAX_ZOOM = 2;
 const MINIMAP_SCALE = 0.1;
 
 const DOCK_BUTTON =
-  "p-space-xs rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors";
+  "p-space-xs rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors disabled:opacity-30 disabled:pointer-events-none";
 
 type FlowCanvasProps = {
   nodes: WorkflowNode[];
@@ -29,6 +29,11 @@ type FlowCanvasProps = {
   onMoveNode: (id: string, x: number, y: number) => void;
   onMoveEnd: () => void;
   onAutoLayout: () => void;
+  /** What undo / redo would revert or re-apply (undefined: nothing). */
+  undoLabel?: string;
+  redoLabel?: string;
+  onUndo: () => void;
+  onRedo: () => void;
   onAddNode: (type: NodeType, position: Point) => void;
   /** A saved request from Collections dropped (or double-clicked) onto the canvas. */
   onAddRequest: (requestId: string, position: Point) => void;
@@ -51,6 +56,10 @@ export function FlowCanvas({
   onMoveNode,
   onMoveEnd,
   onAutoLayout,
+  undoLabel,
+  redoLabel,
+  onUndo,
+  onRedo,
   onAddNode,
   onAddRequest,
   onConnect,
@@ -454,6 +463,27 @@ export function FlowCanvas({
         </button>
         <button className={DOCK_BUTTON} title="Fit to View" type="button" onClick={fitToView}>
           <Icon name="fit_screen" className="text-body-md" />
+        </button>
+        <div className="h-4 w-px bg-outline-variant/40" />
+        <button
+          className={DOCK_BUTTON}
+          title={undoLabel ? `Undo: ${undoLabel} (Ctrl/⌘+Z)` : "Nothing to undo"}
+          aria-label="Undo"
+          type="button"
+          disabled={!undoLabel}
+          onClick={onUndo}
+        >
+          <Icon name="undo" className="text-body-md" />
+        </button>
+        <button
+          className={DOCK_BUTTON}
+          title={redoLabel ? `Redo: ${redoLabel} (Ctrl/⌘+Shift+Z)` : "Nothing to redo"}
+          aria-label="Redo"
+          type="button"
+          disabled={!redoLabel}
+          onClick={onRedo}
+        >
+          <Icon name="redo" className="text-body-md" />
         </button>
       </div>
 

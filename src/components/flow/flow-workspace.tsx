@@ -19,7 +19,7 @@ import { newNode } from "@/lib/workflows/defaults";
 import { topologicalOrder } from "@/lib/workflows/graph";
 import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
 import { SAMPLE_ORDER } from "@/lib/workflows/seed";
-import { createAutosaver, type SaveState } from "./autosaver";
+import { createAutosaver, type HistoryState, type SaveState, type UpdateOptions } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
 import { REQUEST_SAVED_EVENT } from "./linked-request-editor";
 import { FlowCanvas } from "./flow-canvas";
@@ -77,7 +77,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const [autosaver] = useState(() => createAutosaver({ onChange: setWorkflow, onState: setSaveState }));
+  const [history, setHistory] = useState<HistoryState>({});
+  const [autosaver] = useState(() => createAutosaver({ onChange: setWorkflow, onState: setSaveState, onHistory: setHistory }));
 
   useEffect(() => () => autosaver.dispose(), [autosaver]);
 
@@ -103,8 +104,9 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
       { save: false },
     );
 
-  const updateNode = (node: WorkflowNode) =>
-    autosaver.update((wf) => ({ ...wf, nodes: wf.nodes.map((n) => (n.id === node.id ? node : n)) }));
+  /** Inspector edits to one node (typing in its fields) group into one undo step. */
+  const updateNode = (node: WorkflowNode, options: UpdateOptions = { label: `Edit “${node.name}”`, group: `node:${node.id}` }) =>
+    autosaver.update((wf) => ({ ...wf, nodes: wf.nodes.map((n) => (n.id === node.id ? node : n)) }), options);
 
   const flash = useCallback((message: string) => {
     clearTimeout(noticeTimer.current);
@@ -121,7 +123,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
         return;
       }
       const node = newNode(type, position, current.nodes.map((n) => n.id));
-      autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true });
+      autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true, label: `Add “${node.name}”` });
       setSelectedId(node.id);
       setSelectedEdgeId(null);
     },
@@ -136,7 +138,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           const current = autosaver.current();
           if (!current) return;
           const node = draftToNode(draft, current, position);
-          autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true });
+          autosaver.update((wf) => ({ ...wf, nodes: [...wf.nodes, node] }), { immediate: true, label: `Add “${draft.name}”` });
           setSelectedId(node.id);
           setSelectedEdgeId(null);
           flash([`Added “${draft.name}” as an HTTP node linked to Collections — edits there apply on every run.`, ...draft.warnings].join(" "));
@@ -162,7 +164,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
                 ? { ...n, config: { ...draft.config, ...(n.config.repeat ? { repeat: n.config.repeat } : {}) } }
                 : n,
             ),
-          })),
+          }), { track: false }),
         )
         .catch(() => {});
     };
@@ -185,14 +187,14 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
       flash("That connection would create a loop — flows must be acyclic.");
       return;
     }
-    autosaver.update((wf) => ({ ...wf, edges }), { immediate: true });
+    autosaver.update((wf) => ({ ...wf, edges }), { immediate: true, label: "Connect nodes" });
   };
 
   const deleteSelection = () => {
     const current = autosaver.current();
     if (!current) return;
     if (selectedEdgeId) {
-      autosaver.update((wf) => ({ ...wf, edges: wf.edges.filter((e) => e.id !== selectedEdgeId) }), { immediate: true });
+      autosaver.update((wf) => ({ ...wf, edges: wf.edges.filter((e) => e.id !== selectedEdgeId) }), { immediate: true, label: "Delete connection" });
       setSelectedEdgeId(null);
       return;
     }
@@ -208,9 +210,10 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
         nodes: wf.nodes.filter((n) => n.id !== node.id),
         edges: wf.edges.filter((e) => e.source !== node.id && e.target !== node.id),
       }),
-      { immediate: true },
+      { immediate: true, label: `Delete “${node.name}”` },
     );
     setSelectedId(null);
+    flash(`Deleted “${node.name}”. Ctrl+Z to undo.`);
   };
 
   /** Disables (bypasses) or re-enables the selected node; the trigger always runs. */
@@ -222,23 +225,45 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
       flash("The webhook trigger can't be disabled.");
       return;
     }
-    updateNode({ ...node, disabled: !node.disabled || undefined });
+    updateNode({ ...node, disabled: !node.disabled || undefined }, { label: `${node.disabled ? "Enable" : "Disable"} “${node.name}”` });
     flash(node.disabled ? `Enabled “${node.name}”.` : `Disabled “${node.name}” — runs pass through it. Press D again to enable.`);
   };
 
-  // Delete / Backspace removes the selected edge or node, and D disables/enables the selected node, unless the
-  // user is typing.
+  /** Ctrl/⌘+Z and Ctrl/⌘+Shift+Z (or Ctrl+Y), and the toolbar's undo / redo buttons. */
+  const undo = () => {
+    const label = autosaver.undo();
+    flash(label ? `Undid: ${label}. Ctrl+Shift+Z to redo.` : "Nothing to undo.");
+  };
+  const redo = () => {
+    const label = autosaver.redo();
+    flash(label ? `Redid: ${label}.` : "Nothing to redo.");
+  };
+
+  // Delete / Backspace removes the selected edge or node, D disables/enables the selected node, and Ctrl/⌘+Z /
+  // Shift+Z undo and redo canvas edits — unless the user is typing (inputs keep their own undo).
   const deleteRef = useRef(deleteSelection);
   const toggleRef = useRef(toggleSelectedDisabled);
+  const undoRef = useRef(undo);
+  const redoRef = useRef(redo);
   useEffect(() => {
     deleteRef.current = deleteSelection;
     toggleRef.current = toggleSelectedDisabled;
+    undoRef.current = undo;
+    redoRef.current = redo;
   });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target as HTMLElement;
       // Not while typing, nor inside a dialog over the canvas (e.g. the linked request editor).
       if (el.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) return;
+      const mod = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (mod && !event.altKey && (key === "z" || key === "y")) {
+        event.preventDefault();
+        if (key === "y" || event.shiftKey) redoRef.current();
+        else undoRef.current();
+        return;
+      }
       if ((event.key === "d" || event.key === "D") && !event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
         toggleRef.current();
@@ -381,7 +406,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             />
             <WorkflowSwitcher
               workflow={workflow}
-              onRename={(name) => autosaver.update((wf) => ({ ...wf, name }), { immediate: true })}
+              onRename={(name) => autosaver.update((wf) => ({ ...wf, name }), { immediate: true, label: "Rename flow" })}
               onError={flash}
             />
           </div>
@@ -551,8 +576,15 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             setSelectedId(null);
           }}
           onMoveNode={moveNode}
-          onMoveEnd={() => autosaver.update((wf) => wf, { immediate: true })}
-          onAutoLayout={() => autosaver.update((wf) => ({ ...wf, nodes: autoLayout(wf) }), { immediate: true })}
+          onMoveEnd={() => autosaver.update((wf) => wf, { immediate: true, label: "Move node" })}
+          onAutoLayout={() => {
+            autosaver.update((wf) => ({ ...wf, nodes: autoLayout(wf) }), { immediate: true, label: "Auto align" });
+            flash("Aligned the graph. Ctrl+Z to undo.");
+          }}
+          undoLabel={history.undo}
+          redoLabel={history.redo}
+          onUndo={undo}
+          onRedo={redo}
           onAddNode={addNode}
           onAddRequest={addRequest}
           onConnect={connect}
