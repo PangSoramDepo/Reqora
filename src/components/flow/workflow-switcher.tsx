@@ -87,7 +87,7 @@ export function WorkflowSwitcher({ workflow, onRename, onError }: WorkflowSwitch
     <div ref={rootRef} className="relative min-w-0">
       <button
         aria-expanded={open}
-        className="flex items-center gap-space-xxs font-label-md text-label-md text-primary min-w-0 hover:text-primary-fixed"
+        className="flex items-center gap-space-xxs font-label-md text-label-md text-primary min-w-0 max-w-full hover:text-primary-fixed"
         onClick={() => setOpen((o) => !o)}
         onDoubleClick={() => {
           setDraftName(workflow.name);

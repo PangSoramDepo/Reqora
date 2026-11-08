@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
-import { RAIL_BOOT_SCRIPT } from "@/components/shell/rail-toggle";
+import { BOOT_SCRIPT } from "@/components/shell/boot-script";
 import "./globals.css";
 
 const geist = Geist({
@@ -26,7 +26,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     // suppressHydrationWarning: the boot script may set data-rail on <html> before React hydrates.
     <html lang="en" className={`dark ${geist.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: RAIL_BOOT_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: BOOT_SCRIPT }} />
         {/* Icon font: display=block avoids flashing raw ligature names like "play_arrow" before it loads. */}
         {/* eslint-disable-next-line @next/next/no-page-custom-font, @next/next/google-font-display */}
         <link

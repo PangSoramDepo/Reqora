@@ -318,7 +318,7 @@ export function NodeInspector({ node, workflowId, readOnly, step, running, onCha
   };
 
   return (
-    <aside className="w-[380px] h-full bg-surface-container-low/95 backdrop-blur-xl z-30 flex flex-col shadow-2xl overflow-y-auto">
+    <aside className="w-full h-full bg-surface-container-low/95 backdrop-blur-xl z-30 flex flex-col shadow-2xl overflow-y-auto">
       <div className="h-14 shrink-0 px-space-md flex items-center justify-between bg-surface-container-lowest/70">
         <div className="flex items-center gap-space-xs min-w-0">
           <Icon name="tune" className="text-primary text-headline-sm" />

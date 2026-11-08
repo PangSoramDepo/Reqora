@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { ResizeHandle } from "./resize-handle";
 import { SidebarBody } from "./sidebar-body";
 
 export function Sidebar() {
@@ -8,6 +9,8 @@ export function Sidebar() {
       <Suspense fallback={<div className="h-14 bg-surface-container-lowest/60" />}>
         <SidebarBody />
       </Suspense>
+      {/* Drag the right edge to widen; hidden while collapsed to the icon rail. */}
+      <ResizeHandle panel="sidebar" edge="right" label="Resize sidebar" className="rail-hide" />
     </aside>
   );
 }

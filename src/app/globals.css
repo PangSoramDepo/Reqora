@@ -178,9 +178,18 @@
   display: none;
 }
 
-/* Sidebar width; the rail toggle sets data-rail="collapsed" on <html> (see rail-toggle.tsx). */
+/* Sidebar width; the rail toggle sets data-rail="collapsed" on <html> (see rail-toggle.tsx). The open width and
+   the Node Inspector's width are set by their resize handles (see resize-handle.tsx). */
 :root {
-  --sidebar-w: 16rem;
+  --sidebar-open-w: 16rem;
+  --sidebar-w: var(--sidebar-open-w);
+  --inspector-w: 380px;
+}
+/* While a panel is being resized: follow the pointer without easing, and don't select text. */
+:root[data-resizing] * {
+  transition: none !important;
+  user-select: none;
+  cursor: col-resize;
 }
 :root[data-rail="collapsed"] {
   --sidebar-w: 3.5rem;

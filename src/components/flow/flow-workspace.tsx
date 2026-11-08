@@ -21,6 +21,7 @@ import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflow
 import { SAMPLE_ORDER } from "@/lib/workflows/seed";
 import { followWorkspace, useWorkspaces } from "@/lib/workspaces/client";
 import { GettingStarted } from "./getting-started";
+import { ResizeHandle } from "@/components/shell/resize-handle";
 import { createAutosaver, type HistoryState, type SaveState, type UpdateOptions } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
 import { REQUEST_SAVED_EVENT } from "./linked-request-editor";
@@ -427,8 +428,12 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   return (
     <div className="flex flex-col w-full text-on-surface select-none">
       <div className="relative w-full h-[calc(100vh-3.5rem-2.5rem)] overflow-hidden flex">
+        {/* Canvas toolbar: the context strip and the test actions share one row that wraps when the canvas is
+            narrow (a wide sidebar or inspector), so neither covers the other. */}
+        <div className="absolute top-space-sm left-space-md right-[calc(var(--inspector-w)+10px)] z-40 flex flex-wrap items-start justify-between gap-space-xs pointer-events-none">
         {/* Canvas context strip */}
-        <div className="absolute top-space-sm left-space-md z-40 flex items-center gap-space-xs bg-surface-container/90 backdrop-blur-md px-space-md py-space-xs rounded-xl shadow-xl max-w-[calc(100%-640px)]">
+        {/* Basis 11rem, growing to its content: the name truncates before the actions wrap to a second line. */}
+        <div className="pointer-events-auto flex-[1_1_11rem] max-w-max min-w-0 flex items-center gap-space-xs bg-surface-container/90 backdrop-blur-md px-space-md py-space-xs rounded-xl shadow-xl">
           <div className="flex items-center gap-space-xs min-w-0">
             <Icon
               name="sync"
@@ -441,7 +446,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
               onError={flash}
             />
           </div>
-          <span className="text-outline-variant font-label-sm text-label-sm">|</span>
+          <span className="text-outline-variant font-label-sm text-label-sm shrink-0">|</span>
           <div
             className="flex items-center gap-space-xxs text-on-surface-variant font-body-sm text-body-sm shrink-0"
             title={
@@ -484,7 +489,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
         </div>
 
         {/* Simulation actions */}
-        <div className="absolute top-space-sm right-[390px] z-30 flex items-center gap-space-xs">
+        <div className="pointer-events-auto ml-auto shrink-0 flex items-center gap-space-xs">
           <button
             className="flex items-center gap-space-xs px-space-md py-space-xs bg-surface-container-high text-on-surface rounded-xl shadow-lg transition-all hover:bg-surface-container-highest active:scale-95 font-body-sm text-body-sm font-semibold"
             type="button"
@@ -537,6 +542,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
               />
             )}
           </div>
+        </div>
         </div>
 
         {(saveState.kind === "error" || notice) && (
@@ -637,6 +643,9 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           onAddRequest={addRequest}
           onConnect={connect}
         />
+        {/* The inspector column: drag its left edge to resize (remembered in this browser). */}
+        <div className="relative h-full shrink-0 w-[var(--inspector-w)]" data-testid="inspector-column">
+          <ResizeHandle panel="inspector" edge="left" label="Resize the Node Inspector" />
         {selected ? (
           <TemplateDataProvider workflow={workflow} nodeId={selected.id} steps={steps} triggerBody={testPayload} environment={environment}>
             <NodeInspector
@@ -653,7 +662,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             />
           </TemplateDataProvider>
         ) : (
-          <aside className="w-[380px] h-full bg-surface-container-low/95 flex flex-col items-center justify-center gap-space-xs p-space-xl text-center text-outline font-body-sm text-body-sm">
+          <aside className="w-full h-full bg-surface-container-low/95 flex flex-col items-center justify-center gap-space-xs p-space-xl text-center text-outline font-body-sm text-body-sm">
             {selectedEdgeId ? (
               <>
                 <span className="text-on-surface">Connection selected</span>
@@ -667,6 +676,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             )}
           </aside>
         )}
+        </div>
       </div>
       <ExecutionStream
         run={run}

@@ -2,10 +2,7 @@
 
 import { Icon } from "@/components/icon";
 
-export const RAIL_KEY = "reqora:rail";
-
-/** Sets `data-rail` on <html> before first paint, so a collapsed sidebar doesn't flash open on load. */
-export const RAIL_BOOT_SCRIPT = `try{if(localStorage.getItem(${JSON.stringify(RAIL_KEY)})==="collapsed")document.documentElement.dataset.rail="collapsed"}catch(e){}`;
+import { RAIL_KEY } from "./boot-script";
 
 /** Collapses the sidebar to an icon rail (or expands it); remembered in this browser. */
 export function RailToggle() {
