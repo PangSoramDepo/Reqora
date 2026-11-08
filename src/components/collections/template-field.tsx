@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useRef, type ComponentProps, type ReactNode } from "react";
+import { useSuggestData, useSuggestMenu } from "@/components/flow/suggest-menu";
 
 /** Where a token goes: inserts at that field's cursor; `alive` is false once the field left the page. */
 export type TokenTarget = { insert: (token: string) => void; alive: () => boolean };
@@ -45,37 +46,74 @@ export const useTokenFocus = () => useContext(TokenContext)?.focus;
 
 type InputProps = Omit<ComponentProps<"input">, "value" | "onChange"> & { value: string; onValue: (value: string) => void };
 
-/** Text input that accepts token insertion. */
-export function TemplateInput({ value, onValue, onFocus, ...rest }: InputProps) {
+/** Text input that accepts token insertion, with `{{` suggestions (env, script variables, dynamic values). */
+export function TemplateInput({ value, onValue, onFocus, onBlur, onKeyDown, ...rest }: InputProps) {
   const tokens = useContext(TokenContext);
+  const ref = useRef<HTMLInputElement>(null);
+  const menu = useSuggestMenu({ ref, value, onChange: onValue, data: useSuggestData(), disabled: rest.readOnly });
   return (
-    <input
-      {...rest}
-      value={value}
-      spellCheck={false}
-      onChange={(e) => onValue(e.target.value)}
-      onFocus={(e) => {
-        tokens?.focus(fieldTarget(e.currentTarget, onValue));
-        onFocus?.(e);
-      }}
-    />
+    <>
+      <input
+        {...rest}
+        ref={ref}
+        value={value}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(e) => {
+          onValue(e.target.value);
+          menu.onInput(e.target.value, e.target.selectionStart ?? e.target.value.length);
+        }}
+        onKeyDown={(e) => {
+          menu.onKeyDown(e);
+          if (!e.defaultPrevented) onKeyDown?.(e);
+        }}
+        onKeyUp={menu.onKeyUp}
+        onFocus={(e) => {
+          tokens?.focus(fieldTarget(e.currentTarget, onValue));
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          menu.onBlur();
+          onBlur?.(e);
+        }}
+      />
+      {menu.popup}
+    </>
   );
 }
 
 type TextareaProps = Omit<ComponentProps<"textarea">, "value" | "onChange"> & { value: string; onValue: (value: string) => void };
 
-export function TemplateTextarea({ value, onValue, onFocus, ...rest }: TextareaProps) {
+export function TemplateTextarea({ value, onValue, onFocus, onBlur, onKeyDown, ...rest }: TextareaProps) {
   const tokens = useContext(TokenContext);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const menu = useSuggestMenu({ ref, value, onChange: onValue, data: useSuggestData(), disabled: rest.readOnly });
   return (
-    <textarea
-      {...rest}
-      value={value}
-      spellCheck={false}
-      onChange={(e) => onValue(e.target.value)}
-      onFocus={(e) => {
-        tokens?.focus(fieldTarget(e.currentTarget, onValue));
-        onFocus?.(e);
-      }}
-    />
+    <>
+      <textarea
+        {...rest}
+        ref={ref}
+        value={value}
+        spellCheck={false}
+        onChange={(e) => {
+          onValue(e.target.value);
+          menu.onInput(e.target.value, e.target.selectionStart ?? e.target.value.length);
+        }}
+        onKeyDown={(e) => {
+          menu.onKeyDown(e);
+          if (!e.defaultPrevented) onKeyDown?.(e);
+        }}
+        onKeyUp={menu.onKeyUp}
+        onFocus={(e) => {
+          tokens?.focus(fieldTarget(e.currentTarget, onValue));
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          menu.onBlur();
+          onBlur?.(e);
+        }}
+      />
+      {menu.popup}
+    </>
   );
 }

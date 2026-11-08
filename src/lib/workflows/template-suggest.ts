@@ -7,7 +7,8 @@ export type DataSource = {
   root: string;
   /** Node name ("Webhook payload" for the trigger). */
   label: string;
-  type: NodeType | "trigger";
+  /** `vars`: names Collections scripts set (`{{vars.name}}`). */
+  type: NodeType | "trigger" | "vars";
   /** The last run's output, or a sample of the node type's output shape when it hasn't run. */
   value: unknown;
   /** False when `value` is only the type's output shape (the node hasn't run yet). */

@@ -11,6 +11,8 @@ import { basicSetup } from "codemirror";
 import { Icon } from "@/components/icon";
 import { checkJsonTemplate, TEMPLATE_PATTERN } from "@/lib/collections/json-template";
 import { highlight, theme } from "./script-code-editor";
+import { useSuggestData } from "@/components/flow/suggest-menu";
+import { templateCompletion } from "./template-completion";
 import { useTokenFocus } from "./template-field";
 
 type Props = {
@@ -70,11 +72,15 @@ export function BodyCodeEditor({ value, onValue, language, label, placeholder }:
   const latest = useRef({ onValue });
   const registerFocus = useTokenFocus();
   const focusRef = useRef(registerFocus);
+  // Read by the {{ completion source when it runs (the editor is created once).
+  const suggestData = useSuggestData();
+  const suggestRef = useRef(suggestData);
   const [status, setStatus] = useState<Status>(null);
 
   useEffect(() => {
     latest.current = { onValue };
     focusRef.current = registerFocus;
+    suggestRef.current = suggestData;
   });
 
   useEffect(() => {
@@ -101,6 +107,7 @@ export function BodyCodeEditor({ value, onValue, language, label, placeholder }:
               ]
             : [],
           templateMarks,
+          templateCompletion(() => suggestRef.current),
           syntaxHighlighting(highlight),
           theme,
           bodyTheme,

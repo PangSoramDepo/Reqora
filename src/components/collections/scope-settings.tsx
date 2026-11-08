@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { folderChain, subtreeIds } from "@/lib/collections/folders";
+import { scriptVariables } from "@/lib/collections/script-vars";
+import { collectionsSuggestData, SuggestDataProvider } from "@/components/flow/suggest-menu";
 import type { Collection, Folder, ScopeSettings } from "@/lib/collections/schema";
 import { AuthPanel, type InheritSource } from "./auth-panel";
 import { folderInheritance, InheritedHeaders } from "./inherited";
@@ -51,7 +53,13 @@ export function ScopeSettingsPanel({ collection, folder, settings, update, dirty
     { id: "post", label: PHASE_LABEL.post, badge: settings.postScript.trim() ? DOT : null },
   ];
 
+  const suggestData = collectionsSuggestData(
+    variableNames ?? [],
+    scriptVariables(settings.preScript, settings.postScript, ...ancestors.flatMap((f) => [f.settings.preScript, f.settings.postScript]), collection.settings.preScript),
+  );
+
   return (
+    <SuggestDataProvider value={suggestData}>
     <div className="flex-1 flex flex-col min-h-0" data-testid="scope-settings">
       <div className="p-space-sm bg-surface-container-low/60 flex flex-col gap-space-xs shadow-sm">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -161,5 +169,6 @@ export function ScopeSettingsPanel({ collection, folder, settings, update, dirty
         )}
       </div>
     </div>
+    </SuggestDataProvider>
   );
 }

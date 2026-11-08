@@ -4,7 +4,9 @@ import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { NumberField } from "@/components/number-field";
 import { beautifyJson } from "@/lib/collections/beautify";
-import { flattenTree, folderPath } from "@/lib/collections/folders";
+import { folderChain, flattenTree, folderPath } from "@/lib/collections/folders";
+import { scriptVariables } from "@/lib/collections/script-vars";
+import { collectionsSuggestData, SuggestDataProvider } from "@/components/flow/suggest-menu";
 import { convertBody } from "@/lib/collections/request";
 import { REQUEST_METHODS, type Collection, type RequestDefinition, type RequestMethod } from "@/lib/collections/schema";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
@@ -170,8 +172,16 @@ export function RequestBuilder({
     }
   };
 
+  // {{ suggestions: this environment's variables, plus names this request's (and its folders' and collection's)
+  // scripts set with rq.variables / rq.environment.
+  const scopes = [collection?.settings, ...(collection ? folderChain(collection.folders, draft.folderId).map((f) => f.settings) : [])];
+  const suggestData = collectionsSuggestData(
+    variableNames,
+    scriptVariables(def.preScript, def.postScript, ...scopes.flatMap((s) => [s?.preScript, s?.postScript])),
+  );
+
   return (
-    <>
+    <SuggestDataProvider value={suggestData}>
       {/* Top Request Command Bar */}
       <div className="p-space-sm bg-surface-container-low/60 flex flex-col gap-space-xs shadow-sm">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -465,6 +475,6 @@ export function RequestBuilder({
           </div>
         )}
       </div>
-    </>
+    </SuggestDataProvider>
   );
 }
