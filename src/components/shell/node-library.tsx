@@ -42,6 +42,7 @@ export function NodeLibrary() {
         <div className="font-label-sm text-label-sm text-outline uppercase tracking-wider px-space-xs mb-space-xs rail-hide">
           Core Blocks
         </div>
+        <p className="px-space-xs mb-space-xs font-body-sm text-body-sm text-outline rail-hide">Drag onto the canvas, or double-click to add</p>
         <div className="space-y-space-xxs">
           {blocks.map((block) => (
             <div

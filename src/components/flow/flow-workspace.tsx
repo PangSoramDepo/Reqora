@@ -19,7 +19,8 @@ import { newNode } from "@/lib/workflows/defaults";
 import { topologicalOrder } from "@/lib/workflows/graph";
 import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
 import { SAMPLE_ORDER } from "@/lib/workflows/seed";
-import { followWorkspace } from "@/lib/workspaces/client";
+import { followWorkspace, useWorkspaces } from "@/lib/workspaces/client";
+import { GettingStarted } from "./getting-started";
 import { createAutosaver, type HistoryState, type SaveState, type UpdateOptions } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
 import { REQUEST_SAVED_EVENT } from "./linked-request-editor";
@@ -82,6 +83,13 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [history, setHistory] = useState<HistoryState>({});
   const [autosaver] = useState(() => createAutosaver({ onChange: setWorkflow, onState: setSaveState, onHistory: setHistory }));
+  // Viewers see the flow but can't change, run or deploy it.
+  const readOnly = useWorkspaces().role === "viewer";
+  const readOnlyRef = useRef(false);
+  useEffect(() => {
+    readOnlyRef.current = readOnly;
+    autosaver.setReadOnly(readOnly);
+  }, [readOnly, autosaver]);
 
   useEffect(() => () => autosaver.dispose(), [autosaver]);
 
@@ -122,8 +130,16 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     noticeTimer.current = setTimeout(() => setNotice(null), Math.max(3500, message.length * 60));
   }, []);
 
+  /** True (after saying so) when the user may only look at this flow. */
+  const viewOnly = useCallback(() => {
+    if (!readOnlyRef.current) return false;
+    flash("View only: you can look at this flow but not change, run or deploy it. Ask an owner for the Editor role.");
+    return true;
+  }, [flash]);
+
   const addNode = useCallback(
     (type: NodeType, position: { x: number; y: number }) => {
+      if (viewOnly()) return;
       const current = autosaver.current();
       if (!current) return;
       if (type === "webhook" && current.nodes.some((n) => n.type === "webhook")) {
@@ -135,12 +151,13 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
       setSelectedId(node.id);
       setSelectedEdgeId(null);
     },
-    [autosaver, flash],
+    [autosaver, flash, viewOnly],
   );
 
   /** A saved request dropped from the sidebar becomes an http node with its collection/folder auth and headers. */
   const addRequest = useCallback(
     (requestId: string, position: { x: number; y: number }) => {
+      if (viewOnly()) return;
       requestToNodeDraft({ requestId })
         .then((draft) => {
           const current = autosaver.current();
@@ -153,7 +170,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
         })
         .catch((error: Error) => flash(`Couldn't add that request: ${error.message}`));
     },
-    [autosaver, flash],
+    [autosaver, flash, viewOnly],
   );
 
   // A saved request edited in a dialog (Node Inspector or the sidebar): refresh the copy kept by every node
@@ -181,6 +198,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   }, [autosaver]);
 
   const connect = (source: string, sourcePort: string, target: string) => {
+    if (viewOnly()) return;
     const current = autosaver.current();
     if (!current) return;
     if (source === target) return;
@@ -199,6 +217,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   };
 
   const deleteSelection = () => {
+    if (viewOnly()) return;
     const current = autosaver.current();
     if (!current) return;
     if (selectedEdgeId) {
@@ -226,6 +245,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
 
   /** Disables (bypasses) or re-enables the selected node; the trigger always runs. */
   const toggleSelectedDisabled = () => {
+    if (viewOnly()) return;
     const current = autosaver.current();
     const node = current?.nodes.find((n) => n.id === selectedId);
     if (!node) return;
@@ -239,10 +259,12 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
 
   /** Ctrl/⌘+Z and Ctrl/⌘+Shift+Z (or Ctrl+Y), and the toolbar's undo / redo buttons. */
   const undo = () => {
+    if (viewOnly()) return;
     const label = autosaver.undo();
     flash(label ? `Undid: ${label}. Ctrl+Shift+Z to redo.` : "Nothing to undo.");
   };
   const redo = () => {
+    if (viewOnly()) return;
     const label = autosaver.redo();
     flash(label ? `Redid: ${label}.` : "Nothing to redo.");
   };
@@ -295,7 +317,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const testPayload = savedPayload ?? run?.trigger.body ?? SAMPLE_ORDER;
 
   const execute = async () => {
-    if (!workflow || running) return;
+    if (!workflow || running || viewOnly()) return;
     if (!(await confirmProduction(environment, `Run “${workflow.name}”`))) return;
     const trigger = workflow.nodes.find((n) => n.type === "webhook");
     if (trigger) pulse(trigger.id);
@@ -338,7 +360,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   };
 
   const deploy = async () => {
-    if (!workflow || deploying) return;
+    if (!workflow || deploying || viewOnly()) return;
     setDeploying(true);
     try {
       await autosaver.flush(); // deploy exactly what's on screen
@@ -568,6 +590,22 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           />
         )}
 
+        {!readOnly && (
+          <GettingStarted
+            key={workflow.id}
+            workflowId={workflow.id}
+            hasRun={run !== undefined}
+            deployed={workflow.deployment !== undefined}
+            running={running}
+            deploying={deploying}
+            environment={environment}
+            testPayload={testPayload}
+            onEditPayload={() => setEditingPayload(true)}
+            onRun={execute}
+            onDeploy={deploy}
+          />
+        )}
+
         <FlowCanvas
           nodes={workflow.nodes}
           edges={workflow.edges}
@@ -587,6 +625,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           onMoveNode={moveNode}
           onMoveEnd={() => autosaver.update((wf) => wf, { immediate: true, label: "Move node" })}
           onAutoLayout={() => {
+            if (viewOnly()) return;
             autosaver.update((wf) => ({ ...wf, nodes: autoLayout(wf) }), { immediate: true, label: "Auto align" });
             flash("Aligned the graph. Ctrl+Z to undo.");
           }}
@@ -604,6 +643,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
               key={selected.id}
               node={selected}
               workflowId={workflowId}
+              readOnly={readOnly}
               step={steps.get(selected.id)}
               running={running}
               onChange={updateNode}

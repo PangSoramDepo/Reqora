@@ -5,10 +5,44 @@ import { conditionOperators, type WorkflowNode } from "@/lib/workflows/schema";
 import { NumberField } from "@/components/number-field";
 import { ScriptCodeEditor } from "@/components/collections/script-code-editor";
 import { Icon } from "@/components/icon";
+import { useEnvironment } from "@/lib/environment";
+import { webhookCurl, webhookUrl } from "@/lib/workflows/templates";
 import { CallFlowEditor } from "./call-flow-editor";
 import { TemplateField } from "./template-field";
 
 type NonHttpNode = Exclude<WorkflowNode, { type: "http" }>;
+
+/** The live webhook URL for the environment in the top bar, with copy buttons. */
+function WebhookEndpoint({ workflowId }: { workflowId: string }) {
+  const environment = useEnvironment();
+  const [copied, setCopied] = useState<"url" | "curl" | null>(null);
+  const copy = async (what: "url" | "curl") => {
+    const origin = window.location.origin;
+    const text = what === "url" ? webhookUrl(origin, workflowId, environment) : webhookCurl(origin, workflowId, environment, { example: true });
+    await navigator.clipboard.writeText(text).catch(() => undefined);
+    setCopied(what);
+    setTimeout(() => setCopied(null), 1500);
+  };
+  return (
+    <div className="flex flex-col gap-space-xs" data-testid="webhook-endpoint">
+      <span className={LABEL}>Live endpoint ({environment})</span>
+      <div className={`${FIELD} break-all text-primary`}>POST /api/hooks/{workflowId}{environment === "production" ? "" : `?environment=${environment}`}</div>
+      <div className="flex items-center gap-space-xs">
+        {(["url", "curl"] as const).map((what) => (
+          <button
+            key={what}
+            type="button"
+            className="flex items-center gap-1 px-space-sm py-0.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-md text-label-md"
+            onClick={() => copy(what)}
+          >
+            <Icon name={copied === what ? "check" : "content_copy"} className="text-body-sm" />
+            {copied === what ? "Copied" : what === "url" ? "Copy URL" : "Copy cURL"}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const LABEL = "font-label-sm text-label-sm text-outline uppercase tracking-wider";
 const FIELD =
@@ -185,9 +219,9 @@ export function NodeConfigForm({
               onChange={(e) => onChange({ ...node, config: { ...node.config, path: e.target.value } })}
             />
           </Field>
+          {workflowId && <WebhookEndpoint workflowId={workflowId} />}
           <span className={HINT}>
-            Live endpoint: <span className="text-primary">POST /api/hooks/&lt;workflow-id&gt;</span>. The body is available as{" "}
-            <span className="text-tertiary">{"{{trigger.body.*}}"}</span>.
+            The POSTed JSON is available as <span className="text-tertiary">{"{{trigger.body.*}}"}</span>. The webhook runs the deployed version.
           </span>
         </>
       );

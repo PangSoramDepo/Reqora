@@ -36,6 +36,8 @@ type InspectorProps = {
   node: WorkflowNode;
   /** The flow being edited. */
   workflowId?: string;
+  /** View only (a Viewer of the workspace): edits aren't applied; the inspector says so. */
+  readOnly?: boolean;
   step?: Step;
   running: boolean;
   onChange: (node: WorkflowNode) => void;
@@ -234,7 +236,7 @@ function HttpPanels({ node, tab, onChange, onEdit }: { node: HttpNode; tab: Tab;
 /** Names that look like credentials default to the secret kind when added from an error. */
 const SECRET_HINT = /SECRET|TOKEN|KEY|PASSWORD|PASS|CREDENTIAL|PRIVATE/;
 
-export function NodeInspector({ node, workflowId, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
+export function NodeInspector({ node, workflowId, readOnly, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
   const router = useRouter();
   const environment = useEnvironment();
   const [tab, setTab] = useState<Tab>("Headers");
@@ -367,6 +369,11 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
       </div>
 
       <div className="p-space-md flex flex-col gap-space-md flex-1">
+        {readOnly && (
+          <div className="flex items-center gap-space-xs p-space-xs rounded bg-tertiary/10 text-tertiary font-body-sm text-body-sm" data-testid="inspector-view-only">
+            <Icon name="visibility" className="text-body-md" /> View only — fields can&apos;t be changed here.
+          </div>
+        )}
         {showDocs && <NodeDocs type={node.type} nodeId={node.id} />}
         {node.disabled && (
           <div
@@ -461,7 +468,8 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
           <button
             className="flex-1 flex items-center justify-center gap-space-xs px-space-md py-space-sm bg-primary text-on-primary rounded-xl font-body-sm text-body-sm font-semibold hover:bg-primary-container transition-all active:scale-98 shadow-lg disabled:opacity-60"
             type="button"
-            disabled={running}
+            disabled={running || readOnly}
+            title={readOnly ? "Viewers can't run flows" : undefined}
             onClick={onRun}
           >
             <Icon name={running ? "progress_activity" : "play_arrow"} className={`text-body-md ${running ? "animate-spin" : ""}`} />

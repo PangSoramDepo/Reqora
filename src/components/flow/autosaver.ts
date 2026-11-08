@@ -139,8 +139,15 @@ export function createAutosaver({ onChange, onState, onHistory, debounceMs = 600
     timer = setTimeout(() => void flush(), delay);
   }
 
+  // Viewers: every local change is refused (nothing to save, nothing to undo).
+  let readOnly = false;
+
   return {
     current: () => latest,
+    /** Read-only: update(), undo() and redo() do nothing. */
+    setReadOnly(value: boolean) {
+      readOnly = value;
+    },
     /** Adopt a workflow loaded from the server; nothing to save. */
     load(workflow: Workflow) {
       editSeq = 0;
@@ -152,16 +159,16 @@ export function createAutosaver({ onChange, onState, onHistory, debounceMs = 600
      * the undo history — with the next save.
      */
     update(fn: (workflow: Workflow) => Workflow, options: UpdateOptions = {}) {
-      if (!latest) return;
+      if (!latest || readOnly) return;
       set(fn(latest));
       if (options.save === false) return;
       record(options);
       markEdited(options.immediate ?? false);
     },
     /** Reverts the last step; returns its label (undefined when there's nothing to undo). */
-    undo: () => travel(undoStack, redoStack),
+    undo: () => (readOnly ? undefined : travel(undoStack, redoStack)),
     /** Re-applies the last undone step; returns its label. */
-    redo: () => travel(redoStack, undoStack),
+    redo: () => (readOnly ? undefined : travel(redoStack, undoStack)),
     flush,
     dispose: () => clearTimeout(timer),
   };

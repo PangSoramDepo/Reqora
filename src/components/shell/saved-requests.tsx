@@ -115,6 +115,11 @@ export function SavedRequests({ query }: { query: string }) {
           <Icon name="refresh" className="text-body-md" />
         </button>
       </div>
+      {collections && collections.length > 0 && (
+        <p className="px-space-xs mb-space-xs font-body-sm text-body-sm text-outline" data-testid="saved-requests-hint">
+          Click to edit · double-click or drag to add to the canvas
+        </p>
+      )}
 
       {collections === null && <div className="px-space-xs font-body-sm text-body-sm text-outline">Loading…</div>}
       {collections?.length === 0 && (

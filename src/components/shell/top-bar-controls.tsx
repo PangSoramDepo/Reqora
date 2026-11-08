@@ -6,6 +6,7 @@ import { Icon } from "@/components/icon";
 import { onCanvasState, sendCanvasCommand, type CanvasState } from "@/lib/canvas-events";
 import { ENVIRONMENT_LABELS, setEnvironment, useEnvironment } from "@/lib/environment";
 import { ENVIRONMENTS, type Environment } from "@/lib/workflows/schema";
+import { ShortcutsButton } from "./shortcuts";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
@@ -78,6 +79,8 @@ export function TopBarControls() {
       </div>
 
       <div className="flex items-center gap-space-sm">
+        {/* Zoom, minimap, Deploy and Run only mean something on the canvas, so other pages don't show them. */}
+        {onCanvas && (
         <div className="flex items-center rounded bg-surface-container-highest p-space-xxs">
           <button className={ICON_BUTTON} disabled={!onCanvas} onClick={() => sendCanvasCommand("zoom-out")} title="Zoom Out" type="button">
             <Icon name="remove" className="text-body-md" />
@@ -98,6 +101,7 @@ export function TopBarControls() {
             <Icon name="map" className="text-body-md" />
           </button>
         </div>
+        )}
         <button
           className="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-body-sm text-body-sm transition-colors"
           onClick={share}
@@ -107,6 +111,8 @@ export function TopBarControls() {
           <Icon name={copied ? "check" : "share"} className="text-body-md" />
           <span>{copied ? "Copied" : "Share"}</span>
         </button>
+        {onCanvas && (
+        <>
         <button
           className="flex items-center gap-space-xs px-space-sm py-space-xs rounded bg-secondary-container hover:bg-secondary-container/80 text-on-secondary-container font-body-sm text-body-sm transition-colors disabled:opacity-50 disabled:pointer-events-none"
           disabled={!onCanvas || canvas.deploying || !canvas.undeployed}
@@ -136,6 +142,9 @@ export function TopBarControls() {
           <span>{canvas.running ? "Running…" : production ? "Run in Production" : "Run Workflow"}</span>
           {canvas.running && <span className="w-2 h-2 rounded-full bg-on-primary animate-ping" />}
         </button>
+        </>
+        )}
+        <ShortcutsButton />
         <UserMenu />
       </div>
     </div>
