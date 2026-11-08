@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
 import { fetchWorkflowSummaries } from "@/lib/workflows/client";
 import type { WorkflowNode, WorkflowSummary } from "@/lib/workflows/schema";
+import { TemplateField } from "./template-field";
 
 type CallNode = Extract<WorkflowNode, { type: "call" }>;
 
@@ -113,13 +114,14 @@ export function CallFlowEditor({ node, workflowId, onChange }: { node: CallNode;
         <label className={LABEL} htmlFor="call-body">
           Trigger Body (JSON template)
         </label>
-        <textarea
+        <TemplateField
           id="call-body"
+          multiline
+          mode="json"
           className={`${FIELD} min-h-28 resize-y whitespace-pre leading-relaxed`}
-          spellCheck={false}
           placeholder="{{trigger.body}}"
           value={node.config.body ?? ""}
-          onChange={(e) => set({ body: e.target.value === "" ? undefined : e.target.value })}
+          onChange={(body) => set({ body: body === "" ? undefined : body })}
         />
         <span className={HINT}>
           The called flow reads it as <span className="text-tertiary">{"{{trigger.body.*}}"}</span>. Empty sends this run&apos;s trigger body.

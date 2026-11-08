@@ -11,6 +11,8 @@ import { NodeConfigForm } from "./node-config-form";
 import { NodeDocs } from "./node-docs";
 import { RepeatChecks, ScriptLogs } from "./repeat-checks";
 import { RepeatUntilEditor } from "./repeat-until-editor";
+import { AvailableData, DataTree } from "./data-tree";
+import { TemplateField } from "./template-field";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
 
@@ -169,20 +171,20 @@ function HttpPanels({ node, tab, onChange, onEdit }: { node: HttpNode; tab: Tab;
             Payload Interpolation
           </label>
           {linked && <EditHint onEdit={onEdit} />}
-          <textarea
+          <TemplateField
             id="node-body"
+            multiline
+            mode="json"
             className={`${CODE_BLOCK} leading-relaxed text-on-surface min-h-36 resize-y focus:outline-none focus:ring-1 focus:ring-primary/40 ${linked ? "cursor-pointer" : ""}`}
-            spellCheck={false}
             readOnly={linked}
             onClick={linked ? onEdit : undefined}
             value={node.config.body ?? ""}
             placeholder={'{ "id": "{{node-1.body.id}}" }'}
-            onChange={(e) => update({ body: e.target.value === "" ? undefined : e.target.value })}
+            onChange={(body) => update({ body: body === "" ? undefined : body })}
           />
           <span className="font-body-sm text-body-sm text-outline">
-            Use <span className="text-tertiary font-mono">{"{{node-id.body.field}}"}</span>,{" "}
-            <span className="text-tertiary font-mono">{"{{trigger.body.field}}"}</span> or{" "}
-            <span className="text-tertiary font-mono">{"{{env.NAME}}"}</span>.
+            Type <span className="text-tertiary font-mono">{"{{"}</span> (or Ctrl+Space) to pick the trigger, an earlier node&apos;s field or an
+            environment variable.
           </span>
         </div>
       );
@@ -227,6 +229,8 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
   const [tab, setTab] = useState<Tab>("Headers");
   const [showDocs, setShowDocs] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [rawOutput, setRawOutput] = useState(false);
+  const [pathCopied, setPathCopied] = useState<string | null>(null);
   // The linked request open in the editor dialog. Saving there refreshes linked nodes (see FlowWorkspace).
   const [editing, setEditing] = useState<string | null>(null);
   const linkedId = node.type === "http" ? node.config.requestId : undefined;
@@ -240,6 +244,14 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
   };
 
   const response = step?.output as { status?: number } | undefined;
+
+  /** Copies `{{node-id.path}}` of a field of this node's output, to paste into later nodes. */
+  const copyPath = async (path: string) => {
+    const text = `{{${path}}}`;
+    await navigator.clipboard.writeText(text).catch(() => undefined);
+    setPathCopied(text);
+    setTimeout(() => setPathCopied(null), 2000);
+  };
 
   return (
     <aside className="w-[380px] h-full bg-surface-container-low/95 backdrop-blur-xl z-30 flex flex-col shadow-2xl overflow-y-auto">
@@ -320,6 +332,8 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
           />
         </div>
 
+        {node.type !== "webhook" && <AvailableData />}
+
         {node.type === "http" ? (
           <>
             {node.config.requestId && (
@@ -343,15 +357,14 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
                     <option key={m}>{m}</option>
                   ))}
                 </select>
-                <input
+                <TemplateField
                   id="request-target"
                   className={`bg-transparent font-mono text-body-sm text-on-surface px-space-sm py-space-xs w-full focus:outline-none ${node.config.requestId ? "cursor-pointer" : ""}`}
-                  type="text"
                   title={node.config.requestId ? "Linked request — click to edit it" : undefined}
                   onClick={node.config.requestId ? editLinked : undefined}
                   readOnly={!!node.config.requestId}
                   value={node.config.url}
-                  onChange={(e) => onChange({ ...node, config: { ...node.config, url: e.target.value } })}
+                  onChange={(url) => onChange({ ...node, config: { ...node.config, url } })}
                 />
               </div>
             </div>
@@ -409,6 +422,16 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
             <span className={SECTION_LABEL}>Last Run Output</span>
             {step && (
               <div className="flex items-center gap-space-xxs">
+                {step.output !== undefined && (
+                  <button
+                    type="button"
+                    className="mr-space-xs font-label-sm text-label-sm text-outline hover:text-on-surface"
+                    onClick={() => setRawOutput((v) => !v)}
+                    title={rawOutput ? "Show as a clickable tree" : "Show the raw JSON"}
+                  >
+                    {rawOutput ? "Tree" : "Raw"}
+                  </button>
+                )}
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
                     step.status === "failed" ? "bg-error" : step.status === "skipped" ? "bg-outline" : "bg-primary"
@@ -433,6 +456,11 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
           )}
           {step?.checks && step.checks.length > 0 && <RepeatChecks checks={step.checks} attempts={step.attempts} />}
           {step?.logs && step.logs.length > 0 && <ScriptLogs logs={step.logs} />}
+          {step?.output !== undefined && !rawOutput ? (
+            <div className="p-space-xs rounded-lg bg-surface-container-lowest shadow-inner max-h-72 overflow-auto" data-testid="output-tree">
+              <DataTree root={node.id} value={step.output} onPick={copyPath} />
+            </div>
+          ) : (
           <div className={`${CODE_BLOCK} leading-snug text-on-surface-variant max-h-56`}>
             {step?.output !== undefined
               ? JSON.stringify(step.output, null, 2)
@@ -442,6 +470,16 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
                   : "// Node was skipped in the last run"
                 : "// Run the flow to see this node's output"}
           </div>
+          )}
+          {step?.output !== undefined && (
+            <span className="font-body-sm text-body-sm text-outline">
+              {pathCopied ? (
+                <span className="text-primary font-mono">Copied {pathCopied}</span>
+              ) : (
+                <>Click a field to copy its reference for later nodes.</>
+              )}
+            </span>
+          )}
         </div>
       </div>
       {editing && editing === linkedId && <LinkedRequestEditor requestId={editing} onClose={() => setEditing(null)} />}

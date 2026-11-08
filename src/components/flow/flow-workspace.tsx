@@ -28,6 +28,7 @@ import { DeploymentsPanel } from "./deployments-panel";
 import { LoadTestPanel } from "./load-test-panel";
 import { readSavedPayload, TestPayloadEditor } from "./test-payload-editor";
 import { NodeInspector } from "./node-inspector";
+import { TemplateDataProvider } from "./template-data";
 import { WorkflowSwitcher } from "./workflow-switcher";
 
 /** Layered layout: each node sits one column right of its deepest predecessor. */
@@ -593,17 +594,19 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           onConnect={connect}
         />
         {selected ? (
-          <NodeInspector
-            key={selected.id}
-            node={selected}
-            workflowId={workflowId}
-            step={steps.get(selected.id)}
-            running={running}
-            onChange={updateNode}
-            onRun={execute}
-            pinned={!!pinnedNode}
-            onTogglePin={() => setPinnedId(pinnedNode ? null : selected.id)}
-          />
+          <TemplateDataProvider workflow={workflow} nodeId={selected.id} steps={steps} triggerBody={testPayload} environment={environment}>
+            <NodeInspector
+              key={selected.id}
+              node={selected}
+              workflowId={workflowId}
+              step={steps.get(selected.id)}
+              running={running}
+              onChange={updateNode}
+              onRun={execute}
+              pinned={!!pinnedNode}
+              onTogglePin={() => setPinnedId(pinnedNode ? null : selected.id)}
+            />
+          </TemplateDataProvider>
         ) : (
           <aside className="w-[380px] h-full bg-surface-container-low/95 flex flex-col items-center justify-center gap-space-xs p-space-xl text-center text-outline font-body-sm text-body-sm">
             {selectedEdgeId ? (

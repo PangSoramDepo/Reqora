@@ -4,6 +4,7 @@ import { Icon } from "@/components/icon";
 import { NumberField } from "@/components/number-field";
 import { ScriptCodeEditor } from "@/components/collections/script-code-editor";
 import { conditionOperators, MAX_REPEAT_WAIT_MS, type RepeatUntil, type WorkflowNode } from "@/lib/workflows/schema";
+import { TemplateField } from "./template-field";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
 
@@ -102,7 +103,7 @@ export function RepeatUntilEditor({ node, onChange }: { node: HttpNode; onChange
           ) : (
             <>
           <span className={LABEL}>Value to check</span>
-          <input aria-label="Repeat until value" className={`${FIELD} w-full`} value={repeat.left} placeholder={`{{${node.id}.body.status}}`} onChange={(e) => patch({ left: e.target.value })} />
+          <TemplateField aria-label="Repeat until value" mode="value" className={`${FIELD} w-full`} value={repeat.left} placeholder={`{{${node.id}.body.status}}`} onChange={(left) => patch({ left })} />
           <div className="flex gap-space-xs">
             <select
               aria-label="Repeat until operator"
@@ -115,12 +116,13 @@ export function RepeatUntilEditor({ node, onChange }: { node: HttpNode; onChange
               ))}
             </select>
             {repeat.operator !== "exists" && (
-              <input
+              <TemplateField
                 aria-label="Repeat until expected value"
-                className={`${FIELD} flex-1`}
+                mode="value"
+                className={`${FIELD} w-full`}
                 placeholder="expected, e.g. COMPLETED"
                 value={repeat.right ?? ""}
-                onChange={(e) => patch({ right: e.target.value })}
+                onChange={(right) => patch({ right })}
               />
             )}
           </div>

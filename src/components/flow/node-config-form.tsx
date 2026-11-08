@@ -4,7 +4,9 @@ import { useState } from "react";
 import { conditionOperators, type WorkflowNode } from "@/lib/workflows/schema";
 import { NumberField } from "@/components/number-field";
 import { ScriptCodeEditor } from "@/components/collections/script-code-editor";
+import { Icon } from "@/components/icon";
 import { CallFlowEditor } from "./call-flow-editor";
+import { TemplateField } from "./template-field";
 
 type NonHttpNode = Exclude<WorkflowNode, { type: "http" }>;
 
@@ -26,12 +28,45 @@ function Field({ label, id, children }: { label: string; id: string; children: R
   );
 }
 
-/** Edits a transform's output map as JSON; only valid objects of strings are applied. */
-function TransformEditor({ node, onChange }: { node: Extract<WorkflowNode, { type: "transform" }>; onChange: (n: WorkflowNode) => void }) {
+type TransformNode = Extract<WorkflowNode, { type: "transform" }>;
+type MappingRow = { id: number; key: string; value: string };
+
+const toRows = (output: Record<string, string>): MappingRow[] => Object.entries(output).map(([key, value], id) => ({ id, key, value }));
+const fromRows = (rows: MappingRow[]) => Object.fromEntries(rows.filter((r) => r.key.trim()).map((r) => [r.key.trim(), r.value]));
+
+/**
+ * Edits a transform's output as rows of field name → template value (with suggestions), or as JSON. Rows
+ * without a name aren't saved; duplicate names aren't saved until fixed.
+ */
+function TransformEditor({ node, onChange }: { node: TransformNode; onChange: (n: WorkflowNode) => void }) {
+  const [asJson, setAsJson] = useState(false);
+  const [rows, setRows] = useState(() => toRows(node.config.output));
+  // The output these rows were built from or last saved; a different one (undo, redo) rebuilds the rows.
+  const [synced, setSynced] = useState(() => JSON.stringify(node.config.output));
   const [text, setText] = useState(() => JSON.stringify(node.config.output, null, 2));
   const [error, setError] = useState<string | null>(null);
 
-  const apply = (value: string) => {
+  const current = JSON.stringify(node.config.output);
+  if (current !== synced) {
+    setSynced(current);
+    setRows(toRows(node.config.output));
+    setText(JSON.stringify(node.config.output, null, 2));
+  }
+
+  const names = rows.map((r) => r.key.trim()).filter(Boolean);
+  const duplicate = names.find((n, i) => names.indexOf(n) !== i);
+
+  const commit = (next: MappingRow[]) => {
+    setRows(next);
+    const keys = next.map((r) => r.key.trim()).filter(Boolean);
+    if (keys.some((k, i) => keys.indexOf(k) !== i)) return;
+    const output = fromRows(next);
+    setSynced(JSON.stringify(output));
+    onChange({ ...node, config: { output } });
+  };
+  const patch = (id: number, change: Partial<MappingRow>) => commit(rows.map((r) => (r.id === id ? { ...r, ...change } : r)));
+
+  const applyJson = (value: string) => {
     setText(value);
     try {
       const parsed: unknown = JSON.parse(value);
@@ -39,6 +74,8 @@ function TransformEditor({ node, onChange }: { node: Extract<WorkflowNode, { typ
         throw new Error("must be an object whose values are template strings");
       }
       setError(null);
+      setSynced(JSON.stringify(parsed));
+      setRows(toRows(parsed as Record<string, string>));
       onChange({ ...node, config: { output: parsed as Record<string, string> } });
     } catch (e) {
       setError((e as Error).message);
@@ -46,16 +83,71 @@ function TransformEditor({ node, onChange }: { node: Extract<WorkflowNode, { typ
   };
 
   return (
-    <Field label="Output Mapping (JSON)" id="transform-output">
-      <textarea id="transform-output" className={AREA} spellCheck={false} value={text} onChange={(e) => apply(e.target.value)} />
-      {error ? (
-        <span className="font-body-sm text-body-sm text-error">{error} — not saved</span>
+    <div className="flex flex-col gap-space-xs">
+      <div className="flex items-center justify-between">
+        <span className={LABEL}>Output Mapping</span>
+        <button
+          type="button"
+          className="font-label-sm text-label-sm text-outline hover:text-on-surface"
+          onClick={() => {
+            setAsJson((v) => !v);
+            setText(JSON.stringify(node.config.output, null, 2));
+            setError(null);
+          }}
+        >
+          {asJson ? "Edit as fields" : "Edit as JSON"}
+        </button>
+      </div>
+      {asJson ? (
+        <>
+          <textarea id="transform-output" aria-label="Output mapping JSON" className={AREA} spellCheck={false} value={text} onChange={(e) => applyJson(e.target.value)} />
+          {error && <span className="font-body-sm text-body-sm text-error">{error} — not saved</span>}
+        </>
       ) : (
-        <span className={HINT}>
-          Each key becomes <span className="text-tertiary">{`{{${node.id}.key}}`}</span> for later nodes.
-        </span>
+        <div className="flex flex-col gap-space-xs" data-testid="mapping-rows">
+          {rows.map((row) => (
+            <div key={row.id} className="flex items-start gap-space-xxs">
+              <input
+                aria-label="Field name"
+                className={`${FIELD} w-28 shrink-0 text-primary`}
+                placeholder="field"
+                spellCheck={false}
+                value={row.key}
+                onChange={(e) => patch(row.id, { key: e.target.value })}
+              />
+              <TemplateField
+                aria-label={`Value of ${row.key || "field"}`}
+                mode="value"
+                className={`${FIELD} w-full`}
+                placeholder="{{trigger.body.id}}"
+                value={row.value}
+                onChange={(value) => patch(row.id, { value })}
+              />
+              <button
+                type="button"
+                className="p-1 mt-0.5 rounded text-outline hover:text-error hover:bg-error-container/20"
+                aria-label={`Remove ${row.key || "field"}`}
+                onClick={() => commit(rows.filter((r) => r.id !== row.id))}
+              >
+                <Icon name="close" className="text-body-sm" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="self-start flex items-center gap-1 px-space-xs py-0.5 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-label-md text-label-md"
+            onClick={() => setRows([...rows, { id: Math.max(-1, ...rows.map((r) => r.id)) + 1, key: "", value: "" }])}
+          >
+            <Icon name="add" className="text-body-sm" /> Add field
+          </button>
+          {duplicate && <span className="font-body-sm text-body-sm text-error">“{duplicate}” is used twice — not saved until it&apos;s unique</span>}
+        </div>
       )}
-    </Field>
+      <span className={HINT}>
+        Each field becomes <span className="text-tertiary">{`{{${node.id}.field}}`}</span> for later nodes. A value that is exactly one{" "}
+        <span className="text-tertiary">{"{{…}}"}</span> keeps its type (numbers, lists).
+      </span>
+    </div>
   );
 }
 
@@ -104,11 +196,13 @@ export function NodeConfigForm({
       return (
         <>
           <Field label="Left Value" id="cond-left">
-            <input
+            <TemplateField
               id="cond-left"
-              className={FIELD}
+              mode="value"
+              className={`${FIELD} w-full`}
+              placeholder="{{http-1.body.status}}"
               value={node.config.left}
-              onChange={(e) => onChange({ ...node, config: { ...node.config, left: e.target.value } })}
+              onChange={(left) => onChange({ ...node, config: { ...node.config, left } })}
             />
           </Field>
           <Field label="Operator" id="cond-op">
@@ -127,11 +221,12 @@ export function NodeConfigForm({
           </Field>
           {node.config.operator !== "exists" && (
             <Field label="Right Value" id="cond-right">
-              <input
+              <TemplateField
                 id="cond-right"
-                className={FIELD}
+                mode="value"
+                className={`${FIELD} w-full`}
                 value={node.config.right ?? ""}
-                onChange={(e) => onChange({ ...node, config: { ...node.config, right: e.target.value } })}
+                onChange={(right) => onChange({ ...node, config: { ...node.config, right } })}
               />
             </Field>
           )}
@@ -203,14 +298,13 @@ export function NodeConfigForm({
             />
           </Field>
           <Field label="Body (JSON template)" id="resp-body">
-            <textarea
+            <TemplateField
               id="resp-body"
-              className={AREA}
-              spellCheck={false}
+              multiline
+              mode="json"
+              className={`${AREA} w-full`}
               value={node.config.body ?? ""}
-              onChange={(e) =>
-                onChange({ ...node, config: { ...node.config, body: e.target.value === "" ? undefined : e.target.value } })
-              }
+              onChange={(body) => onChange({ ...node, config: { ...node.config, body: body === "" ? undefined : body } })}
             />
           </Field>
           <span className={HINT}>Returned to the caller of the webhook endpoint.</span>
