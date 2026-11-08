@@ -14,6 +14,7 @@ import type { Run, RunWindow } from "@/lib/workflows/schema";
 import { RunInspector } from "./run-inspector";
 import { RunsPanel, type StatusFilter, type TriggerFilter } from "./runs-panel";
 import { TimeRangePicker } from "./time-range-picker";
+import { confirmProduction } from "@/components/shell/production-guard";
 
 const POLL_MS = 5000;
 
@@ -134,6 +135,8 @@ export function ExecutionsWorkspace() {
 
   const replay = async () => {
     if (!selected) return;
+    // A replay runs in the original run's environment.
+    if (!(await confirmProduction(selected.environment, "Replay this run"))) return;
     setReplaying(true);
     try {
       const run = await replayRun(selected.id);

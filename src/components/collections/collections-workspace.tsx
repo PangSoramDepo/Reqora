@@ -40,6 +40,7 @@ import { RequestBuilder, type Draft } from "./request-builder";
 import { ResponseViewer } from "./response-viewer";
 import { ScopeSettingsPanel } from "./scope-settings";
 import { TokenProvider } from "./template-field";
+import { confirmProduction } from "@/components/shell/production-guard";
 
 const toDraft = (r: SavedRequest): Draft => ({ name: r.name, folderId: r.folderId, definition: r.definition });
 
@@ -299,8 +300,9 @@ export function CollectionsWorkspace() {
       .finally(() => setSaving(false));
   };
 
-  const send = () => {
+  const send = async () => {
     if (!selectedId || !draft || sendingId) return;
+    if (!(await confirmProduction(environment, `Send “${draft.name.trim() || "request"}”`))) return;
     const id = selectedId;
     setSendingId(id);
     // The location makes the collection's and folder's auth, headers and scripts apply (folder as currently edited).

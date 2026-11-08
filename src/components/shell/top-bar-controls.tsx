@@ -38,8 +38,12 @@ export function TopBarControls() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const production = environment === "production";
+
   return (
     <div className="flex-1 flex items-center justify-between pl-space-md">
+      {/* In Production, a stripe across the top bar keeps it obvious that runs and sends are live. */}
+      {production && <div aria-hidden className="absolute top-0 left-0 right-0 h-[3px] bg-tertiary" data-testid="production-stripe" />}
       <div className="flex items-center gap-space-md">
         <div className="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant">
           <span className="text-outline">/</span>
@@ -48,8 +52,14 @@ export function TopBarControls() {
           <span className="text-on-surface font-medium">{section}</span>
         </div>
         <label
-          className={`flex items-center gap-space-xxs px-space-xs py-space-xxs rounded bg-surface-container-highest border border-outline-variant/30 ${env.tone}`}
-          title="Environment used for test runs and shown on the Secrets page"
+          className={`flex items-center gap-space-xxs px-space-xs py-space-xxs rounded border ${
+            production ? "bg-tertiary/15 border-tertiary/60" : "bg-surface-container-highest border-outline-variant/30"
+          } ${env.tone}`}
+          title={
+            production
+              ? "Production: runs and sends use live APIs and production secrets (you'll be asked to confirm)"
+              : "Environment used for test runs, sends and the Secrets page"
+          }
         >
           <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${env.dot}`} />
           <select
@@ -114,14 +124,16 @@ export function TopBarControls() {
           <span>{canvas.deploying ? "Deploying…" : onCanvas && !canvas.undeployed ? "Deployed" : "Deploy"}</span>
         </button>
         <button
-          className="flex items-center gap-space-xs px-space-md py-space-xs rounded bg-primary text-on-primary hover:bg-primary-container font-body-sm text-body-sm font-semibold transition-all disabled:opacity-50 disabled:pointer-events-none"
+          className={`flex items-center gap-space-xs px-space-md py-space-xs rounded font-body-sm text-body-sm font-semibold transition-all disabled:opacity-50 disabled:pointer-events-none ${
+            production ? "bg-tertiary text-on-tertiary hover:bg-tertiary-container" : "bg-primary text-on-primary hover:bg-primary-container"
+          }`}
           disabled={!onCanvas || canvas.running}
           onClick={() => sendCanvasCommand("run")}
           title={onCanvas ? `Run the draft with a sample payload in ${env.label}` : "Open a workflow to run it"}
           type="button"
         >
           <Icon name={canvas.running ? "progress_activity" : "play_arrow"} className={`text-body-md ${canvas.running ? "animate-spin" : ""}`} />
-          <span>{canvas.running ? "Running…" : "Run Workflow"}</span>
+          <span>{canvas.running ? "Running…" : production ? "Run in Production" : "Run Workflow"}</span>
           {canvas.running && <span className="w-2 h-2 rounded-full bg-on-primary animate-ping" />}
         </button>
         <UserMenu />

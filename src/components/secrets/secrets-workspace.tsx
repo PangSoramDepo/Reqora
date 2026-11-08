@@ -35,6 +35,21 @@ export function SecretsWorkspace() {
   const [notice, setNotice] = useState<{ env: Environment; tone: "ok" | "error"; text: string } | null>(null);
   const [busyName, setBusyName] = useState<string | null>(null);
 
+  // `?add=NAME&env=sandbox` (from a failed run's "Add NAME") opens the add form for that name and environment.
+  const [pendingAdd, setPendingAdd] = useState<{ name: string; environment: Environment } | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const name = params.get("add");
+    const wanted = params.get("env");
+    if (!name) return;
+    const environment = ENVIRONMENTS.includes(wanted as Environment) ? (wanted as Environment) : null;
+    if (environment) setEnvironment(environment);
+    window.history.replaceState(null, "", window.location.pathname);
+    void Promise.resolve().then(() => setPendingAdd({ name, environment: environment ?? env }));
+    // Runs once on arrival.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     fetchVariables(env)
@@ -56,6 +71,12 @@ export function SecretsWorkspace() {
   const now = current?.at ?? 0;
 
   const reload = () => setReloadKey((k) => k + 1);
+
+  // Open the requested add form once the page shows that environment.
+  if (pendingAdd && pendingAdd.environment === env) {
+    setPendingAdd(null);
+    setDrawer({ mode: "add", name: pendingAdd.name, kind: SECRET_HINT.test(pendingAdd.name) ? "secret" : "plain" });
+  }
   const closeDrawer = useCallback(() => setDrawer(null), []);
 
   const onSaved = (target: Environment, name: string, created: boolean) => {

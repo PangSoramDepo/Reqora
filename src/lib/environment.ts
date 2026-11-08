@@ -15,9 +15,10 @@ export const ENVIRONMENT_LABELS: Record<Environment, { label: string; region: st
 function read(): Environment {
   try {
     const value = localStorage.getItem(KEY);
-    return ENVIRONMENTS.includes(value as Environment) ? (value as Environment) : "production";
+    // Never chosen: Sandbox, so a first test run can't touch live APIs.
+    return ENVIRONMENTS.includes(value as Environment) ? (value as Environment) : "sandbox";
   } catch {
-    return "production";
+    return "sandbox";
   }
 }
 
@@ -41,5 +42,5 @@ export function setEnvironment(environment: Environment) {
 
 /** The environment selected in the top bar; used for canvas test runs and the Secrets page. */
 export function useEnvironment(): Environment {
-  return useSyncExternalStore(subscribe, read, () => "production");
+  return useSyncExternalStore(subscribe, read, () => "sandbox");
 }

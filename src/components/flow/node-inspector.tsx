@@ -1,7 +1,12 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "@/components/icon";
+import { AddSecretDrawer } from "@/components/secrets/add-secret-drawer";
+import { ENVIRONMENT_LABELS, useEnvironment } from "@/lib/environment";
+import { diagnose, type Fix } from "@/lib/workflows/diagnose";
 import { NumberField } from "@/components/number-field";
 import { fetchRequest } from "@/lib/collections/client";
 import { ApiError } from "@/lib/workflows/client";
@@ -13,6 +18,7 @@ import { RepeatChecks, ScriptLogs } from "./repeat-checks";
 import { RepeatUntilEditor } from "./repeat-until-editor";
 import { AvailableData, DataTree } from "./data-tree";
 import { TemplateField } from "./template-field";
+import { ErrorHelp } from "./error-help";
 
 type HttpNode = Extract<WorkflowNode, { type: "http" }>;
 
@@ -225,8 +231,16 @@ function HttpPanels({ node, tab, onChange, onEdit }: { node: HttpNode; tab: Tab;
   }
 }
 
+/** Names that look like credentials default to the secret kind when added from an error. */
+const SECRET_HINT = /SECRET|TOKEN|KEY|PASSWORD|PASS|CREDENTIAL|PRIVATE/;
+
 export function NodeInspector({ node, workflowId, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
+  const router = useRouter();
+  const environment = useEnvironment();
   const [tab, setTab] = useState<Tab>("Headers");
+  // A variable being added from an error ("Add X to Sandbox"), then a prompt to run again once it's saved.
+  const [addingVariable, setAddingVariable] = useState<string | null>(null);
+  const [variableSaved, setVariableSaved] = useState<string | null>(null);
   const [showDocs, setShowDocs] = useState(false);
   const [copied, setCopied] = useState(false);
   const [rawOutput, setRawOutput] = useState(false);
@@ -244,6 +258,54 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
   };
 
   const response = step?.output as { status?: number } | undefined;
+
+  const reveal = (selector: string) =>
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(selector);
+      el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      el?.focus();
+    });
+
+  const applyFix = (fix: Fix) => {
+    switch (fix.kind) {
+      case "add-variable":
+        setVariableSaved(null);
+        setAddingVariable(fix.name);
+        return;
+      case "edit-linked":
+        editLinked();
+        return;
+      case "unlink":
+        if (node.type === "http") {
+          const { requestId: _drop, ...config } = node.config;
+          void _drop;
+          onChange({ ...node, config });
+        }
+        return;
+      case "tab":
+        setTab(fix.tab);
+        reveal('[role="tablist"] [aria-selected="true"]');
+        return;
+      case "focus":
+        reveal(`#${fix.field}`);
+        return;
+      case "open-run":
+        router.push(`/executions?run=${fix.runId}`);
+        return;
+      case "open-flow":
+        router.push(`/flow/${fix.workflowId}`);
+        return;
+    }
+  };
+
+  const diagnosis = step?.error
+    ? diagnose(step.error, {
+        nodeType: node.type,
+        linked: node.type === "http" && !!node.config.requestId,
+        output: step.output,
+        environment: ENVIRONMENT_LABELS[environment].label,
+      })
+    : null;
 
   /** Copies `{{node-id.path}}` of a field of this node's output, to paste into later nodes. */
   const copyPath = async (path: string) => {
@@ -449,9 +511,24 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
               </div>
             )}
           </div>
-          {step?.error && (
-            <div className="p-space-xs rounded bg-error-container/40 text-on-error-container font-mono text-body-sm">
-              {step.error}
+          {step?.error && <ErrorHelp error={step.error} diagnosis={diagnosis} onFix={applyFix} />}
+          {variableSaved && (
+            <div role="status" className="flex items-center gap-space-xs p-space-xs rounded bg-primary/10 text-primary font-body-sm text-body-sm">
+              <Icon name="check_circle" className="text-body-md" />
+              <span className="flex-1">
+                {variableSaved} saved in {ENVIRONMENT_LABELS[environment].label}.
+              </span>
+              <button
+                type="button"
+                className="px-space-xs py-0.5 rounded bg-primary text-on-primary font-label-md text-label-md font-semibold"
+                disabled={running}
+                onClick={() => {
+                  setVariableSaved(null);
+                  onRun();
+                }}
+              >
+                Run again
+              </button>
             </div>
           )}
           {step?.checks && step.checks.length > 0 && <RepeatChecks checks={step.checks} attempts={step.attempts} />}
@@ -483,6 +560,21 @@ export function NodeInspector({ node, workflowId, step, running, onChange, onRun
         </div>
       </div>
       {editing && editing === linkedId && <LinkedRequestEditor requestId={editing} onClose={() => setEditing(null)} />}
+      {/* Portalled: the inspector's backdrop blur would trap a fixed overlay inside it. */}
+      {addingVariable &&
+        createPortal(
+          <AddSecretDrawer
+            target={{ mode: "add", name: addingVariable, kind: SECRET_HINT.test(addingVariable) ? "secret" : "plain" }}
+            environment={environment}
+            existingNames={[]}
+            onClose={() => setAddingVariable(null)}
+            onSaved={(_env, name) => {
+              setAddingVariable(null);
+              setVariableSaved(name);
+            }}
+          />,
+          document.body,
+        )}
     </aside>
   );
 }

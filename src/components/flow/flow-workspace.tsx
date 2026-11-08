@@ -30,6 +30,7 @@ import { readSavedPayload, TestPayloadEditor } from "./test-payload-editor";
 import { NodeInspector } from "./node-inspector";
 import { TemplateDataProvider } from "./template-data";
 import { WorkflowSwitcher } from "./workflow-switcher";
+import { confirmProduction } from "@/components/shell/production-guard";
 
 /** Layered layout: each node sits one column right of its deepest predecessor. */
 function autoLayout(workflow: Workflow): WorkflowNode[] {
@@ -93,7 +94,10 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
         void followWorkspace(wf.workspaceId).catch(() => undefined);
         autosaver.load(wf);
         setRun(latest);
-        setSelectedId((wf.nodes.find((n) => n.type === "http") ?? wf.nodes[0])?.id ?? null);
+        // `?node=<id>` (e.g. "Fix in Canvas" from Execution History) selects that node.
+        const wanted = new URLSearchParams(window.location.search).get("node");
+        const initial = wf.nodes.find((n) => n.id === wanted) ?? wf.nodes.find((n) => n.type === "http") ?? wf.nodes[0];
+        setSelectedId(initial?.id ?? null);
       })
       .catch((error: Error) => !cancelled && setLoadError(error.message));
     return () => {
@@ -292,6 +296,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
 
   const execute = async () => {
     if (!workflow || running) return;
+    if (!(await confirmProduction(environment, `Run “${workflow.name}”`))) return;
     const trigger = workflow.nodes.find((n) => n.type === "webhook");
     if (trigger) pulse(trigger.id);
     setRunning(true);

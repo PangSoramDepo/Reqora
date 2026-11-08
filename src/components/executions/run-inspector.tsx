@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ErrorHelp } from "@/components/flow/error-help";
+import { diagnose, type Fix } from "@/lib/workflows/diagnose";
 import { Icon } from "@/components/icon";
 import { toCurl } from "@/lib/collections/curl";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
@@ -142,6 +145,7 @@ type RunInspectorProps = {
 };
 
 export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun }: RunInspectorProps) {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("payloads");
   const [chosen, setChosen] = useState<{ runId: string; nodeId: string } | null>(null);
   // Which copy button just copied (shows a check briefly).
@@ -162,6 +166,15 @@ export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun
   }
 
   const failedStep = run.steps.find((s) => s.status === "failed");
+  const env = ENVIRONMENT_LABELS[run.environment].label;
+  const diagnoseStep = (step: Step) => (step.error ? diagnose(step.error, { nodeType: step.nodeType, output: step.output, environment: env }) : null);
+  // Here fixes lead to where they can be made: the Secrets page, the called run, or the node on the canvas.
+  const applyFix = (fix: Fix, step: Step) => {
+    if (fix.kind === "add-variable") router.push(`/secrets?add=${encodeURIComponent(fix.name)}&env=${run.environment}`);
+    else if (fix.kind === "open-run") onOpenRun?.(fix.runId);
+    else if (fix.kind === "open-flow") router.push(`/flow/${fix.workflowId}`);
+    else router.push(`/flow/${run.workflowId}?node=${encodeURIComponent(step.nodeId)}`);
+  };
   // Default to the failing step, otherwise the last executed one.
   const fallback = failedStep ?? [...run.steps].reverse().find((s) => s.status !== "skipped") ?? run.steps[0];
   const viewing = (chosen?.runId === run.id && run.steps.find((s) => s.nodeId === chosen.nodeId)) || fallback;
@@ -420,7 +433,11 @@ export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun
                 </span>
                 {response?.status !== undefined && <span className="font-mono">Status: {response.status}</span>}
               </div>
-              {viewing.error && <div className="text-error font-mono mb-space-xs">{viewing.error}</div>}
+              {viewing.error && (
+                <div className="mb-space-xs font-body-sm">
+                  <ErrorHelp error={viewing.error} diagnosis={diagnoseStep(viewing)} onFix={(fix) => applyFix(fix, viewing)} />
+                </div>
+              )}
               {viewing.checks && viewing.checks.length > 0 && (
                 <div className="mb-space-xs">
                   <RepeatChecks checks={viewing.checks} attempts={viewing.attempts} />
@@ -475,13 +492,15 @@ export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun
           <Icon name={failedStep ? "bug_report" : "task_alt"} className={`${failedStep ? "text-error" : "text-primary"} text-body-lg`} />
           <span className="font-body-sm text-body-sm text-on-surface truncate">
             {failedStep
-              ? `Step ${run.steps.indexOf(failedStep) + 1} failed. Fix the node in the canvas, then replay this payload.`
+              ? `Step ${run.steps.indexOf(failedStep) + 1} failed${
+                  diagnoseStep(failedStep) ? `: ${diagnoseStep(failedStep)!.title}` : ""
+                }. Fix the node in the canvas, then replay this payload.`
               : "Every executed step succeeded."}
           </span>
         </div>
         {failedStep && (
           <Link
-            href={`/flow/${run.workflowId}`}
+            href={`/flow/${run.workflowId}?node=${encodeURIComponent(failedStep.nodeId)}`}
             className="px-space-sm py-space-xs rounded bg-primary-container text-on-primary-container hover:bg-primary font-label-md text-label-md font-semibold transition-colors shrink-0"
           >
             Fix in Canvas

@@ -20,6 +20,7 @@ import type { Collection, Example, SavedRequest, SendOutcome } from "@/lib/colle
 import { stable } from "@/lib/collections/stable";
 import { useEnvironment } from "@/lib/environment";
 import { fetchVariables } from "@/lib/workflows/client";
+import { confirmProduction } from "@/components/shell/production-guard";
 
 type Props = {
   requestId: string;
@@ -107,8 +108,9 @@ export function LinkedRequestEditor({
       .finally(() => setSaving(false));
   };
 
-  const send = () => {
+  const send = async () => {
     if (!draft || sending) return;
+    if (!(await confirmProduction(environment, `Send “${draft.name.trim() || "request"}”`))) return;
     setSending(true);
     sendAdHoc(draft.definition, environment, {
       collectionId: request!.collectionId,

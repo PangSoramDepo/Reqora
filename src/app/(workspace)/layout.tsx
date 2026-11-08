@@ -1,6 +1,7 @@
 import { Sidebar } from "@/components/shell/sidebar";
 import { StatusBar } from "@/components/shell/status-bar";
 import { TopBar } from "@/components/shell/top-bar";
+import { ProductionGuard } from "@/components/shell/production-guard";
 import { ViewOnlyBanner } from "@/components/shell/view-only-banner";
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         </main>
         <StatusBar />
       </div>
+      <ProductionGuard />
     </>
   );
 }

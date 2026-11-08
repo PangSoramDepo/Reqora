@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
 import type { Telemetry } from "@/lib/telemetry/compute";
 import { ApiError, replayRun } from "@/lib/workflows/client";
-import type { RunWindow } from "@/lib/workflows/schema";
+import type { Environment, RunWindow } from "@/lib/workflows/schema";
+import { confirmProduction } from "@/components/shell/production-guard";
 
 /** Chart colours, validated for the dark surface (lightness band, chroma, CVD separation, contrast). */
 const OK_COLOR = "#0aa5c2";
@@ -332,7 +333,9 @@ export function TelemetryDashboard() {
     };
   }, [window, workflowId, reloadKey]);
 
-  const replay = async (runId: string) => {
+  const replay = async (runId: string, environment: Environment) => {
+    // A replay runs in the original run's environment.
+    if (!(await confirmProduction(environment, "Replay this run"))) return;
     setReplaying(runId);
     try {
       await replayRun(runId);
@@ -709,7 +712,7 @@ export function TelemetryDashboard() {
                         <td className="text-right whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => replay(r.id)}
+                            onClick={() => replay(r.id, r.environment)}
                             disabled={replaying !== null}
                             title="Run the workflow again with this run's payload"
                             className="inline-flex items-center gap-1 px-space-xs py-0.5 rounded bg-surface-container-highest text-on-surface font-label-sm text-label-sm hover:bg-surface-bright disabled:opacity-50"

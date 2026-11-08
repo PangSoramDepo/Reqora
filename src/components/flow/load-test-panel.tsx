@@ -6,6 +6,7 @@ import { ENVIRONMENT_LABELS } from "@/lib/environment";
 import { fetchLoadTest, fetchLoadTests, startLoadTest, stopLoadTest, type LoadTestInput } from "@/lib/loadtest/client";
 import { LOAD_LIMITS, type LatencyStats, type LoadTest, type LoadTestSummary } from "@/lib/loadtest/schema";
 import type { Environment } from "@/lib/workflows/schema";
+import { confirmProduction } from "@/components/shell/production-guard";
 
 /** Chart colours, validated for the dark chart surface (lightness band, chroma, CVD, contrast). */
 const OK_COLOR = "#0aa5c2";
@@ -463,6 +464,7 @@ export function LoadTestPanel({ workflowId, workflowName, environment, defaultPa
       setError(invalid ?? "Invalid settings");
       return;
     }
+    if (!(await confirmProduction(environment, `Load test “${workflowName}”`))) return;
     setBusy(true);
     setError(null);
     try {
