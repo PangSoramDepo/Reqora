@@ -1,19 +1,24 @@
-import { connection } from "next/server";
+import { connection, type NextRequest } from "next/server";
 import { notFound, parseBody, problem } from "@/lib/http";
 import { requestReplaceSchema } from "@/lib/collections/schema";
-import { deleteRequest, getRequest, replaceRequest } from "@/lib/collections/store";
+import { deleteRequest, getRequest, replaceRequest, requestWorkspace } from "@/lib/collections/store";
+import { accessTo } from "@/lib/workspaces/access";
 
 type Ctx = RouteContext<"/api/requests/[requestId]">;
 
-export async function GET(_request: Request, ctx: Ctx) {
+export async function GET(request: NextRequest, ctx: Ctx) {
   await connection();
   const { requestId } = await ctx.params;
+  const access = accessTo(request, requestWorkspace(requestId), "viewer", `request "${requestId}"`);
+  if ("error" in access) return access.error;
   const saved = getRequest(requestId);
   return saved ? Response.json(saved) : notFound(`request "${requestId}"`);
 }
 
-export async function PUT(request: Request, ctx: Ctx) {
+export async function PUT(request: NextRequest, ctx: Ctx) {
   const { requestId } = await ctx.params;
+  const access = accessTo(request, requestWorkspace(requestId), "editor", `request "${requestId}"`);
+  if ("error" in access) return access.error;
   const parsed = await parseBody(request, requestReplaceSchema);
   if ("error" in parsed) return parsed.error;
 
@@ -25,7 +30,9 @@ export async function PUT(request: Request, ctx: Ctx) {
   return notFound(`request "${requestId}"`);
 }
 
-export async function DELETE(_request: Request, ctx: Ctx) {
+export async function DELETE(request: NextRequest, ctx: Ctx) {
   const { requestId } = await ctx.params;
+  const access = accessTo(request, requestWorkspace(requestId), "editor", `request "${requestId}"`);
+  if ("error" in access) return access.error;
   return deleteRequest(requestId) ? new Response(null, { status: 204 }) : notFound(`request "${requestId}"`);
 }

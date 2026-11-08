@@ -1,9 +1,13 @@
+import type { NextRequest } from "next/server";
 import { notFound, parseBody, problem } from "@/lib/http";
 import { requestCreateSchema } from "@/lib/collections/schema";
-import { createRequest } from "@/lib/collections/store";
+import { createRequest, collectionWorkspace } from "@/lib/collections/store";
+import { accessTo } from "@/lib/workspaces/access";
 
-export async function POST(request: Request, ctx: RouteContext<"/api/collections/[collectionId]/requests">) {
+export async function POST(request: NextRequest, ctx: RouteContext<"/api/collections/[collectionId]/requests">) {
   const { collectionId } = await ctx.params;
+  const access = accessTo(request, collectionWorkspace(collectionId), "editor", `collection "${collectionId}"`);
+  if ("error" in access) return access.error;
   const parsed = await parseBody(request, requestCreateSchema);
   if ("error" in parsed) return parsed.error;
 

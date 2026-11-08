@@ -128,7 +128,7 @@ function upstream(delayMs: number, status = (n: number) => (n % 5 === 0 ? 500 : 
 
 describe("startLoadTest", () => {
   it("runs the iteration budget with the configured concurrency and stores the report", async () => {
-    const wf = workflows.createWorkflow(flow);
+    const wf = workflows.createWorkflow("ws_default", flow);
     const { state, fetch } = upstream(20);
     const config = loadTestConfigSchema.parse({ virtualUsers: 5, iterations: 40, thresholds: { maxErrorRatePct: 10 } });
     const started = runner.startLoadTest(wf, config, { baseUrl: "http://reqora.test", fetch });
@@ -153,7 +153,7 @@ describe("startLoadTest", () => {
   });
 
   it("stops on request, cancelling runs in flight", async () => {
-    const wf = workflows.createWorkflow(flow);
+    const wf = workflows.createWorkflow("ws_default", flow);
     const { fetch } = upstream(50, () => 200);
     const config = loadTestConfigSchema.parse({ virtualUsers: 3, mode: "duration", durationSec: 60 });
     const started = runner.startLoadTest(wf, config, { baseUrl: "http://reqora.test", fetch });
@@ -168,7 +168,7 @@ describe("startLoadTest", () => {
   });
 
   it("limits how many tests run at once", async () => {
-    const wf = workflows.createWorkflow(flow);
+    const wf = workflows.createWorkflow("ws_default", flow);
     const { fetch } = upstream(30, () => 200);
     const config = loadTestConfigSchema.parse({ virtualUsers: 1, mode: "duration", durationSec: 60 });
     const ids = Array.from({ length: runner.MAX_RUNNING }, () => runner.startLoadTest(wf, config, { baseUrl: "http://x", fetch }));

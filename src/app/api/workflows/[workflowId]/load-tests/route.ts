@@ -2,7 +2,8 @@ import { connection, type NextRequest } from "next/server";
 import { notFound, parseBody, problem } from "@/lib/http";
 import { listLoadTests, MAX_RUNNING, startLoadTest } from "@/lib/loadtest/runner";
 import { loadTestConfigSchema, toSummary } from "@/lib/loadtest/schema";
-import { getWorkflow } from "@/lib/workflows/store";
+import { getWorkflow, workflowWorkspace } from "@/lib/workflows/store";
+import { accessTo } from "@/lib/workspaces/access";
 
 type Ctx = RouteContext<"/api/workflows/[workflowId]/load-tests">;
 
@@ -10,7 +11,8 @@ type Ctx = RouteContext<"/api/workflows/[workflowId]/load-tests">;
 export async function GET(request: NextRequest, ctx: Ctx) {
   await connection();
   const { workflowId } = await ctx.params;
-  if (!getWorkflow(workflowId)) return notFound(`workflow "${workflowId}"`);
+  const access = accessTo(request, workflowWorkspace(workflowId), "viewer", `workflow "${workflowId}"`);
+  if ("error" in access) return access.error;
   const limit = Number(request.nextUrl.searchParams.get("limit") ?? "20");
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     return problem(400, "Bad Request", { detail: "limit must be an integer between 1 and 100" });
@@ -21,6 +23,8 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 /** Starts a load test of the workflow's draft in the background; poll GET /api/load-tests/{id} for progress. */
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { workflowId } = await ctx.params;
+  const access = accessTo(request, workflowWorkspace(workflowId), "editor", `workflow "${workflowId}"`);
+  if ("error" in access) return access.error;
   const workflow = getWorkflow(workflowId);
   if (!workflow) return notFound(`workflow "${workflowId}"`);
   const parsed = await parseBody(request, loadTestConfigSchema);

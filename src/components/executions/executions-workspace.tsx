@@ -214,6 +214,7 @@ export function ExecutionsWorkspace() {
           workflowName={selected && names.get(selected.workflowId)}
           replaying={replaying}
           onReplay={replay}
+          onOpenRun={setSelectedId}
         />
       </div>
     </div>

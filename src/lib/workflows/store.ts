@@ -8,6 +8,7 @@ import { SEED_WORKFLOWS } from "./seed";
 
 type WorkflowRow = {
   id: string;
+  workspace_id: string;
   name: string;
   description: string | null;
   version: number;
@@ -24,11 +25,36 @@ function open(): DatabaseSync {
   if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
 
   const db = new DatabaseSync(file);
+  const hadMembers = tableExists(db, "workspace_members");
   db.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA foreign_keys = ON;
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS workspace_members (
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (workspace_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS members_by_user ON workspace_members (user_id);
+  `);
+  const variablesBeforeWorkspaces = tableExists(db, "variables") && !hasColumn(db, "variables", "workspace_id");
+  db.exec(`
     CREATE TABLE IF NOT EXISTS workflows (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT,
       version INTEGER NOT NULL,
@@ -38,22 +64,37 @@ function open(): DatabaseSync {
     );
     CREATE TABLE IF NOT EXISTS runs (
       id TEXT PRIMARY KEY,
+      workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
       workflow_id TEXT NOT NULL REFERENCES workflows(id) ON DELETE CASCADE,
       status TEXT NOT NULL,
       started_at TEXT NOT NULL,
       data TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS runs_by_workflow ON runs (workflow_id, started_at DESC);
-    CREATE TABLE IF NOT EXISTS variables (
-      environment TEXT NOT NULL,
-      name TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      value TEXT NOT NULL,
-      description TEXT,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (environment, name)
-    );
   `);
+  // Workspaces arrived later: rows from before them belong to the "Default" workspace.
+  addWorkspaceColumn(db, "workflows");
+  addWorkspaceColumn(db, "runs");
+  db.exec("CREATE INDEX IF NOT EXISTS runs_by_workspace ON runs (workspace_id, started_at DESC)");
+  // Variables are keyed per workspace, so the table is rebuilt with the new primary key.
+  if (variablesBeforeWorkspaces) {
+    ensureDefaultWorkspace(db);
+    db.exec(`
+      ALTER TABLE variables RENAME TO variables_before_workspaces;
+      ${VARIABLES_TABLE}
+      INSERT INTO variables (workspace_id, environment, name, kind, value, description, updated_at)
+        SELECT '${DEFAULT_WORKSPACE_ID}', environment, name, kind, value, description, updated_at FROM variables_before_workspaces;
+      DROP TABLE variables_before_workspaces;
+    `);
+  } else {
+    db.exec(VARIABLES_TABLE);
+  }
+  // Everyone who used Reqora before workspaces keeps access to its data: the first account owns it.
+  if (!hadMembers && db.prepare("SELECT 1 FROM workspaces WHERE id = ?").get(DEFAULT_WORKSPACE_ID)) {
+    const users = db.prepare("SELECT id FROM users ORDER BY created_at, rowid").all() as { id: string }[];
+    const add = db.prepare("INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role, added_at) VALUES (?, ?, ?, ?)");
+    users.forEach((u, i) => add.run(DEFAULT_WORKSPACE_ID, u.id, i === 0 ? "owner" : "editor", new Date().toISOString()));
+  }
 
   // Columns added after the first release; ALTER only when missing so existing databases upgrade in place.
   const columns = new Set((db.prepare("PRAGMA table_info(workflows)").all() as { name: string }[]).map((c) => c.name));
@@ -95,10 +136,12 @@ function open(): DatabaseSync {
   }
 
   const { count } = db.prepare("SELECT COUNT(*) AS count FROM workflows").get() as { count: number };
-  if (count === 0) {
+  // A new database starts with the sample flows in the "Default" workspace; the first account to sign in owns it.
+  if (count === 0 && !hadMembers) {
     const now = new Date().toISOString();
+    ensureDefaultWorkspace(db);
     for (const seed of SEED_WORKFLOWS) {
-      insertWorkflow(db, seed.id, seed.input, now);
+      insertWorkflow(db, DEFAULT_WORKSPACE_ID, seed.id, seed.input, now);
       db.prepare("UPDATE workflows SET deployed_version = 1, deployed_definition = definition, deployed_at = ? WHERE id = ?").run(
         now,
         seed.id,
@@ -109,6 +152,46 @@ function open(): DatabaseSync {
     }
   }
   return db;
+}
+
+/** Holds everything created before workspaces existed (and the sample flows of a new database). */
+export const DEFAULT_WORKSPACE_ID = "ws_default";
+
+const VARIABLES_TABLE = `
+  CREATE TABLE IF NOT EXISTS variables (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    environment TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    description TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, environment, name)
+  );`;
+
+function tableExists(conn: DatabaseSync, table: string) {
+  return Boolean(conn.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
+}
+
+function hasColumn(conn: DatabaseSync, table: string, column: string) {
+  return (conn.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === column);
+}
+
+function ensureDefaultWorkspace(conn: DatabaseSync) {
+  conn
+    .prepare("INSERT OR IGNORE INTO workspaces (id, name, created_at) VALUES (?, 'Default', ?)")
+    .run(DEFAULT_WORKSPACE_ID, new Date().toISOString());
+}
+
+/**
+ * Adds `workspace_id` to a table created before workspaces, moving its rows into the "Default" workspace.
+ * (SQLite can only add a foreign-key column whose default is NULL, so rows are filled in afterwards.)
+ */
+export function addWorkspaceColumn(conn: DatabaseSync, table: string) {
+  if (hasColumn(conn, table, "workspace_id")) return;
+  ensureDefaultWorkspace(conn);
+  conn.exec(`ALTER TABLE ${table} ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE`);
+  conn.prepare(`UPDATE ${table} SET workspace_id = ?`).run(DEFAULT_WORKSPACE_ID);
 }
 
 // One connection per server process; kept on globalThis so dev-mode HMR doesn't leak handles.
@@ -123,18 +206,19 @@ function parseRun(data: string): Run {
   return { ...run, environment: run.environment ?? "production" };
 }
 
-function insertWorkflow(conn: DatabaseSync, id: string, input: WorkflowInput, now: string) {
+function insertWorkflow(conn: DatabaseSync, workspaceId: string, id: string, input: WorkflowInput, now: string) {
   conn
     .prepare(
-      "INSERT INTO workflows (id, name, description, version, definition, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)",
+      "INSERT INTO workflows (id, workspace_id, name, description, version, definition, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
     )
-    .run(id, input.name, input.description ?? null, JSON.stringify({ nodes: input.nodes, edges: input.edges }), now, now);
+    .run(id, workspaceId, input.name, input.description ?? null, JSON.stringify({ nodes: input.nodes, edges: input.edges }), now, now);
 }
 
 function toWorkflow(row: WorkflowRow): Workflow {
   const { nodes, edges } = JSON.parse(row.definition) as Pick<Workflow, "nodes" | "edges">;
   return {
     id: row.id,
+    workspaceId: row.workspace_id,
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
     version: row.version,
@@ -146,8 +230,8 @@ function toWorkflow(row: WorkflowRow): Workflow {
   };
 }
 
-export function listWorkflows(): WorkflowSummary[] {
-  const rows = db().prepare("SELECT * FROM workflows ORDER BY updated_at DESC").all() as WorkflowRow[];
+export function listWorkflows(workspaceId: string): WorkflowSummary[] {
+  const rows = db().prepare("SELECT * FROM workflows WHERE workspace_id = ? ORDER BY updated_at DESC").all(workspaceId) as WorkflowRow[];
   return rows.map((row) => {
     const wf = toWorkflow(row);
     return {
@@ -162,9 +246,19 @@ export function listWorkflows(): WorkflowSummary[] {
   });
 }
 
-/** Every workflow with its full draft definition (for cross-workflow scans such as variable usage). */
-export function allWorkflows(): Workflow[] {
-  return (db().prepare("SELECT * FROM workflows ORDER BY name").all() as WorkflowRow[]).map(toWorkflow);
+/** Every workflow of a workspace with its full draft definition (for cross-workflow scans such as variable usage). */
+export function allWorkflows(workspaceId: string): Workflow[] {
+  return (db().prepare("SELECT * FROM workflows WHERE workspace_id = ? ORDER BY name").all(workspaceId) as WorkflowRow[]).map(toWorkflow);
+}
+
+/** The workspace a workflow belongs to (undefined when it doesn't exist). */
+export function workflowWorkspace(id: string): string | undefined {
+  return (db().prepare("SELECT workspace_id FROM workflows WHERE id = ?").get(id) as { workspace_id: string } | undefined)?.workspace_id;
+}
+
+/** The workspace a run belongs to. */
+export function runWorkspace(id: string): string | undefined {
+  return (db().prepare("SELECT workspace_id FROM runs WHERE id = ?").get(id) as { workspace_id: string } | undefined)?.workspace_id;
 }
 
 /** The deployed snapshot that webhooks execute, or undefined if never deployed. */
@@ -221,9 +315,9 @@ export function getWorkflow(id: string): Workflow | undefined {
   return row && toWorkflow(row);
 }
 
-export function createWorkflow(input: WorkflowInput): Workflow {
+export function createWorkflow(workspaceId: string, input: WorkflowInput): Workflow {
   const id = `wf_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
-  insertWorkflow(db(), id, input, new Date().toISOString());
+  insertWorkflow(db(), workspaceId, id, input, new Date().toISOString());
   return getWorkflow(id)!;
 }
 
@@ -253,10 +347,14 @@ export function deleteWorkflow(id: string): boolean {
   return db().prepare("DELETE FROM workflows WHERE id = ?").run(id).changes === 1;
 }
 
+/** Stores a run in its workflow's workspace. */
 export function insertRun(run: Run) {
   db()
-    .prepare("INSERT INTO runs (id, workflow_id, status, started_at, data) VALUES (?, ?, ?, ?, ?)")
-    .run(run.id, run.workflowId, run.status, run.startedAt, JSON.stringify(run));
+    .prepare(
+      `INSERT INTO runs (id, workspace_id, workflow_id, status, started_at, data)
+       SELECT ?, workspace_id, id, ?, ?, ? FROM workflows WHERE id = ?`,
+    )
+    .run(run.id, run.status, run.startedAt, JSON.stringify(run), run.workflowId);
 }
 
 export function getRun(id: string): Run | undefined {
@@ -264,11 +362,12 @@ export function getRun(id: string): Run | undefined {
   return row && parseRun(row.data);
 }
 
-export type RunQuery = { limit: number; since?: string; status?: Run["status"]; workflowId?: string };
+export type RunQuery = { workspaceId: string; limit: number; since?: string; status?: Run["status"]; workflowId?: string };
 
-/** Runs across all workflows, newest first. */
-export function queryRuns({ limit, since, status, workflowId }: RunQuery): Run[] {
+/** Runs across a workspace's workflows, newest first. */
+export function queryRuns({ workspaceId, limit, since, status, workflowId }: RunQuery): Run[] {
   const filters: [string, string | undefined][] = [
+    ["workspace_id = ?", workspaceId],
     ["started_at >= ?", since],
     ["status = ?", status],
     ["workflow_id = ?", workflowId],
@@ -284,17 +383,19 @@ export function queryRuns({ limit, since, status, workflowId }: RunQuery): Run[]
   return rows.map((row) => parseRun(row.data));
 }
 
-/** Deletes stored runs (one workflow's, or all); returns how many. */
-export function deleteRuns(workflowId?: string): number {
+/** Deletes a workspace's stored runs (one workflow's, or all); returns how many. */
+export function deleteRuns(workspaceId: string, workflowId?: string): number {
   const statement = workflowId
-    ? db().prepare("DELETE FROM runs WHERE workflow_id = ?").run(workflowId)
-    : db().prepare("DELETE FROM runs").run();
+    ? db().prepare("DELETE FROM runs WHERE workspace_id = ? AND workflow_id = ?").run(workspaceId, workflowId)
+    : db().prepare("DELETE FROM runs WHERE workspace_id = ?").run(workspaceId);
   return Number(statement.changes);
 }
 
-/** Runs started in [from, to). */
-export function countRuns(from: string, to: string): number {
-  const row = db().prepare("SELECT COUNT(*) AS n FROM runs WHERE started_at >= ? AND started_at < ?").get(from, to) as { n: number };
+/** A workspace's runs started in [from, to). */
+export function countRuns(workspaceId: string, from: string, to: string): number {
+  const row = db()
+    .prepare("SELECT COUNT(*) AS n FROM runs WHERE workspace_id = ? AND started_at >= ? AND started_at < ?")
+    .get(workspaceId, from, to) as { n: number };
   return Number(row.n);
 }
 
@@ -307,10 +408,10 @@ export type RunStats = {
   p95DurationMs: number | null;
 };
 
-export function runStats(since: string): RunStats {
+export function runStats(workspaceId: string, since: string): RunStats {
   const rows = db()
-    .prepare("SELECT status, json_extract(data, '$.durationMs') AS duration FROM runs WHERE started_at >= ?")
-    .all(since) as { status: Run["status"]; duration: number }[];
+    .prepare("SELECT status, json_extract(data, '$.durationMs') AS duration FROM runs WHERE workspace_id = ? AND started_at >= ?")
+    .all(workspaceId, since) as { status: Run["status"]; duration: number }[];
   const durations = rows.map((r) => r.duration).sort((a, b) => a - b);
   const succeeded = rows.filter((r) => r.status === "succeeded").length;
   return {

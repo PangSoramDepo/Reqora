@@ -14,7 +14,7 @@ beforeAll(async () => {
 });
 
 function savedRequest(name: string, patch: Partial<RequestDefinition>) {
-  const col = store.createCollection({ name: `${name} API` });
+  const col = store.createCollection("ws_default", { name: `${name} API` });
   store.updateCollection(col.id, { settings: { ...col.settings, headers: [{ key: "X-Tenant", value: "acme", enabled: true }] } });
   const created = store.createRequest(col.id, { name, folderId: null });
   if (!created.ok) throw new Error(created.reason);
@@ -68,7 +68,7 @@ function deps(fetch: typeof globalThis.fetch, extra: Partial<EngineDeps> = {}): 
     env: () => undefined,
     baseUrl: "http://reqora.test",
     sendLinked: (requestId, context) =>
-      linked.sendLinkedRequest(requestId, { environment: "sandbox", baseUrl: "http://reqora.test", variables, context, fetch }),
+      linked.sendLinkedRequest(requestId, { workspaceId: "ws_default", environment: "sandbox", baseUrl: "http://reqora.test", variables, context, fetch }),
     ...extra,
   };
 }
@@ -165,7 +165,7 @@ describe("linked http nodes", () => {
 
   it("syncLinkedNodes refreshes the copy and keeps the link; unknown requests keep their last copy", () => {
     const login = savedRequest("Sync", { method: "PATCH", url: "https://api.test/v3/login" });
-    const synced = linked.syncLinkedNodes(chain(login.id));
+    const synced = linked.syncLinkedNodes({ ...chain(login.id), workspaceId: "ws_default" });
     const node = synced.nodes[1] as Extract<WorkflowNode, { type: "http" }>;
     expect(node.config).toMatchObject({ method: "PATCH", url: "https://api.test/v3/login", requestId: login.id });
 
@@ -173,9 +173,9 @@ describe("linked http nodes", () => {
     const withRepeat = chain(login.id);
     const repeat = { mode: "compare" as const, left: "{{n1.body.status}}", operator: "==" as const, right: "DONE", intervalMs: 1000, maxAttempts: 5 };
     (withRepeat.nodes[1] as Extract<WorkflowNode, { type: "http" }>).config.repeat = repeat;
-    expect((linked.syncLinkedNodes(withRepeat).nodes[1] as Extract<WorkflowNode, { type: "http" }>).config.repeat).toEqual(repeat);
+    expect((linked.syncLinkedNodes({ ...withRepeat, workspaceId: "ws_default" }).nodes[1] as Extract<WorkflowNode, { type: "http" }>).config.repeat).toEqual(repeat);
 
-    const gone = linked.syncLinkedNodes(chain("req_missing"));
+    const gone = linked.syncLinkedNodes({ ...chain("req_missing"), workspaceId: "ws_default" });
     expect(gone.nodes[1]).toEqual(chain("req_missing").nodes[1]);
   });
 });

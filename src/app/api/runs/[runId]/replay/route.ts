@@ -1,11 +1,14 @@
 import type { NextRequest } from "next/server";
 import { notFound, problem } from "@/lib/http";
 import { runWorkflow } from "@/lib/workflows/runner";
-import { getRun, getWorkflow } from "@/lib/workflows/store";
+import { getRun, getWorkflow, runWorkspace } from "@/lib/workflows/store";
+import { accessTo } from "@/lib/workspaces/access";
 
 /** Re-executes a run's trigger payload against the workflow's current version. */
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/runs/[runId]/replay">) {
   const { runId } = await ctx.params;
+  const access = accessTo(request, runWorkspace(runId), "editor", `run "${runId}"`);
+  if ("error" in access) return access.error;
   const original = getRun(runId);
   if (!original) return notFound(`run "${runId}"`);
 

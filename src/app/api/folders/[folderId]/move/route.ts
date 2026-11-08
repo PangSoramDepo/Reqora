@@ -1,10 +1,14 @@
+import type { NextRequest } from "next/server";
 import { notFound, parseBody, problem } from "@/lib/http";
 import { folderMoveSchema } from "@/lib/collections/schema";
-import { moveFolder } from "@/lib/collections/store";
+import { moveFolder, folderWorkspace } from "@/lib/collections/store";
+import { accessTo } from "@/lib/workspaces/access";
 
 /** Reorders a folder among its siblings, or moves it into another folder (`parentId`; null = top level). */
-export async function POST(request: Request, ctx: RouteContext<"/api/folders/[folderId]/move">) {
+export async function POST(request: NextRequest, ctx: RouteContext<"/api/folders/[folderId]/move">) {
   const { folderId } = await ctx.params;
+  const access = accessTo(request, folderWorkspace(folderId), "editor", `folder "${folderId}"`);
+  if ("error" in access) return access.error;
   const parsed = await parseBody(request, folderMoveSchema);
   if ("error" in parsed) return parsed.error;
   const result = moveFolder(folderId, parsed.data.index, parsed.data.parentId);

@@ -68,6 +68,7 @@ const TRIGGER: Record<
 > = {
   webhook: { icon: "webhook", label: "Webhook", className: "text-tertiary" },
   manual: { icon: "terminal", label: "Manual", className: "text-secondary" },
+  flow: { icon: "account_tree", label: "Called", className: "text-secondary-fixed-dim" },
 };
 
 const ICON_BUTTON =

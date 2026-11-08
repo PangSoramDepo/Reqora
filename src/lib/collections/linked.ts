@@ -6,22 +6,24 @@ import type { SendOutcome } from "./schema";
 import { describeAssertion } from "./assertions";
 import { resolveEffective } from "./inherit";
 import { sendRequest } from "./send";
-import { getRequest, requestScopes } from "./store";
+import { getRequest, requestScopes, requestWorkspace } from "./store";
 import { requestToHttpConfig } from "./to-node";
 
 type HttpConfig = Extract<WorkflowNode, { type: "http" }>["config"];
 
 const DELETED = "the linked Collections request was deleted — unlink the node to keep its last copy";
+const ELSEWHERE = "the linked Collections request is in another workspace — unlink the node to keep its last copy";
 
 /**
  * The http node config for a saved request as it is right now, with its collection/folder auth and headers
  * applied. Workflow nodes dropped from Collections keep `requestId` and are rebuilt from this on every run.
  */
-export function linkedHttpConfig(requestId: string): { ok: true; config: HttpConfig } | { ok: false; error: string } {
+export function linkedHttpConfig(requestId: string, workspaceId: string): { ok: true; config: HttpConfig } | { ok: false; error: string } {
   const saved = getRequest(requestId);
   if (!saved) {
     return { ok: false, error: DELETED };
   }
+  if (requestWorkspace(requestId) !== workspaceId) return { ok: false, error: ELSEWHERE };
   const scopes = requestScopes(saved.collectionId, saved.folderId);
   const effective = resolveEffective({ name: saved.name, definition: saved.definition }, scopes.collection, scopes.folders);
   const converted = requestToHttpConfig(saved.name, saved.definition, effective, { linked: true });
@@ -53,6 +55,8 @@ export type LinkedStep = {
 export async function sendLinkedRequest(
   requestId: string,
   options: {
+    /** The running flow's workspace: the request must be in it. */
+    workspaceId: string;
     environment: Environment;
     baseUrl: string;
     variables: Record<string, string>;
@@ -62,6 +66,7 @@ export async function sendLinkedRequest(
 ): Promise<LinkedStep> {
   const saved = getRequest(requestId);
   if (!saved) return { ok: false, error: DELETED };
+  if (requestWorkspace(requestId) !== options.workspaceId) return { ok: false, error: ELSEWHERE };
   const scopes = requestScopes(saved.collectionId, saved.folderId);
   // Runs keep real values (like the Collections send history), so take the outcome before it's scrubbed — that
   // also keeps real values in the rq.variables handed to the next linked request.
@@ -69,6 +74,7 @@ export async function sendLinkedRequest(
   const scrubbed = await sendRequest(
     { name: saved.name, definition: saved.definition, collection: scopes.collection, folders: scopes.folders },
     {
+      workspaceId: options.workspaceId,
       environment: options.environment,
       baseUrl: options.baseUrl,
       variables: options.variables,
@@ -123,13 +129,13 @@ export async function sendLinkedRequest(
  * Refreshes the stored copy on every linked http node, so the canvas (and a deployed snapshot) shows the
  * request as it is now. Nodes whose request is gone or unconvertible keep their last copy.
  */
-export function syncLinkedNodes<T extends Pick<Workflow, "nodes">>(workflow: T): T {
+export function syncLinkedNodes<T extends Pick<Workflow, "nodes" | "workspaceId">>(workflow: T): T {
   if (!workflow.nodes.some((n) => n.type === "http" && n.config.requestId)) return workflow;
   return {
     ...workflow,
     nodes: workflow.nodes.map((node) => {
       if (node.type !== "http" || !node.config.requestId) return node;
-      const linked = linkedHttpConfig(node.config.requestId);
+      const linked = linkedHttpConfig(node.config.requestId, workflow.workspaceId);
       // Flow-only settings (repeat until) aren't part of the saved request, so they're kept.
       return linked.ok ? { ...node, config: { ...linked.config, ...(node.config.repeat ? { repeat: node.config.repeat } : {}) } } : node;
     }),

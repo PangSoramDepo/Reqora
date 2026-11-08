@@ -2,14 +2,16 @@ import { connection, type NextRequest } from "next/server";
 import { notFound, parseBody, problem } from "@/lib/http";
 import { runWorkflow } from "@/lib/workflows/runner";
 import { runInputSchema } from "@/lib/workflows/schema";
-import { getWorkflow, listRuns } from "@/lib/workflows/store";
+import { getWorkflow, listRuns, workflowWorkspace } from "@/lib/workflows/store";
+import { accessTo } from "@/lib/workspaces/access";
 
 type Ctx = RouteContext<"/api/workflows/[workflowId]/runs">;
 
 export async function GET(request: NextRequest, ctx: Ctx) {
   await connection();
   const { workflowId } = await ctx.params;
-  if (!getWorkflow(workflowId)) return notFound(`workflow "${workflowId}"`);
+  const access = accessTo(request, workflowWorkspace(workflowId), "viewer", `workflow "${workflowId}"`);
+  if ("error" in access) return access.error;
 
   const raw = request.nextUrl.searchParams.get("limit") ?? "20";
   const limit = Number(raw);
@@ -21,6 +23,8 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
 export async function POST(request: NextRequest, ctx: Ctx) {
   const { workflowId } = await ctx.params;
+  const access = accessTo(request, workflowWorkspace(workflowId), "editor", `workflow "${workflowId}"`);
+  if ("error" in access) return access.error;
   const workflow = getWorkflow(workflowId);
   if (!workflow) return notFound(`workflow "${workflowId}"`);
 

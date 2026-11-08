@@ -14,7 +14,7 @@ beforeAll(async () => {
 const example: ExampleResponse = { status: 200, statusText: "OK", headers: {}, body: "{}", durationMs: 1, size: 2 };
 
 function seed() {
-  const col = store.createCollection({ name: "API", description: "desc" });
+  const col = store.createCollection("ws_default", { name: "API", description: "desc" });
   store.updateCollection(col.id, {
     settings: { ...col.settings, headers: [{ key: "X-Col", value: "1", enabled: true }] },
   });
@@ -115,7 +115,7 @@ describe("sub-folders", () => {
     const { col, folder, sub, deep } = nested();
     expect([sub.parentId, deep.parentId]).toEqual([folder.id, sub.id]);
     expect(names(col.id, folder.id)).toEqual(["Admin"]);
-    const elsewhere = store.createCollection({ name: "Elsewhere" });
+    const elsewhere = store.createCollection("ws_default", { name: "Elsewhere" });
     expect(store.createFolder(elsewhere.id, "X", folder.id)).toBeUndefined();
   });
 
@@ -170,7 +170,7 @@ describe("sub-folders", () => {
     expect(tree(store.duplicateCollection(col.id)!.id)).toEqual(tree(col.id));
     const file = collectionExportSchema.parse(JSON.parse(JSON.stringify(store.exportCollection(col.id))));
     expect(file.collection.folders[0].folders?.[0].name).toBe("Admin");
-    expect(tree(store.insertImported(file.collection).id)).toEqual(tree(col.id));
+    expect(tree(store.insertImported("ws_default", file.collection).id)).toEqual(tree(col.id));
   });
 });
 
@@ -186,7 +186,7 @@ describe("exportCollection / import", () => {
     expect(exported).toMatchObject({ reqora: "collection", version: 1 });
     // What a file round-trip would see: JSON text, then validation.
     const file = collectionExportSchema.parse(JSON.parse(JSON.stringify(exported)));
-    const imported = store.insertImported(file.collection);
+    const imported = store.insertImported("ws_default", file.collection);
 
     const original = store.getCollection(col.id)!;
     expect(imported.id).not.toBe(col.id);

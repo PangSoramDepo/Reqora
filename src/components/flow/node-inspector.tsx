@@ -26,6 +26,8 @@ const ROW = "flex items-center gap-space-xs p-space-xs rounded bg-surface-contai
 
 type InspectorProps = {
   node: WorkflowNode;
+  /** The flow being edited. */
+  workflowId?: string;
   step?: Step;
   running: boolean;
   onChange: (node: WorkflowNode) => void;
@@ -221,7 +223,7 @@ function HttpPanels({ node, tab, onChange, onEdit }: { node: HttpNode; tab: Tab;
   }
 }
 
-export function NodeInspector({ node, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
+export function NodeInspector({ node, workflowId, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
   const [tab, setTab] = useState<Tab>("Headers");
   const [showDocs, setShowDocs] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -377,7 +379,7 @@ export function NodeInspector({ node, step, running, onChange, onRun, pinned, on
             <RepeatUntilEditor node={node} onChange={onChange} />
           </>
         ) : (
-          <NodeConfigForm node={node} onChange={onChange} />
+          <NodeConfigForm node={node} workflowId={workflowId} onChange={onChange} />
         )}
 
         <div className="flex items-center gap-space-xs">

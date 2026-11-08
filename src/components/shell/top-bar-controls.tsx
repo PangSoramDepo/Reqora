@@ -7,8 +7,10 @@ import { onCanvasState, sendCanvasCommand, type CanvasState } from "@/lib/canvas
 import { ENVIRONMENT_LABELS, setEnvironment, useEnvironment } from "@/lib/environment";
 import { ENVIRONMENTS, type Environment } from "@/lib/workflows/schema";
 import { UserMenu } from "./user-menu";
+import { WorkspaceSwitcher } from "./workspace-switcher";
 
 const SECTIONS: [prefix: string, label: string][] = [
+  ["/workspace", "Members & Settings"],
   ["/flow", "Flow Canvas"],
   ["/collections", "Collections & Requests"],
   ["/executions", "Execution History"],
@@ -41,9 +43,7 @@ export function TopBarControls() {
       <div className="flex items-center gap-space-md">
         <div className="flex items-center gap-space-xs font-body-sm text-body-sm text-on-surface-variant">
           <span className="text-outline">/</span>
-          <span>Workspaces</span>
-          <span className="text-outline">/</span>
-          <span>Default</span>
+          <WorkspaceSwitcher />
           <span className="text-outline">/</span>
           <span className="text-on-surface font-medium">{section}</span>
         </div>

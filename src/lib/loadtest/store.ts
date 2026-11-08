@@ -44,4 +44,13 @@ export function listStoredLoadTests(workflowId: string, limit: number): LoadTest
   ).map((r) => JSON.parse(r.data) as LoadTest);
 }
 
+/** The workspace a load test belongs to (its workflow's). */
+export function loadTestWorkspace(id: string): string | undefined {
+  return (
+    conn().prepare("SELECT w.workspace_id FROM load_tests t JOIN workflows w ON w.id = t.workflow_id WHERE t.id = ?").get(id) as
+      | { workspace_id: string }
+      | undefined
+  )?.workspace_id;
+}
+
 export const summaries = (tests: LoadTest[]): LoadTestSummary[] => tests.map(toSummary);

@@ -56,6 +56,23 @@ export const NODE_DOCS: Record<NodeType, Doc> = {
     outputs: ["{{id.key}} — each key of the returned object", "{{id.value}} — a returned string, number, boolean or array"],
     tips: ["console.log output shows under Last Run Output and in Execution History's Console Logs.", "Place it before a node to prepare data, or after one to inspect its response."],
   },
+  call: {
+    summary: "Runs another flow and waits for it to finish, so shared steps (log in, look up a customer…) can live in one flow and be reused.",
+    config: [
+      "Flow: the flow to call. Its deployed (live) version runs; a flow that was never deployed runs its draft.",
+      "Trigger body: a JSON template sent as the called flow's {{trigger.body}}, e.g. { \"customerId\": \"{{trigger.body.id}}\" }. Empty sends this run's trigger body.",
+      "The called flow runs in the same environment. If it fails, this step fails too.",
+    ],
+    outputs: [
+      "{{id.body.field}} — the called flow's Response node body",
+      "{{id.status}} — its Response status (null without a Response node)",
+      "{{id.runId}} — the called run, listed in Execution History",
+    ],
+    tips: [
+      "Deploy the called flow after changing it: callers run its live version.",
+      `Flows can call flows up to 5 levels deep; a flow that ends up calling itself fails with "loop".`,
+    ],
+  },
   response: {
     summary: "Sets what the webhook caller receives: status code and JSON body.",
     config: ["Status code and a JSON body template, e.g. { \"orderId\": \"{{trigger.body.id}}\" }."],

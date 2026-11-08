@@ -19,6 +19,7 @@ import { newNode } from "@/lib/workflows/defaults";
 import { topologicalOrder } from "@/lib/workflows/graph";
 import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflows/schema";
 import { SAMPLE_ORDER } from "@/lib/workflows/seed";
+import { followWorkspace } from "@/lib/workspaces/client";
 import { createAutosaver, type HistoryState, type SaveState, type UpdateOptions } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
 import { REQUEST_SAVED_EVENT } from "./linked-request-editor";
@@ -87,6 +88,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     Promise.all([fetchWorkflow(workflowId), fetchLatestRun(workflowId)])
       .then(([wf, latest]) => {
         if (cancelled) return;
+        // Opened by link from another workspace: switch to it so the sidebar lists match.
+        void followWorkspace(wf.workspaceId).catch(() => undefined);
         autosaver.load(wf);
         setRun(latest);
         setSelectedId((wf.nodes.find((n) => n.type === "http") ?? wf.nodes[0])?.id ?? null);
@@ -593,6 +596,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           <NodeInspector
             key={selected.id}
             node={selected}
+            workflowId={workflowId}
             step={steps.get(selected.id)}
             running={running}
             onChange={updateNode}

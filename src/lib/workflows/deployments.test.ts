@@ -18,14 +18,14 @@ const me = { id: "usr_1", name: "Pang" };
 
 describe("deployment history", () => {
   it("seeded workflows start with one live deployment", () => {
-    const seeded = store.listWorkflows()[0];
+    const seeded = store.listWorkflows("ws_default")[0];
     const history = store.listDeployments(seeded.id);
     expect(history).toHaveLength(1);
     expect(history[0]).toMatchObject({ version: 1, live: true });
   });
 
   it("records each deploy (with who), newest first, and only the newest is live", () => {
-    const wf = store.createWorkflow(input("/v1"));
+    const wf = store.createWorkflow("ws_default", input("/v1"));
     expect(store.listDeployments(wf.id)).toEqual([]);
     expect(store.deployWorkflow(wf.id, 1, me).ok).toBe(true);
     const v2 = store.replaceWorkflow(wf.id, input("/v2"), 1);
@@ -45,7 +45,7 @@ describe("deployment history", () => {
   });
 
   it("rolls back: the old definition goes live, the draft is kept, and the rollback is recorded", () => {
-    const wf = store.createWorkflow(input("/a"));
+    const wf = store.createWorkflow("ws_default", input("/a"));
     store.deployWorkflow(wf.id, 1);
     store.replaceWorkflow(wf.id, input("/b"), 1);
     store.deployWorkflow(wf.id, 2);
@@ -70,7 +70,7 @@ describe("deployment history", () => {
   });
 
   it("history is deleted with the workflow", () => {
-    const wf = store.createWorkflow(input("/x"));
+    const wf = store.createWorkflow("ws_default", input("/x"));
     store.deployWorkflow(wf.id, 1);
     store.deleteWorkflow(wf.id);
     expect(store.listDeployments(wf.id)).toEqual([]);

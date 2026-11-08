@@ -39,6 +39,8 @@ type Scope = { name: string; settings: ScopeSettings };
 /** `folders`: the request's folder chain, outermost first. */
 export type SendTarget = { name: string; definition: RequestDefinition; collection?: Scope; folders?: Scope[] };
 type SendOptions = {
+  /** Whose environment variables `{{env.NAME}}` reads (and rq.environment.set writes). */
+  workspaceId: string;
   environment: Environment;
   baseUrl: string;
   fetch?: typeof fetch;
@@ -79,12 +81,21 @@ const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptRepor
  */
 export async function sendRequest(
   target: SendTarget,
-  { environment, baseUrl, fetch: doFetch = outboundFetch(baseUrl), writeEnv = setVariableValue, onUnscrubbed, variables = {}, context }: SendOptions,
+  {
+    workspaceId,
+    environment,
+    baseUrl,
+    fetch: doFetch = outboundFetch(baseUrl),
+    writeEnv = setVariableValue,
+    onUnscrubbed,
+    variables = {},
+    context,
+  }: SendOptions,
 ): Promise<SendOutcome> {
   const def = target.definition;
   const resolved = new Set<string>();
   const readEnv = (name: string) => {
-    const value = resolveVariable(environment, name) ?? process.env[`${ENV_PREFIX}${name}`];
+    const value = resolveVariable(workspaceId, environment, name) ?? process.env[`${ENV_PREFIX}${name}`];
     if (value !== undefined && value.length >= 6) resolved.add(value);
     return value;
   };
@@ -94,7 +105,7 @@ export async function sendRequest(
   const finish = <T extends SendOutcome>(outcome: T): T => {
     for (const [name, value] of Object.entries(outcome.scripts?.environment ?? {})) {
       try {
-        const { kind } = writeEnv(environment, name, value);
+        const { kind } = writeEnv(workspaceId, environment, name, value);
         if (kind === "secret" && value !== null && value.length >= 6) resolved.add(value);
       } catch (error) {
         outcome.scripts?.errors.push({

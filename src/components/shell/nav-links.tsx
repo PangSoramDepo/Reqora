@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/executions", icon: "history", label: "Execution History" },
   { href: "/secrets", icon: "key", label: "Environment Secrets" },
   { href: "/telemetry", icon: "monitoring", label: "Telemetry & Metrics" },
+  { href: "/workspace", icon: "group", label: "Members & Settings" },
 ] as const;
 
 const BASE = "flex items-center gap-space-xs px-space-sm py-space-xs transition-colors rounded";

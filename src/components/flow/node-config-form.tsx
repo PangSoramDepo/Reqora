@@ -4,6 +4,7 @@ import { useState } from "react";
 import { conditionOperators, type WorkflowNode } from "@/lib/workflows/schema";
 import { NumberField } from "@/components/number-field";
 import { ScriptCodeEditor } from "@/components/collections/script-code-editor";
+import { CallFlowEditor } from "./call-flow-editor";
 
 type NonHttpNode = Exclude<WorkflowNode, { type: "http" }>;
 
@@ -58,7 +59,16 @@ function TransformEditor({ node, onChange }: { node: Extract<WorkflowNode, { typ
   );
 }
 
-export function NodeConfigForm({ node, onChange }: { node: NonHttpNode; onChange: (n: WorkflowNode) => void }) {
+export function NodeConfigForm({
+  node,
+  workflowId,
+  onChange,
+}: {
+  node: NonHttpNode;
+  /** The flow being edited (a Call Flow node can't call it). */
+  workflowId?: string;
+  onChange: (n: WorkflowNode) => void;
+}) {
   switch (node.type) {
     case "webhook":
       return (
@@ -173,6 +183,9 @@ export function NodeConfigForm({ node, onChange }: { node: NonHttpNode; onChange
           </span>
         </div>
       );
+
+    case "call":
+      return <CallFlowEditor node={node} workflowId={workflowId} onChange={onChange} />;
 
     case "response":
       return (

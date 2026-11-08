@@ -1,7 +1,8 @@
-import { connection } from "next/server";
+import { connection, type NextRequest } from "next/server";
 import { notFound } from "@/lib/http";
 import { exportPostman } from "@/lib/collections/postman";
-import { exportCollection } from "@/lib/collections/store";
+import { exportCollection, collectionWorkspace } from "@/lib/collections/store";
+import { accessTo } from "@/lib/workspaces/access";
 
 /** File-system-safe name: letters, digits, spaces, - and _ (the rest become -). */
 const fileName = (name: string) => name.replace(/[^\w\- ]+/g, "-").trim().slice(0, 80) || "collection";
@@ -12,9 +13,11 @@ const fileName = (name: string) => name.replace(/[^\w\- ]+/g, "-").trim().slice(
  * `?format=postman` downloads a Postman Collection v2.1 instead (templates become {{name}}, common rq.* calls
  * become pm.*, tests become pm.test scripts).
  */
-export async function GET(request: Request, ctx: RouteContext<"/api/collections/[collectionId]/export">) {
+export async function GET(request: NextRequest, ctx: RouteContext<"/api/collections/[collectionId]/export">) {
   await connection();
   const { collectionId } = await ctx.params;
+  const access = accessTo(request, collectionWorkspace(collectionId), "viewer", `collection "${collectionId}"`);
+  if ("error" in access) return access.error;
   const exported = exportCollection(collectionId);
   if (!exported) return notFound(`collection "${collectionId}"`);
   const postman = new URL(request.url).searchParams.get("format") === "postman";

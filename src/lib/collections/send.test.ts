@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/secrets/variables", () => ({
-  resolveVariable: (_env: string, name: string) => (name === "TOKEN" ? "tok_super_secret" : undefined),
+  resolveVariable: (_workspace: string, _env: string, name: string) => (name === "TOKEN" ? "tok_super_secret" : undefined),
   setVariableValue: () => ({ kind: "plain" }),
 }));
 const { sendDefinition } = await import("./send");
@@ -26,7 +26,7 @@ describe("sendDefinition", () => {
           { type: "jsonPathExists", path: "echoed" },
         ],
       },
-      { environment: "sandbox", baseUrl: "http://localhost:3000", fetch: fetchMock as typeof fetch },
+      { workspaceId: "ws_default", environment: "sandbox", baseUrl: "http://localhost:3000", fetch: fetchMock as typeof fetch },
     );
     expect(fetchMock).toHaveBeenCalledOnce();
     expect("status" in result && result.status).toBe(201);
@@ -40,7 +40,7 @@ describe("sendDefinition", () => {
   it("returns an error payload for missing variables and network failures", async () => {
     const missing = await sendDefinition(
       { ...emptyDefinition(), url: "https://x.dev/{{env.NOPE}}" },
-      { environment: "sandbox", baseUrl: "http://localhost", fetch: vi.fn() as unknown as typeof fetch },
+      { workspaceId: "ws_default", environment: "sandbox", baseUrl: "http://localhost", fetch: vi.fn() as unknown as typeof fetch },
     );
     expect(missing).toMatchObject({ error: expect.stringContaining('"NOPE"'), durationMs: 0 });
 
@@ -49,7 +49,7 @@ describe("sendDefinition", () => {
     });
     const down = await sendDefinition(
       { ...emptyDefinition(), url: "http://127.0.0.1:1/x" },
-      { environment: "sandbox", baseUrl: "http://localhost", fetch: failing as unknown as typeof fetch },
+      { workspaceId: "ws_default", environment: "sandbox", baseUrl: "http://localhost", fetch: failing as unknown as typeof fetch },
     );
     expect(down).toMatchObject({ error: "request failed: ECONNREFUSED", url: "http://127.0.0.1:1/x" });
   });
@@ -94,6 +94,7 @@ describe("sendRequest with inherited settings and scripts", () => {
         ],
       },
       {
+        workspaceId: "ws_default",
         environment: "production",
         baseUrl: "http://localhost",
         fetch: fake as unknown as typeof fetch,
@@ -123,10 +124,10 @@ describe("sendRequest with inherited settings and scripts", () => {
     const fetchMock = vi.fn(async (url: string | URL | Request) => Response.json({ url: String(url) }));
     const result = await sendDefinition(
       { ...emptyDefinition(), url: "/api/users/{{env.login_id}}", preScript: `rq.environment.set("login_id", "123");` },
-      { environment: "staging", baseUrl: "http://localhost:3000", fetch: fetchMock as typeof fetch, writeEnv },
+      { workspaceId: "ws_default", environment: "staging", baseUrl: "http://localhost:3000", fetch: fetchMock as typeof fetch, writeEnv },
     );
     expect(String(fetchMock.mock.calls[0][0])).toBe("http://localhost:3000/api/users/123");
-    expect(writeEnv).toHaveBeenCalledWith("staging", "login_id", "123");
+    expect(writeEnv).toHaveBeenCalledWith("ws_default", "staging", "login_id", "123");
     expect("scripts" in result && result.scripts?.environment).toEqual({ login_id: "123" });
   });
 
@@ -135,7 +136,7 @@ describe("sendRequest with inherited settings and scripts", () => {
     const fake = vi.fn();
     const result = await sendRequest(
       { name: "r", definition: { ...emptyDefinition(), url: "https://x.test", preScript: "throw new Error('nope')" } },
-      { environment: "production", baseUrl: "http://localhost", fetch: fake as unknown as typeof fetch },
+      { workspaceId: "ws_default", environment: "production", baseUrl: "http://localhost", fetch: fake as unknown as typeof fetch },
     );
     expect(fake).not.toHaveBeenCalled();
     expect(result).toMatchObject({ error: "pre-request script (request “r”) failed: Error: nope (line 1: throw new Error('nope'))" });

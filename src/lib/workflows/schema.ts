@@ -104,6 +104,24 @@ export const scriptNodeSchema = z.object({
   config: z.object({ code: z.string().max(MAX_NODE_SCRIPT) }),
 });
 
+/** How deep flows may call flows (a calls b calls c… counts each call). */
+export const MAX_CALL_DEPTH = 5;
+
+/**
+ * Runs another flow and waits for it. The called flow's live (deployed) version runs, or its draft when it was
+ * never deployed. Its trigger body is `body` (a JSON template); its Response node becomes this node's output.
+ */
+export const callNodeSchema = z.object({
+  ...nodeBase,
+  type: z.literal("call"),
+  config: z.object({
+    /** Empty while being edited; a run fails until a flow is picked. */
+    workflowId: z.string().max(100),
+    /** JSON template sent as the called flow's {{trigger.body}}. */
+    body: z.string().max(100_000).optional(),
+  }),
+});
+
 export const responseNodeSchema = z.object({
   ...nodeBase,
   type: z.literal("response"),
@@ -120,6 +138,7 @@ export const nodeSchema = z.discriminatedUnion("type", [
   transformNodeSchema,
   delayNodeSchema,
   scriptNodeSchema,
+  callNodeSchema,
   responseNodeSchema,
 ]);
 
@@ -192,6 +211,8 @@ export type DeploymentDetail = DeploymentRecord & Pick<Workflow, "nodes" | "edge
 
 export type Workflow = WorkflowInput & {
   id: string;
+  /** The workspace it belongs to. */
+  workspaceId: string;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -266,10 +287,14 @@ export type Step = {
 export type RepeatCheck = { attempt: number; met: boolean; logs?: string[]; error?: string };
 
 export type RunTrigger = {
-  source: "manual" | "webhook";
+  /** "flow": started by another flow's Call Flow node. */
+  source: "manual" | "webhook" | "flow";
   body?: unknown;
   headers?: Record<string, string>;
 };
+
+/** The run (and node) that started a "flow" run. */
+export type RunCaller = { runId: string; workflowId: string; nodeId: string };
 
 export type Run = {
   id: string;
@@ -286,6 +311,8 @@ export type Run = {
   error?: string;
   /** Set when this run replayed an earlier run's trigger. */
   replayOf?: string;
+  /** Set when another flow's Call Flow node started this run. */
+  calledBy?: RunCaller;
 };
 
 export const RUN_WINDOWS = { "24h": 24, "7d": 24 * 7, "30d": 24 * 30 } as const;
@@ -299,5 +326,6 @@ export const OUTPUT_PORTS: Record<NodeType, readonly string[]> = {
   transform: ["out"],
   delay: ["out"],
   script: ["out"],
+  call: ["out"],
   response: [],
 };

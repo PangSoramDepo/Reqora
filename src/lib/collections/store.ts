@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { DatabaseSync } from "node:sqlite";
-import { db } from "@/lib/workflows/store";
+import { addWorkspaceColumn, db } from "@/lib/workflows/store";
 import { folderChain, subtreeIds } from "./folders";
 import type { ImportedCollection, ImportedFolder } from "./openapi";
 import {
@@ -30,6 +30,7 @@ function conn(): DatabaseSync {
     database.exec(`
       CREATE TABLE IF NOT EXISTS collections (
         id TEXT PRIMARY KEY,
+        workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
         name TEXT NOT NULL,
         description TEXT,
         created_at TEXT NOT NULL,
@@ -73,6 +74,9 @@ function conn(): DatabaseSync {
     if (!folderCols.some((c) => c.name === "parent_id")) {
       database.exec("ALTER TABLE collection_folders ADD COLUMN parent_id TEXT REFERENCES collection_folders(id) ON DELETE CASCADE");
     }
+    // Workspaces arrived later: collections from before them belong to the "Default" workspace.
+    addWorkspaceColumn(database, "collections");
+    database.exec("CREATE INDEX IF NOT EXISTS collections_by_workspace ON collections (workspace_id)");
     ready = true;
   }
   return database;
@@ -83,6 +87,7 @@ const now = () => new Date().toISOString();
 
 type CollectionRow = {
   id: string;
+  workspace_id: string;
   name: string;
   description: string | null;
   created_at: string;
@@ -141,9 +146,12 @@ function toRequest(r: RequestRow): SavedRequest {
 }
 
 function assemble(rows: CollectionRow[]): Collection[] {
+  if (rows.length === 0) return [];
   const c = conn();
-  const folders = c.prepare("SELECT * FROM collection_folders ORDER BY position, name").all() as FolderRow[];
-  const requests = c.prepare("SELECT * FROM requests ORDER BY position, name").all() as RequestRow[];
+  const ids = rows.map((r) => r.id);
+  const among = `collection_id IN (${ids.map(() => "?").join(", ")})`;
+  const folders = c.prepare(`SELECT * FROM collection_folders WHERE ${among} ORDER BY position, name`).all(...ids) as FolderRow[];
+  const requests = c.prepare(`SELECT * FROM requests WHERE ${among} ORDER BY position, name`).all(...ids) as RequestRow[];
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -156,21 +164,45 @@ function assemble(rows: CollectionRow[]): Collection[] {
   }));
 }
 
-export function listCollections(): Collection[] {
-  return assemble(conn().prepare("SELECT * FROM collections ORDER BY name COLLATE NOCASE").all() as CollectionRow[]);
+export function listCollections(workspaceId: string): Collection[] {
+  return assemble(
+    conn().prepare("SELECT * FROM collections WHERE workspace_id = ? ORDER BY name COLLATE NOCASE").all(workspaceId) as CollectionRow[],
+  );
 }
+
+const workspaceBy = (sql: string, id: string) =>
+  (conn().prepare(sql).get(id) as { workspace_id: string } | undefined)?.workspace_id;
+
+/** The workspace a collection belongs to (undefined when it doesn't exist). */
+export const collectionWorkspace = (id: string) => workspaceBy("SELECT workspace_id FROM collections WHERE id = ?", id);
+
+/** The workspace of a folder's collection. */
+export const folderWorkspace = (id: string) =>
+  workspaceBy("SELECT c.workspace_id FROM collection_folders f JOIN collections c ON c.id = f.collection_id WHERE f.id = ?", id);
+
+/** The workspace of a saved request's collection. */
+export const requestWorkspace = (id: string) =>
+  workspaceBy("SELECT c.workspace_id FROM requests r JOIN collections c ON c.id = r.collection_id WHERE r.id = ?", id);
+
+/** The workspace of an example's request. */
+export const exampleWorkspace = (id: string) =>
+  workspaceBy(
+    `SELECT c.workspace_id FROM request_examples e JOIN requests r ON r.id = e.request_id
+     JOIN collections c ON c.id = r.collection_id WHERE e.id = ?`,
+    id,
+  );
 
 export function getCollection(id: string): Collection | undefined {
   const row = conn().prepare("SELECT * FROM collections WHERE id = ?").get(id) as CollectionRow | undefined;
   return row && assemble([row])[0];
 }
 
-export function createCollection(input: { name: string; description?: string }): Collection {
+export function createCollection(workspaceId: string, input: { name: string; description?: string }): Collection {
   const id = newId("col");
   const at = now();
   conn()
-    .prepare("INSERT INTO collections (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
-    .run(id, input.name, input.description ?? null, at, at);
+    .prepare("INSERT INTO collections (id, workspace_id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(id, workspaceId, input.name, input.description ?? null, at, at);
   return getCollection(id)!;
 }
 
@@ -437,7 +469,7 @@ export function deleteExample(id: string): boolean {
 }
 
 /** Creates a collection with folders and requests in one transaction. */
-export function insertImported(imported: ImportedCollection): Collection {
+export function insertImported(workspaceId: string, imported: ImportedCollection): Collection {
   const c = conn();
   const at = now();
   const collectionId = newId("col");
@@ -461,8 +493,11 @@ export function insertImported(imported: ImportedCollection): Collection {
   };
   c.exec("BEGIN");
   try {
-    c.prepare("INSERT INTO collections (id, name, description, created_at, updated_at, settings) VALUES (?, ?, ?, ?, ?, ?)").run(
+    c.prepare(
+      "INSERT INTO collections (id, workspace_id, name, description, created_at, updated_at, settings) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(
       collectionId,
+      workspaceId,
       imported.name,
       imported.description ?? null,
       at,
@@ -586,8 +621,8 @@ export function duplicateCollection(id: string): Collection | undefined {
     const collectionId = newId("col");
     const at = now();
     c.prepare(
-      "INSERT INTO collections (id, name, description, created_at, updated_at, settings) VALUES (?, ?, ?, ?, ?, ?)",
-    ).run(collectionId, copyName(row.name), row.description, at, at, row.settings);
+      "INSERT INTO collections (id, workspace_id, name, description, created_at, updated_at, settings) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    ).run(collectionId, row.workspace_id, copyName(row.name), row.description, at, at, row.settings);
     const folderIds = new Map<string, string>();
     const insertFolder = c.prepare(
       "INSERT INTO collection_folders (id, collection_id, name, position, settings) VALUES (?, ?, ?, ?, ?)",

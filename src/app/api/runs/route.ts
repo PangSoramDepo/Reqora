@@ -2,9 +2,12 @@ import { connection, type NextRequest } from "next/server";
 import { problem } from "@/lib/http";
 import { deleteRuns, queryRuns } from "@/lib/workflows/store";
 import { windowStart } from "@/lib/workflows/windows";
+import { activeWorkspace } from "@/lib/workspaces/access";
 
 export async function GET(request: NextRequest) {
   await connection();
+  const access = activeWorkspace(request);
+  if ("error" in access) return access.error;
   const params = request.nextUrl.searchParams;
 
   const range = windowStart(params.get("since"));
@@ -21,15 +24,17 @@ export async function GET(request: NextRequest) {
   }
 
   return Response.json({
-    data: queryRuns({ limit, since: range.since, status, workflowId: params.get("workflowId") ?? undefined }),
+    data: queryRuns({ workspaceId: access.workspaceId, limit, since: range.since, status, workflowId: params.get("workflowId") ?? undefined }),
   });
 }
 
 /**
- * Permanently deletes stored runs: all of them, or one workflow's with `?workflowId=`. Run history, replays and
+ * Permanently deletes the active workspace's stored runs: all of them, or one workflow's with `?workflowId=`. Run history, replays and
  * telemetry lose them; deployments and load-test reports are kept.
  */
 export async function DELETE(request: NextRequest) {
+  const access = activeWorkspace(request, "editor");
+  if ("error" in access) return access.error;
   const workflowId = request.nextUrl.searchParams.get("workflowId") ?? undefined;
-  return Response.json({ deleted: deleteRuns(workflowId) });
+  return Response.json({ deleted: deleteRuns(access.workspaceId, workflowId) });
 }

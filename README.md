@@ -5,8 +5,9 @@ Visual API flow builder — Next.js 16 (App Router, Turbopack, Cache Components)
 UI is ported from the Stitch project **Visual API Flow Builder** (`projects/14292666328900997952`).
 The raw Stitch HTML exports live in [`design/`](design/) for reference.
 
-> **Accounts.** The first visit offers to create the owner account; after that sign-up is closed and an admin
-> adds people with `npm run user -- create <email> "<name>"` (`reset-password <email>`, `list`). Every page and API
+> **Accounts.** The first visit offers to create the owner account; after that sign-up is closed. Workspace owners
+> add people from **Members & Settings** (creating an account with a first password if needed), or an admin runs
+> `npm run user -- create <email> "<name>"` (`reset-password <email>`, `list`). Every page and API
 > needs a session except `/login`, `/api/auth/*`, `/api/demo/*` and the webhook endpoint `/api/hooks/{id}` —
 > anyone who knows a workflow's webhook URL can trigger its deployed version.
 
@@ -26,6 +27,13 @@ In production set `REQORA_SECRET_KEY` (32 bytes, hex or base64) — the server r
 
 ## Concepts
 
+- **Workspaces.** Flows, runs, collections, secrets and history belong to a workspace, picked in the top bar.
+  Members are Owners (also manage members, rename/delete), Editors (change anything inside) or Viewers (read
+  only). Each workspace has its own production / staging / sandbox variables. Data from before workspaces is in
+  "Default"; API clients can pick a workspace with the `X-Reqora-Workspace` header.
+- **Call Flow.** A Call Flow node runs another flow of the same workspace and waits for it: the called flow's
+  deployed version (or its draft if never deployed) gets the node's body as `{{trigger.body}}`, and its Response
+  becomes `{{call-1.body.*}}`. Called runs show in Execution History, linked to their caller.
 - **Draft vs deployed.** Canvas edits autosave to the draft (`version`). Test runs (Run Workflow / Emit Webhook
   Test) execute the draft. The webhook endpoint `POST /api/hooks/{id}` only runs the **deployed** snapshot —
   press **Deploy** to promote the draft. The canvas shows `Draft vN · live vM`.
@@ -61,9 +69,15 @@ The contract is [`api/openapi.yaml`](api/openapi.yaml). Summary:
 | `GET /api/environments/{env}/variables`          | Variables + where they're used + referenced-but-missing names  |
 | `PUT/DELETE /api/environments/{env}/variables/{NAME}` | Set (`{kind: secret\|plain, value}`) / delete a variable  |
 | `POST /api/hooks/{id}?environment=`              | Live webhook: runs the deployed version                        |
+| `GET/POST /api/workspaces`                       | Your workspaces + the active one / create one                  |
+| `PATCH/DELETE /api/workspaces/{id}`              | Rename / delete a workspace (owners)                           |
+| `POST /api/workspaces/{id}/select`               | Make it the active workspace                                   |
+| `GET/POST /api/workspaces/{id}/members`          | Members / add one by email (owners)                            |
+| `PATCH/DELETE /api/workspaces/{id}/members/{userId}` | Change role / remove (owners) or leave                     |
 | `POST /api/demo/...`                             | Local stand-ins for Stripe / ERP / Slack used by the seed      |
 
-Node types: `webhook` (trigger), `http`, `condition` (`true`/`false` ports), `transform`, `delay`, `response`.
+Node types: `webhook` (trigger), `http`, `condition` (`true`/`false` ports), `transform`, `delay`, `script`, `call`
+(Call Flow), `response`.
 Templates: `{{trigger.body.x}}`, `{{<nodeId>.body.x}}`, `{{env.NAME}}`.
 
 ```bash
@@ -82,7 +96,8 @@ curl -X POST localhost:3000/api/hooks/wf_checkout_pipeline \
 | `/collections`    | API collections & request builder                          |
 | `/executions`     | Execution history & trace debugger                         |
 | `/secrets`        | Environment variables & secrets                            |
-| `/telemetry`      | Telemetry & metrics (still mock data)                      |
+| `/telemetry`      | Telemetry & metrics                                        |
+| `/workspace`      | Members & settings of the active workspace                 |
 
 ## Layout
 

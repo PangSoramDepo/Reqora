@@ -137,9 +137,11 @@ type RunInspectorProps = {
   workflowName: string | undefined;
   replaying: boolean;
   onReplay: () => void;
+  /** Selects another run (a called flow's run, or the run that called this one). */
+  onOpenRun?: (runId: string) => void;
 };
 
-export function RunInspector({ run, workflowName, replaying, onReplay }: RunInspectorProps) {
+export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun }: RunInspectorProps) {
   const [tab, setTab] = useState<Tab>("payloads");
   const [chosen, setChosen] = useState<{ runId: string; nodeId: string } | null>(null);
   // Which copy button just copied (shows a check briefly).
@@ -211,6 +213,20 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
               <span className="truncate">
                 {workflowName ?? run.workflowId} · v{run.workflowVersion} · {run.trigger.source} trigger
                 {run.replayOf && <> · replay of {shortId(run.replayOf)}</>}
+                {run.calledBy && (
+                  <>
+                    {" "}· called by{" "}
+                    <button
+                      className="text-primary hover:underline font-mono"
+                      onClick={() => onOpenRun?.(run.calledBy!.runId)}
+                      title={`Started by node ${run.calledBy.nodeId} of that run`}
+                      type="button"
+                      data-testid="called-by"
+                    >
+                      {shortId(run.calledBy.runId)}
+                    </button>
+                  </>
+                )}
               </span>
             )}
           </div>
@@ -330,6 +346,18 @@ export function RunInspector({ run, workflowName, replaying, onReplay }: RunInsp
             <span className="font-label-sm text-label-sm text-outline font-mono">
               Viewing: Step {viewingIndex + 1} ({STEP_STYLES[toneOf(viewing)].verdict})
             </span>
+            {viewing.nodeType === "call" && typeof (viewing.output as { runId?: unknown } | undefined)?.runId === "string" && (
+              <button
+                className="px-space-xs py-space-xxs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm flex items-center gap-1"
+                onClick={() => onOpenRun?.((viewing.output as { runId: string }).runId)}
+                title="Show the run of the called flow"
+                type="button"
+                data-testid="open-called-run"
+              >
+                <Icon name="account_tree" className="text-body-sm" />
+                Open called run
+              </button>
+            )}
             {viewing.request && (
               <button
                 className="px-space-xs py-space-xxs rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm flex items-center gap-1"

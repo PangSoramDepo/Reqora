@@ -27,6 +27,7 @@ const STATUS_STYLES: Record<Run["status"], { dot: string; badge: string; label: 
 const TRIGGER_STYLES: Record<RunTrigger["source"], { icon: string; label: string; className: string }> = {
   webhook: { icon: "webhook", label: "Webhook", className: "text-tertiary" },
   manual: { icon: "terminal", label: "Manual", className: "text-secondary" },
+  flow: { icon: "account_tree", label: "Called", className: "text-secondary-fixed-dim" },
 };
 
 const SELECT_CLASS =
@@ -109,6 +110,7 @@ export function RunsPanel(props: RunsPanelProps) {
             <option value="all">All Triggers</option>
             <option value="webhook">Webhook</option>
             <option value="manual">Manual</option>
+            <option value="flow">Called by a flow</option>
           </select>
         </div>
       </div>

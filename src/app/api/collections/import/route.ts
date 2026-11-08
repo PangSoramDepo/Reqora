@@ -1,10 +1,12 @@
+import type { NextRequest } from "next/server";
 import { notFound, parseBody, problem } from "@/lib/http";
 import { ImportError, parseCurl } from "@/lib/collections/curl";
 import { importOpenApi } from "@/lib/collections/openapi";
 import { importPostman } from "@/lib/collections/postman";
 import { putVariable, resolveVariable } from "@/lib/secrets/variables";
 import { collectionExportSchema, importInputSchema } from "@/lib/collections/schema";
-import { createRequest, getCollection, insertImported } from "@/lib/collections/store";
+import { collectionWorkspace, createRequest, getCollection, insertImported } from "@/lib/collections/store";
+import { activeWorkspace } from "@/lib/workspaces/access";
 
 function hostOf(url: string) {
   try {
@@ -35,9 +37,12 @@ function parseReqoraExport(text: string) {
 
 /**
  * `reqora`: creates a collection from a Reqora export file (lossless). `openapi`: creates a collection from the document. `curl`: adds one request to `collectionId`, or to a new
- * collection named after the host. Returns the resulting collection (201).
+ * collection named after the host. Returns the resulting collection (201). Imports go into the active workspace.
  */
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const access = activeWorkspace(request, "editor");
+  if ("error" in access) return access.error;
+  const { workspaceId } = access;
   const parsed = await parseBody(request, importInputSchema);
   if ("error" in parsed) return parsed.error;
   const { format, text, collectionId, variablesEnvironment } = parsed.data;
@@ -45,7 +50,7 @@ export async function POST(request: Request) {
   try {
     if (format === "postman") {
       const imported = importPostman(text);
-      const collection = insertImported(imported);
+      const collection = insertImported(workspaceId, imported);
       const notes = [...imported.notes];
       if (imported.variables.length) {
         if (variablesEnvironment) {
@@ -53,9 +58,9 @@ export async function POST(request: Request) {
           const added: string[] = [];
           const kept: string[] = [];
           for (const v of imported.variables) {
-            if (resolveVariable(variablesEnvironment, v.name) !== undefined) kept.push(v.name);
+            if (resolveVariable(workspaceId, variablesEnvironment, v.name) !== undefined) kept.push(v.name);
             else {
-              putVariable(variablesEnvironment, v.name, { kind: v.secret ? "secret" : "plain", value: v.value, description: `From Postman collection “${imported.name}”` });
+              putVariable(workspaceId, variablesEnvironment, v.name, { kind: v.secret ? "secret" : "plain", value: v.value, description: `From Postman collection “${imported.name}”` });
               added.push(v.name);
             }
           }
@@ -70,21 +75,22 @@ export async function POST(request: Request) {
       return Response.json({ ...collection, importNotes: notes }, { status: 201, headers: { Location: `/api/collections/${collection.id}` } });
     }
     if (format === "reqora") {
-      const collection = insertImported(parseReqoraExport(text));
+      const collection = insertImported(workspaceId, parseReqoraExport(text));
       return Response.json(collection, { status: 201, headers: { Location: `/api/collections/${collection.id}` } });
     }
     if (format === "openapi") {
-      const collection = insertImported(importOpenApi(text));
+      const collection = insertImported(workspaceId, importOpenApi(text));
       return Response.json(collection, { status: 201, headers: { Location: `/api/collections/${collection.id}` } });
     }
 
     const { name, definition } = parseCurl(text);
     if (collectionId) {
+      if (collectionWorkspace(collectionId) !== workspaceId) return notFound(`collection "${collectionId}"`);
       const result = createRequest(collectionId, { name, definition });
       if (!result.ok) return notFound(`collection "${collectionId}"`);
       return Response.json(getCollection(collectionId), { status: 201, headers: { Location: `/api/requests/${result.request.id}` } });
     }
-    const collection = insertImported({
+    const collection = insertImported(workspaceId, {
       name: hostOf(definition.url) ?? "Imported cURL",
       folders: [],
       requests: [{ name, definition }],

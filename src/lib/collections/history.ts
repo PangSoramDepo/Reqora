@@ -2,10 +2,10 @@ import "server-only";
 
 import type { DatabaseSync } from "node:sqlite";
 import type { Environment } from "@/lib/workflows/schema";
-import { db } from "@/lib/workflows/store";
+import { addWorkspaceColumn, db } from "@/lib/workflows/store";
 import type { RequestMethod, ScriptReport, SendOutcome, SentRequest } from "./schema";
 
-/** How many sends are kept; older ones are pruned on insert. */
+/** How many sends each workspace keeps; older ones are pruned on insert. */
 const KEEP = 200;
 /** Response bodies above this are stored truncated (the console is for inspection, not archiving). */
 const MAX_BODY_CHARS = 256 * 1024;
@@ -66,6 +66,7 @@ function conn(): DatabaseSync {
     database.exec(`
       CREATE TABLE IF NOT EXISTS request_sends (
         id TEXT PRIMARY KEY,
+        workspace_id TEXT REFERENCES workspaces(id) ON DELETE CASCADE,
         request_id TEXT,
         collection_id TEXT,
         name TEXT NOT NULL,
@@ -89,12 +90,15 @@ function conn(): DatabaseSync {
     for (const column of ["request", "response"]) {
       if (!cols.has(column)) database.exec(`ALTER TABLE request_sends ADD COLUMN ${column} TEXT`);
     }
+    addWorkspaceColumn(database, "request_sends");
+    database.exec("CREATE INDEX IF NOT EXISTS sends_by_workspace ON request_sends (workspace_id, sent_at)");
     ready = true;
   }
   return database;
 }
 
 export type SendContext = {
+  workspaceId: string;
   requestId?: string | null;
   collectionId?: string | null;
   name: string;
@@ -137,12 +141,13 @@ export function recordSend(ctx: SendContext, outcome: SendOutcome): SendRecord {
   const database = conn();
   database
     .prepare(
-      `INSERT INTO request_sends (id, request_id, collection_id, name, method, url, environment, status, status_text, error,
+      `INSERT INTO request_sends (id, workspace_id, request_id, collection_id, name, method, url, environment, status, status_text, error,
          duration_ms, size, tests_passed, tests_total, scripts, request, response, sent_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       record.id,
+      ctx.workspaceId,
       record.requestId,
       record.collectionId,
       record.name,
@@ -162,20 +167,23 @@ export function recordSend(ctx: SendContext, outcome: SendOutcome): SendRecord {
       record.sentAt,
     );
   database
-    .prepare(`DELETE FROM request_sends WHERE id NOT IN (SELECT id FROM request_sends ORDER BY sent_at DESC LIMIT ?)`)
-    .run(KEEP);
+    .prepare(
+      `DELETE FROM request_sends WHERE workspace_id = ?
+         AND id NOT IN (SELECT id FROM request_sends WHERE workspace_id = ? ORDER BY sent_at DESC LIMIT ?)`,
+    )
+    .run(ctx.workspaceId, ctx.workspaceId, KEEP);
   return record;
 }
 
-/** Deletes the whole send log (the console's "Clear"). Returns how many entries were removed. */
-export function clearSends(): number {
-  return Number(conn().prepare("DELETE FROM request_sends").run().changes);
+/** Deletes a workspace's send log (the console's "Clear"). Returns how many entries were removed. */
+export function clearSends(workspaceId: string): number {
+  return Number(conn().prepare("DELETE FROM request_sends WHERE workspace_id = ?").run(workspaceId).changes);
 }
 
-export function listSends(limit = 25): SendRecord[] {
+export function listSends(workspaceId: string, limit = 25): SendRecord[] {
   const rows = conn()
-    .prepare("SELECT * FROM request_sends ORDER BY sent_at DESC, rowid DESC LIMIT ?")
-    .all(Math.min(Math.max(1, limit), 200)) as Row[];
+    .prepare("SELECT * FROM request_sends WHERE workspace_id = ? ORDER BY sent_at DESC, rowid DESC LIMIT ?")
+    .all(workspaceId, Math.min(Math.max(1, limit), 200)) as Row[];
   return rows.map((r) => ({
     id: r.id,
     requestId: r.request_id,

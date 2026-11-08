@@ -41,6 +41,11 @@ export type EngineDeps = {
    * omitted, script nodes fail the step.
    */
   runScript?: (code: string, context: { trigger: unknown; nodes: Record<string, unknown> }) => Promise<ScriptRun>;
+  /**
+   * Runs another flow for a Call Flow node and waits for it. When omitted, call nodes fail the step.
+   * `output` is what later nodes read as {{node-id.*}}.
+   */
+  callFlow?: (workflowId: string, body: unknown, nodeId: string) => Promise<LinkedResult>;
   /** Live progress: a node is about to run, or a step finished (including skipped ones). */
   onProgress?: (event: ProgressEvent) => void;
   now?: () => number;
@@ -263,6 +268,16 @@ async function runNode(
       const logs = ran.logs?.length ? { logs: ran.logs } : {};
       if ("error" in ran) throw new StepError(ran.error, logs);
       return { output: ran.output, ...logs };
+    }
+
+    case "call": {
+      if (!node.config.workflowId) throw new StepError("pick the flow to call");
+      if (!deps.callFlow) throw new StepError("calling flows is not available here");
+      // No body template: the called flow gets this run's trigger body.
+      const body = node.config.body?.trim() ? renderJson(node.config.body, ctx) : (ctx.trigger.body ?? null);
+      const called = await deps.callFlow(node.config.workflowId, body, node.id);
+      if (!called.ok) throw new StepError(called.error ?? "the called flow failed", { output: called.output });
+      return { output: called.output };
     }
 
     case "response":

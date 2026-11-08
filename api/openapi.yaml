@@ -40,6 +40,18 @@ info:
     **Authentication.** Every operation requires the `reqora_session` cookie from `POST /api/auth/login`
     (401 otherwise), except the ones marked `security: []`: the auth endpoints, the webhook entry point
     (callers are external systems) and the local demo upstreams.
+
+    **Workspaces.** Flows, runs, collections, environment variables, send history and load tests belong to a
+    workspace; members see only their workspaces. Listing and creating (`GET`/`POST /api/workflows`,
+    `/api/collections`, `/api/runs`, `/api/telemetry`, `/api/sends`, variables, imports, `/api/send`) work in the
+    *active* workspace: the `X-Reqora-Workspace` header when given (404 if you're not a member), else the one
+    chosen in the app (`POST /api/workspaces/{workspaceId}/select`, kept in the `reqora_workspace` cookie), else
+    your first workspace. Operations on one item by id work wherever the item is, if you're a member of its
+    workspace; otherwise they answer 404 as if it didn't exist. Roles: `viewer` reads only (writes, runs and
+    sends get 403), `editor` changes anything in the workspace, `owner` also manages members and renames or
+    deletes it. Cross-references stay inside a workspace: linked http nodes, Call Flow nodes, request moves and
+    inherited collection settings must point into the same workspace. Data from before workspaces lives in
+    the "Default" workspace, with the first account as owner and other accounts as editors.
 security:
   - sessionCookie: []
 servers:
@@ -75,6 +87,179 @@ paths:
               schema: { $ref: "#/components/schemas/User" }
         "400": { $ref: "#/components/responses/Problem" }
         "403": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /api/workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: Your workspaces and the active one
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, active]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Workspace" } }
+                  active: { type: string, description: Id of the active workspace }
+        "401": { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: createWorkspace
+      summary: Create a workspace you own, and make it the active one
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceInput" }
+      responses:
+        "201":
+          description: Created; sets the `reqora_workspace` cookie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "400": { $ref: "#/components/responses/Problem" }
+  /api/workspaces/{workspaceId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: getWorkspace
+      summary: A workspace you belong to
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "404": { $ref: "#/components/responses/Problem" }
+    patch:
+      operationId: renameWorkspace
+      summary: Rename a workspace (owners)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteWorkspace
+      summary: Delete a workspace and everything in it (owners)
+      description: Its flows, runs, deployments, load tests, collections, variables and send history are deleted. 409 when it's your only workspace.
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /api/workspaces/{workspaceId}/select:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    post:
+      operationId: selectWorkspace
+      summary: Make a workspace the active one in this browser
+      responses:
+        "200":
+          description: OK; sets the `reqora_workspace` cookie
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Workspace" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/workspaces/{workspaceId}/members:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: listMembers
+      summary: A workspace's members and their roles
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Member" } }
+        "404": { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: addMember
+      summary: Add someone by email (owners)
+      description: |
+        Someone without an account needs `name` and a first `password` (10+ characters), which creates their
+        account (422 without them); the owner shares the password and they change it after signing in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                role: { $ref: "#/components/schemas/Role" }
+                name: { type: string, maxLength: 120, description: For a new account }
+                password: { type: string, description: For a new account }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Member"
+                  - type: object
+                    required: [accountCreated]
+                    properties:
+                      accountCreated: { type: boolean }
+        "400": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+  /api/workspaces/{workspaceId}/members/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      operationId: setMemberRole
+      summary: Change a member's role (owners)
+      description: 409 when it would leave the workspace without an owner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { $ref: "#/components/schemas/Role" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Member" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: removeMember
+      summary: Remove a member (owners), or leave (your own user id)
+      description: 409 when it would leave the workspace without an owner.
+      responses:
+        "204": { description: Removed }
+        "403": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
   /api/auth/login:
     post:
@@ -1322,6 +1507,11 @@ components:
       in: cookie
       name: reqora_session
   parameters:
+    WorkspaceId:
+      name: workspaceId
+      in: path
+      required: true
+      schema: { type: string }
     Environment:
       name: environment
       in: path
@@ -1494,7 +1684,7 @@ components:
               startedAt: { type: string, format: date-time }
               durationMs: { type: number }
               environment: { $ref: "#/components/schemas/EnvironmentName" }
-              source: { type: string, enum: [manual, webhook] }
+              source: { type: string, enum: [manual, webhook, flow], description: "`flow`: started by another flow's Call Flow node" }
               executed: { type: integer }
               failedStep:
                 type: object
@@ -1637,6 +1827,33 @@ components:
         environment: { $ref: "#/components/schemas/EnvironmentName" }
         virtualUsers: { type: integer }
         p95Ms: { type: [number, "null"] }
+    Role:
+      type: string
+      enum: [owner, editor, viewer]
+      default: editor
+    WorkspaceInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+    Workspace:
+      type: object
+      required: [id, name, createdAt, role, memberCount]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        createdAt: { type: string, format: date-time }
+        role: { $ref: "#/components/schemas/Role" }
+        memberCount: { type: integer }
+    Member:
+      type: object
+      required: [userId, name, email, role, addedAt]
+      properties:
+        userId: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: "#/components/schemas/Role" }
+        addedAt: { type: string, format: date-time }
     User:
       type: object
       required: [id, email, name]
@@ -1817,6 +2034,25 @@ components:
               required: [code]
               properties:
                 code: { type: string, maxLength: 20000 }
+    CallNode:
+      description: >-
+        Runs another flow in the same workspace and environment, and waits for it. The called flow's deployed
+        (live) version runs, or its draft when it was never deployed. When the caller is stored, the called run is
+        stored too (trigger source `flow`, `calledBy` set). Output: `runId` (absent in load tests), `workflowId`,
+        `workflowName`, `version`, `live`, and the called flow's Response node `status` and `body` (null without one).
+        The step fails when the called flow fails. Flows may call flows up to 5 levels deep; loops fail.
+      allOf:
+        - $ref: "#/components/schemas/NodeBase"
+        - type: object
+          required: [type, config]
+          properties:
+            type: { const: call }
+            config:
+              type: object
+              required: [workflowId]
+              properties:
+                workflowId: { type: string, maxLength: 100, description: The flow to call; empty while being edited (runs fail) }
+                body: { type: string, description: "JSON template sent as the called flow's trigger body; absent or empty sends this run's trigger body" }
     ResponseNode:
       description: Terminal. Sets the run's `output` (and the webhook HTTP response). No output ports.
       allOf:
@@ -1839,6 +2075,7 @@ components:
         - $ref: "#/components/schemas/TransformNode"
         - $ref: "#/components/schemas/DelayNode"
         - $ref: "#/components/schemas/ScriptNode"
+        - $ref: "#/components/schemas/CallNode"
         - $ref: "#/components/schemas/ResponseNode"
       discriminator:
         propertyName: type
@@ -1868,9 +2105,10 @@ components:
       allOf:
         - $ref: "#/components/schemas/WorkflowInput"
         - type: object
-          required: [id, version, createdAt, updatedAt]
+          required: [id, workspaceId, version, createdAt, updatedAt]
           properties:
             id: { type: string }
+            workspaceId: { type: string }
             version: { type: integer }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
@@ -1999,7 +2237,7 @@ components:
         trigger:
           type: object
           properties:
-            source: { type: string, enum: [manual, webhook] }
+            source: { type: string, enum: [manual, webhook, flow], description: "`flow`: started by another flow's Call Flow node" }
             body: {}
             headers: { type: object, additionalProperties: { type: string } }
         startedAt: { type: string, format: date-time }
@@ -2016,6 +2254,14 @@ components:
             body: {}
         error: { type: string }
         replayOf: { type: string, description: Id of the run this one replayed }
+        calledBy:
+          description: Set when another flow's Call Flow node started this run
+          type: object
+          required: [runId, workflowId, nodeId]
+          properties:
+            runId: { type: string }
+            workflowId: { type: string }
+            nodeId: { type: string }
     CollectionInput:
       type: object
       required: [name]

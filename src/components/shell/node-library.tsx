@@ -13,6 +13,7 @@ const CORE_BLOCKS: { type: NodeType; icon: string; label: string; tag: string; t
   { type: "condition", icon: "call_split", label: "Condition/Filter", tag: "FLOW", tone: "text-primary-fixed" },
   { type: "delay", icon: "hourglass_top", label: "Delay / Sleep", tag: "WAIT", tone: "text-outline" },
   { type: "script", icon: "code", label: "Script", tag: "JS", tone: "text-tertiary-fixed-dim" },
+  { type: "call", icon: "account_tree", label: "Call Flow", tag: "SUB", tone: "text-secondary-fixed-dim" },
   { type: "response", icon: "output_circle", label: "Response / Output", tag: "EXIT", tone: "text-primary-container" },
 ];
 

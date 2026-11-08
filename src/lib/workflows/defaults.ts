@@ -7,6 +7,7 @@ const NAMES: Record<NodeType, string> = {
   transform: "Data Mapping",
   delay: "Delay",
   script: "Script",
+  call: "Call Flow",
   response: "Response",
 };
 
@@ -37,6 +38,8 @@ export function newNode(type: NodeType, position: { x: number; y: number }, take
       return { ...base, type, config: { ms: 1000 } };
     case "script":
       return { ...base, type, config: { code: SCRIPT_TEMPLATE } };
+    case "call":
+      return { ...base, type, config: { workflowId: "", body: "{{trigger.body}}" } };
     case "response":
       return { ...base, type, config: { status: 200, body: '{ "ok": true }' } };
   }

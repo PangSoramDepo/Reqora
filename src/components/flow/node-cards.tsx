@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon";
+import { useFlowName } from "./call-flow-editor";
 import type { NodeType, Step, WorkflowNode } from "@/lib/workflows/schema";
 
 type TypeStyle = { icon: string; tag: string; bar: string; text: string; dot: string; minimap: string };
@@ -12,6 +13,7 @@ export const TYPE_STYLE: Record<NodeType, TypeStyle> = {
   transform: { icon: "transform", tag: "TRANS", bar: "bg-tertiary", text: "text-tertiary", dot: "bg-tertiary", minimap: "bg-tertiary" },
   delay: { icon: "hourglass_top", tag: "WAIT", bar: "bg-outline", text: "text-outline", dot: "bg-outline", minimap: "bg-outline" },
   script: { icon: "code", tag: "JS", bar: "bg-tertiary-fixed-dim", text: "text-tertiary-fixed-dim", dot: "bg-tertiary-fixed-dim", minimap: "bg-tertiary-fixed-dim" },
+  call: { icon: "account_tree", tag: "SUB", bar: "bg-secondary-container", text: "text-secondary", dot: "bg-secondary", minimap: "bg-secondary-container" },
   response: { icon: "output_circle", tag: "EXIT", bar: "bg-error", text: "text-error", dot: "bg-error", minimap: "bg-error" },
 };
 
@@ -165,6 +167,32 @@ function HttpBody({ node, step }: { node: Extract<WorkflowNode, { type: "http" }
   );
 }
 
+function CallBody({ node, step }: { node: Extract<WorkflowNode, { type: "call" }>; step?: Step }) {
+  const name = useFlowName(node.config.workflowId);
+  const output = step?.output as { status?: number | null; live?: boolean; version?: number } | undefined;
+  return (
+    <SimpleBody node={node}>
+      <div className={`flex items-center gap-space-xs ${INSET} min-w-0`} data-testid="call-card-target">
+        <Icon name="subdirectory_arrow_right" className="text-secondary text-body-md shrink-0" />
+        <span className={`truncate ${node.config.workflowId ? "text-on-surface" : "text-outline italic"}`}>
+          {node.config.workflowId ? (name ?? node.config.workflowId) : "No flow chosen"}
+        </span>
+      </div>
+      {step && step.status !== "skipped" && (
+        <div className={`flex items-center justify-between ${INSET}`}>
+          <div className="flex items-center gap-space-xxs min-w-0">
+            <span className={`w-2 h-2 shrink-0 rounded-full ${step.status === "failed" ? "bg-error" : "bg-primary"}`} />
+            <span className="font-label-sm text-label-sm text-on-surface font-semibold truncate" title={step.error}>
+              {step.status === "failed" ? step.error : output?.status != null ? `→ ${output.status}` : "finished"}
+            </span>
+          </div>
+          {output?.version && <span className="font-mono text-outline text-body-sm">{output.live ? "live" : "draft"} v{output.version}</span>}
+        </div>
+      )}
+    </SimpleBody>
+  );
+}
+
 function ConditionBody({ node, step }: { node: Extract<WorkflowNode, { type: "condition" }>; step?: Step }) {
   const { left, operator, right } = node.config;
   return (
@@ -249,6 +277,8 @@ function NodeBody({ node, step }: { node: WorkflowNode; step?: Step }) {
         </SimpleBody>
       );
     }
+    case "call":
+      return <CallBody node={node} step={step} />;
     case "response":
       return (
         <SimpleBody node={node}>
