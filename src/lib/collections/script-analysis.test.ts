@@ -25,6 +25,12 @@ describe("lintScript", () => {
     expect(d.from).toBeLessThanOrEqual(code.indexOf("\n"));
   });
 
+  it("knows rq.user (test users): no warnings for saving a login token", () => {
+    const script = ['rq.user.set("access_token", rq.response.json().access_token);', 'const id = rq.user.get("login_id");', "console.log(rq.user.name, rq.user.role, id);"].join("\n");
+    expect(lint(script, "post")).toEqual([]);
+    expect(lint("rq.user.sett('x', 1);", "post")[0].message).toBe('Property "sett" does not exist on rq.user. Did you mean "set"?');
+  });
+
   it("flags unknown rq members with a suggestion", () => {
     const code = 'rq.enviroment.set("a", "1");';
     expect(lint(code)).toEqual([
@@ -74,7 +80,8 @@ describe("lintScript", () => {
 
 describe("completeScript", () => {
   it("completes rq members after a dot, and narrows by what's typed", () => {
-    expect(labels("rq.")).toEqual(["request", "response", "variables", "environment", "test", "expect"]);
+    expect(labels("rq.")).toEqual(["request", "response", "variables", "environment", "user", "test", "expect"]);
+    expect(labels("rq.user.")).toEqual(["name", "roles", "role", "get", "set", "unset", "has"]);
     const partial = complete("rq.env");
     expect(partial?.from).toBe(3);
     expect(partial?.options.map((o) => o.label)).toContain("environment");

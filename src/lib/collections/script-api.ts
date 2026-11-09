@@ -115,6 +115,26 @@ export const SCRIPT_API: ApiMember[] = [
           method("replaceIn", "(text: string): string", "Replaces {{NAME}} and {{env.NAME}} with environment values (and {{vars.NAME}} with rq.variables)."),
         ],
       }),
+      prop(
+        "user",
+        "object",
+        "The test user this request is sent as (Run as / Send as): their values ({{user.NAME}}). Saving here is how a login request keeps a user's tokens.",
+        {
+          members: [
+            prop("name", "string", "The user's name, e.g. \"maker01\"."),
+            prop("roles", "string[]", "The user's role tags, e.g. [\"maker\"]."),
+            prop("role", "string", "The flow role they play in this step (\"user\" outside a flow)."),
+            method("get", "(name: string): string | undefined", "Reads one of the user's values, e.g. rq.user.get(\"login_id\"). Write the name as a string literal."),
+            method(
+              "set",
+              "(name: string, value: any): void",
+              "Saves a value to the user right away, e.g. rq.user.set(\"access_token\", rq.response.json().access_token). New names become columns on the Test Users page.",
+            ),
+            method("unset", "(name: string): void", "Clears one of the user's values."),
+            method("has", "(name: string): boolean", "Whether the user has a value for the name."),
+          ],
+        },
+      ),
       method("test", "(name: string, fn: () => void): void", "A named test. It fails if fn throws (e.g. a failed rq.expect)."),
       method("expect", "(actual: any): Matchers", "Assertion: rq.expect(value).toBe(expected).", { members: MATCHERS }),
     ],
