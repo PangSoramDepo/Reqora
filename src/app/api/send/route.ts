@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   const { workspaceId } = access;
   const parsed = await parseBody(request, sendInputSchema);
   if ("error" in parsed) return parsed.error;
-  const { definition, environment, collectionId, folderId, requestId, userId, name = "request" } = parsed.data;
+  const { definition, environment, collectionId, folderId, requestId, userId, debug, name = "request" } = parsed.data;
   // Inherit only from a collection of the same workspace.
   if (collectionId && collectionWorkspace(collectionId) !== workspaceId) return notFound(`collection "${collectionId}"`);
   // Like Postman, the response panel and the Live Execution Console show real values (the sender chose the
@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       environment,
       baseUrl: request.nextUrl.origin,
       ...(user ? { user } : {}),
+      ...(debug ? { debug } : {}),
       onUnscrubbed: (outcome) => {
         raw = outcome;
         recordSend({ workspaceId, requestId, collectionId, name, method: definition.method, url: definition.url, environment }, outcome);

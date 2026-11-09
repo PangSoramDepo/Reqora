@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
+import { breakpointKey } from "@/lib/collections/breakpoints";
 import { folderChain, subtreeIds } from "@/lib/collections/folders";
 import { scriptVariables } from "@/lib/collections/script-vars";
 import { collectionsSuggestData, SuggestDataProvider } from "@/components/flow/suggest-menu";
@@ -164,6 +165,7 @@ export function ScopeSettingsPanel({ collection, folder, settings, update, dirty
             onValue={(code) => update((s) => (tab === "pre" ? { ...s, preScript: code } : { ...s, postScript: code }))}
             self={`this ${kind}`}
             envNames={variableNames}
+            breakpointKey={breakpointKey(kind, folder ? folder.name : collection.name, tab)}
             inherited={inherited ? (tab === "pre" ? inherited.pre : inherited.post) : []}
           />
         )}

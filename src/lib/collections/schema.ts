@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { environmentSchema } from "@/lib/workflows/schema";
+import type { ScriptDebug } from "./script-debug";
 
 // Keep in sync with api/openapi.yaml (RequestDefinition, Assertion, SendResult…).
 
@@ -160,6 +161,8 @@ export const sendInputSchema = z.object({
   name: z.string().trim().min(1).max(200).optional(),
   /** Send as this test user (id or name): {{user.*}} and rq.user are theirs. */
   userId: z.string().min(1).max(100).optional(),
+  /** Record the scripts' runs for stepping through (Debug). */
+  debug: z.boolean().optional(),
 });
 
 /** Convert a request into a workflow http node config, saved (requestId) or unsaved (definition + location). */
@@ -195,6 +198,8 @@ export type ScriptReport = {
   environment?: Record<string, string | null>;
   /** Test-user changes from rq.user.set / unset (null = unset), saved to the user the request was sent as. */
   user?: Record<string, string | null>;
+  /** Debug sends: each script's recorded run, to step through (not kept in the send history). */
+  debug?: ScriptDebug[];
 };
 
 /** The request exactly as it went on the wire (after scripts, templates and auth). Scrubbed in API responses; real values in the send history. */

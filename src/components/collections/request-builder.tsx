@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { NumberField } from "@/components/number-field";
 import { beautifyJson } from "@/lib/collections/beautify";
+import { breakpointKey } from "@/lib/collections/breakpoints";
 import { folderChain, flattenTree, folderPath } from "@/lib/collections/folders";
 import { scriptVariables } from "@/lib/collections/script-vars";
 import { collectionsSuggestData, SuggestDataProvider } from "@/components/flow/suggest-menu";
@@ -48,6 +49,8 @@ type Props = {
   sending: boolean;
   onSave: () => void;
   onSend: () => void;
+  /** Sends with the scripts recorded, for the debugger. */
+  onDebug: () => void;
   /** Opens a collection's or folder's settings (from "inherited from …" links). */
   onOpenScope: (source: InheritSource) => void;
   /** Show "Add to Flow Canvas" (off when editing from the canvas itself). */
@@ -125,6 +128,7 @@ export function RequestBuilder({
   sending,
   onSave,
   onSend,
+  onDebug,
   onOpenScope,
   showAddToFlow = true,
 }: Props) {
@@ -330,6 +334,17 @@ export function RequestBuilder({
             <Icon name={sending ? "progress_activity" : "send"} className={`text-body-md ${sending ? "animate-spin" : ""}`} />
             <span>{sending ? "Sending" : "Send"}</span>
           </button>
+          <button
+            type="button"
+            disabled={sending}
+            onClick={onDebug}
+            data-testid="debug-send"
+            title="Send and record the pre-request and post-response scripts, to step through them line by line (breakpoints: click left of a line number in a script)"
+            className="flex items-center gap-1 px-space-sm py-2 rounded bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-label-md text-label-md disabled:opacity-70"
+          >
+            <Icon name="bug_report" className="text-body-md" />
+            <span className="hidden md:inline">Debug</span>
+          </button>
         </form>
       </div>
 
@@ -423,6 +438,7 @@ export function RequestBuilder({
             onValue={(code) => setDef((d) => (tab === "pre" ? { ...d, preScript: code } : { ...d, postScript: code }))}
             self="this request"
             envNames={variableNames}
+            breakpointKey={breakpointKey("request", draft.name.trim() || "request", tab)}
             inherited={tab === "pre" ? inherited.pre : inherited.post}
           />
         )}

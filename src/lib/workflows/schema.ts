@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ScriptDebug } from "@/lib/collections/script-debug";
 
 // Keep in sync with api/openapi.yaml.
 
@@ -185,6 +186,8 @@ export const runInputSchema = z.object({
   environment: environmentSchema.default("production"),
   /** Test user per role (id or name); roles left out get the first user with that role tag. */
   users: z.record(roleName, z.string().min(1).max(100)).optional(),
+  /** Record the run's scripts (each step's `debug`) for stepping through. */
+  debug: z.boolean().optional(),
   trigger: z
     .object({
       body: z.unknown().optional(),
@@ -293,6 +296,8 @@ export type Step = {
   logs?: string[];
   /** The test user this step acted as. */
   actor?: StepActor;
+  /** Debug runs: the step's scripts' recorded runs (Script node, linked request scripts, "repeat until" script). */
+  debug?: ScriptDebug[];
 };
 export type StepActor = { role: string; user: string };
 export type RepeatCheck = { attempt: number; met: boolean; logs?: string[]; error?: string };

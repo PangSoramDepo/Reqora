@@ -4,6 +4,7 @@ import { capStepBody, type Environment, type StepRequest, type Workflow, type Wo
 import type { UserHandle } from "@/lib/users/schema";
 import type { TemplateContext } from "@/lib/workflows/template";
 import type { SendOutcome } from "./schema";
+import type { ScriptDebug } from "./script-debug";
 import { describeAssertion } from "./assertions";
 import { resolveEffective } from "./inherit";
 import { sendRequest } from "./send";
@@ -37,6 +38,8 @@ export type LinkedStep = {
   ok: boolean;
   error?: string;
   request?: StepRequest;
+  /** Debug runs: the request's scripts' recorded runs. */
+  debug?: ScriptDebug[];
   output?: {
     status: number;
     headers: Record<string, string>;
@@ -65,6 +68,8 @@ export async function sendLinkedRequest(
     fetch?: typeof fetch;
     /** The test user the step acts as. */
     user?: UserHandle;
+    /** Record the request's scripts' runs for stepping through. */
+    debug?: boolean;
   },
 ): Promise<LinkedStep> {
   const saved = getRequest(requestId);
@@ -83,6 +88,7 @@ export async function sendLinkedRequest(
       variables: options.variables,
       context: options.context,
       ...(options.user ? { user: options.user } : {}),
+      ...(options.debug ? { debug: true } : {}),
       onUnscrubbed: (outcome) => {
         raw = outcome;
       },
@@ -101,7 +107,8 @@ export async function sendLinkedRequest(
     ...(sent.form ? { form: sent.form } : {}),
     ...(sent.file ? { file: sent.file } : {}),
   };
-  if ("error" in outcome) return { ok: false, error: outcome.error, request };
+  const debug = outcome.scripts?.debug?.length ? { debug: outcome.scripts.debug } : {};
+  if ("error" in outcome) return { ok: false, error: outcome.error, request, ...debug };
 
   const tests = [
     ...outcome.assertions.map((a) => ({ name: describeAssertion(a.assertion), passed: a.passed, ...(a.passed ? {} : { error: `got ${a.actual ?? "nothing"}` }) })),
@@ -126,7 +133,7 @@ export async function sendLinkedRequest(
       : outcome.status >= 400
         ? `upstream responded ${outcome.status}`
         : undefined;
-  return error ? { ok: false, error, request, output } : { ok: true, request, output };
+  return error ? { ok: false, error, request, output, ...debug } : { ok: true, request, output, ...debug };
 }
 
 /**

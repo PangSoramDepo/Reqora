@@ -50,6 +50,8 @@ type RunOptions = {
   callers?: string[];
   /** Test user per role (id or name); roles left out are filled in automatically. */
   users?: Record<string, string>;
+  /** Record the run's scripts on each step (`debug`) for stepping through. */
+  debug?: boolean;
 };
 
 type ExecuteOptions = {
@@ -68,6 +70,8 @@ type ExecuteOptions = {
   runId?: string;
   /** Test user per role (id or name); roles left out are filled in automatically. */
   users?: Record<string, string>;
+  /** Record the run's scripts on each step (`debug`). */
+  debug?: boolean;
 };
 
 /** What a Call Flow node outputs: {{call-1.body.x}}, {{call-1.status}}, {{call-1.runId}}… */
@@ -92,7 +96,7 @@ export type CallOutput = {
 async function execute(
   workflow: Pick<Workflow, "id" | "workspaceId" | "nodes" | "edges" | "roles">,
   trigger: RunTrigger,
-  { baseUrl, environment, onProgress, fetch: doFetch = outboundFetch(baseUrl), callers = [], runId, users }: ExecuteOptions,
+  { baseUrl, environment, onProgress, fetch: doFetch = outboundFetch(baseUrl), callers = [], runId, users, debug = false }: ExecuteOptions,
 ): Promise<{ result: ExecutionResult & { users?: Record<string, string> }; secrets: string[] }> {
   const resolved = new Set<string>();
   // Who plays each role in this run (test users), and the handles nodes act through.
@@ -120,9 +124,9 @@ async function execute(
     fetch: doFetch,
     env,
     checkCondition: (code, output, user) =>
-      checkConditionScript(code, output, { readEnv: env, variables, user: user && scriptUser(user), readUser: user?.get }),
+      checkConditionScript(code, output, { readEnv: env, variables, user: user && scriptUser(user), readUser: user?.get, debug }),
     runScript: async (code, context, user) => {
-      const ran = await runNodeScript(code, context, { readEnv: env, variables, user: user && scriptUser(user), readUser: user?.get });
+      const ran = await runNodeScript(code, context, { readEnv: env, variables, user: user && scriptUser(user), readUser: user?.get, debug });
       // rq.user.set / unset are saved to the acting test user.
       for (const [name, value] of Object.entries(ran.user ?? {})) {
         try {
@@ -144,7 +148,7 @@ async function execute(
     },
     baseUrl,
     sendLinked: (requestId, context, user) =>
-      sendLinkedRequest(requestId, { workspaceId: workflow.workspaceId, environment, baseUrl, variables, context, fetch: doFetch, user }),
+      sendLinkedRequest(requestId, { workspaceId: workflow.workspaceId, environment, baseUrl, variables, context, fetch: doFetch, user, debug }),
     userFor: (node) => handles.get(roleOf(node))!,
     beforeNode: async (node, user) => {
       if (needsSession(node)) await ensureSession(scope, user, net);
@@ -178,11 +182,12 @@ async function execute(
           calledBy: { runId, workflowId: workflow.id, nodeId },
           callers: chain,
           users: sameRoles,
+          debug,
         });
         called = stored.run;
         childSecrets = stored.secrets;
       } else {
-        ({ result: called, secrets: childSecrets } = await execute(target, child, { baseUrl, environment, fetch: doFetch, callers: chain, users: sameRoles }));
+        ({ result: called, secrets: childSecrets } = await execute(target, child, { baseUrl, environment, fetch: doFetch, callers: chain, users: sameRoles, debug }));
       }
       for (const secret of childSecrets) resolved.add(secret);
 
@@ -222,11 +227,11 @@ export async function executeScrubbed(
 export async function runWorkflow(
   workflow: Workflow,
   trigger: RunTrigger,
-  { baseUrl, environment, replayOf, onProgress, calledBy, callers, users }: RunOptions,
+  { baseUrl, environment, replayOf, onProgress, calledBy, callers, users, debug }: RunOptions,
 ): Promise<{ run: Run; secrets: string[] }> {
   // The id comes first so flows this run calls can point back at it.
   const id = `run_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
-  const { result, secrets } = await execute(workflow, trigger, { baseUrl, environment, onProgress, callers, runId: id, users });
+  const { result, secrets } = await execute(workflow, trigger, { baseUrl, environment, onProgress, callers, runId: id, users, debug });
   const run: Run = {
     id,
     workflowId: workflow.id,

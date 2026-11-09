@@ -73,10 +73,12 @@ type Props = {
   inherited: { scope: Scope; name: string; code: string }[];
   /** Variable names in the selected environment, suggested inside rq.environment.get("…"). */
   envNames?: string[];
+  /** Where this script's breakpoints are kept (breakpointKey(scope, name, phase)), for Debug. */
+  breakpointKey?: string | null;
 };
 
 /** Code editor for a pre-request / post-response script, with snippets, an API reference and the run order. */
-export function ScriptEditor({ phase, value, onValue, self, inherited, envNames }: Props) {
+export function ScriptEditor({ phase, value, onValue, self, inherited, envNames, breakpointKey }: Props) {
   const editor = useRef<ScriptCodeEditorHandle>(null);
   const [showApi, setShowApi] = useState(false);
 
@@ -104,6 +106,7 @@ export function ScriptEditor({ phase, value, onValue, self, inherited, envNames 
             handle={editor}
             phase={phase}
             envNames={envNames}
+            breakpointKey={breakpointKey}
             label={PHASE_LABEL[phase]}
             value={value}
             onValue={onValue}
@@ -131,6 +134,7 @@ export function ScriptEditor({ phase, value, onValue, self, inherited, envNames 
               ))}
               <p className="text-outline mt-1">
                 Sandboxed: no network or timers, 1 s and 32 MB per script. Collection → folder → request scripts run in order.
+                Debug (next to Send) records the scripts so you can step through them; click left of a line number to set a breakpoint.
               </p>
             </dl>
           ) : (

@@ -133,7 +133,8 @@ export function recordSend(ctx: SendContext, outcome: SendOutcome): SendRecord {
     durationMs: outcome.durationMs,
     size: ok ? outcome.size : null,
     tests: { passed, total },
-    scripts: outcome.scripts ?? null,
+    // Debug recordings are for the response panel only.
+    scripts: outcome.scripts ? { ...outcome.scripts, debug: undefined } : null,
     request: outcome.request ?? null,
     response,
     sentAt: new Date().toISOString(),

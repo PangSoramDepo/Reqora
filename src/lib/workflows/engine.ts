@@ -2,13 +2,14 @@ import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import { topologicalOrder } from "./graph";
 import type { UserHandle } from "@/lib/users/schema";
 import { capStepBody, type RepeatCheck, type RunStatus, type RunTrigger, type Step, type StepRequest, type Workflow, type WorkflowNode } from "./schema";
+import type { ScriptDebug } from "@/lib/collections/script-debug";
 import { TemplateError, looseEquals, renderJson, renderString, renderValue, type TemplateContext } from "./template";
 
 const MAX_RESPONSE_BYTES = 1_000_000;
 
 type HttpConfig = Extract<WorkflowNode, { type: "http" }>["config"];
 
-export type LinkedResult = { ok: boolean; error?: string; request?: Step["request"]; output?: unknown };
+export type LinkedResult = { ok: boolean; error?: string; request?: Step["request"]; output?: unknown; debug?: ScriptDebug[] };
 export type ProgressEvent =
   | { type: "node"; nodeId: string }
   | { type: "step"; step: Step }
@@ -18,8 +19,8 @@ export type ProgressEvent =
 /** Most recent "repeat until" checks kept on a step. */
 const MAX_CHECKS = 20;
 const SCRIPTS_UNAVAILABLE = '"repeat until" scripts are not available here';
-type ConditionCheck = ({ met: true } | { met: false } | { error: string }) & { logs?: string[] };
-type ScriptRun = ({ output: unknown } | { error: string }) & { logs?: string[] };
+type ConditionCheck = ({ met: true } | { met: false } | { error: string }) & { logs?: string[]; debug?: ScriptDebug[] };
+type ScriptRun = ({ output: unknown } | { error: string }) & { logs?: string[]; debug?: ScriptDebug[] };
 
 export type EngineDeps = {
   fetch: typeof fetch;
@@ -79,6 +80,7 @@ type NodeResult = {
   attempts?: number;
   checks?: RepeatCheck[];
   logs?: string[];
+  debug?: ScriptDebug[];
 };
 
 class StepError extends Error {
@@ -178,6 +180,7 @@ export async function executeWorkflow(
         ...(result.attempts ? { attempts: result.attempts } : {}),
         ...(result.checks?.length ? { checks: result.checks } : {}),
         ...(result.logs?.length ? { logs: result.logs } : {}),
+        ...(result.debug?.length ? { debug: result.debug } : {}),
       });
     } catch (error) {
       failure = `${node.name}: ${(error as Error).message}`;
@@ -213,8 +216,9 @@ async function runNode(
       const sendOnce = async (): Promise<NodeResult> => {
         if (!node.config.requestId || !deps.sendLinked) return runHttp(node.config, ctx, deps);
         const linked = await deps.sendLinked(node.config.requestId, { trigger: ctx.trigger, nodes: ctx.nodes }, user);
-        if (!linked.ok) throw new StepError(linked.error ?? "linked request failed", { request: linked.request, output: linked.output });
-        return { output: linked.output, request: linked.request };
+        const debug = linked.debug?.length ? { debug: linked.debug } : {};
+        if (!linked.ok) throw new StepError(linked.error ?? "linked request failed", { request: linked.request, output: linked.output, ...debug });
+        return { output: linked.output, request: linked.request, ...debug };
       };
       // A 401 while acting as a user: log them in again once, then retry (an expired token).
       const send = async (): Promise<NodeResult> => {
@@ -234,7 +238,12 @@ async function runNode(
       }
       // One entry per check, so a run shows why it kept waiting (script logs, the value compared, errors).
       const checks: RepeatCheck[] = [];
-      const done = (partial: NodeResult, attempt: number): NodeResult => ({ ...partial, attempts: attempt, checks: checks.slice(-MAX_CHECKS) });
+      // Debug runs: the request's scripts plus the latest condition check's script.
+      let checkDebug: ScriptDebug[] = [];
+      const done = (partial: NodeResult, attempt: number): NodeResult => {
+        const debug = [...(partial.debug ?? []), ...checkDebug];
+        return { ...partial, attempts: attempt, checks: checks.slice(-MAX_CHECKS), ...(debug.length ? { debug } : {}) };
+      };
       for (let attempt = 1; ; attempt++) {
         let result: NodeResult;
         try {
@@ -250,6 +259,7 @@ async function runNode(
         if (isScript) {
           if (!deps.checkCondition) throw new StepError(SCRIPTS_UNAVAILABLE, done(result, attempt));
           const checked = await deps.checkCondition(repeat.script!, result.output, user);
+          checkDebug = checked.debug ?? [];
           const logs = checked.logs?.length ? { logs: checked.logs } : {};
           if ("error" in checked) {
             checks.push({ attempt, met: false, error: checked.error, ...logs });
@@ -304,7 +314,7 @@ async function runNode(
       if (!node.config.code.trim()) throw new StepError("the script is empty");
       if (!deps.runScript) throw new StepError("script nodes are not available here");
       const ran = await deps.runScript(node.config.code, { trigger: ctx.trigger, nodes: { ...ctx.nodes } }, user);
-      const logs = ran.logs?.length ? { logs: ran.logs } : {};
+      const logs = { ...(ran.logs?.length ? { logs: ran.logs } : {}), ...(ran.debug?.length ? { debug: ran.debug } : {}) };
       if ("error" in ran) throw new StepError(ran.error, logs);
       return { output: ran.output, ...logs };
     }

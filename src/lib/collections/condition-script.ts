@@ -1,7 +1,8 @@
+import type { ScriptDebug } from "./script-debug";
 import { runScripts, type ScriptLog, type ScriptResponse, type ScriptUser } from "./scripts";
 
 /** `logs`: the script's console output for this check. */
-export type ConditionResult = ({ met: true } | { met: false } | { error: string }) & { logs?: string[] };
+export type ConditionResult = ({ met: true } | { met: false } | { error: string }) & { logs?: string[]; debug?: ScriptDebug[] };
 
 const TEST_NAME = "__repeat_until__";
 const MAX_LOG_LINES = 20;
@@ -23,8 +24,16 @@ export function logLines(logs: Pick<ScriptLog, "level" | "message">[]): string[]
  * `return` statement is used as a function body. `response.body` is the parsed JSON (or text).
  */
 export function wrapCondition(code: string): string {
+  return wrapConditionBody(conditionBody(code));
+}
+
+/** The condition as a function body: a plain expression becomes `return (…)`, on the same lines. */
+function conditionBody(code: string): string {
   const trimmed = code.trim().replace(/;+\s*$/, "");
-  const body = /(^|[^\w$.])return\b/.test(trimmed) ? trimmed : `return (${trimmed}\n);`;
+  return /(^|[^\w$.])return\b/.test(trimmed) ? trimmed : `return (${trimmed}\n);`;
+}
+
+function wrapConditionBody(body: string): string {
   // The wrapper's prefix is one line (WRAPPER_LINES), so errors report the condition's own line numbers.
   return `const response = { status: rq.response.status, headers: rq.response.headers, body: (() => { try { return rq.response.json(); } catch (e) { return rq.response.text(); } })() }; const __met = await (async function () {
 ${body}
@@ -44,9 +53,12 @@ export async function checkConditionScript(
     variables = {},
     user,
     readUser,
+    debug = false,
   }: {
     readEnv: (name: string) => string | undefined;
     variables?: Record<string, string>;
+    /** Record the script's run for stepping through. */
+    debug?: boolean;
     /** The acting test user (read-only here: rq.user.set changes aren't saved by a condition). */
     user?: ScriptUser | null;
     readUser?: (name: string) => string | undefined;
@@ -61,17 +73,20 @@ export async function checkConditionScript(
     body: typeof out.body === "string" ? out.body : JSON.stringify(out.body ?? null),
     responseTime: out.durationMs ?? 0,
   };
-  const { state, errors } = await runScripts({
+  const { state, errors, debug: traces } = await runScripts({
     phase: "post",
+    debug,
     readEnv,
     user,
     readUser,
     response,
     state: { request: { method: "GET", url: "", params: [], headers: {} }, variables: { ...variables }, logs: [], tests: [], environment: {} },
-    scripts: [{ scope: "request", name: "repeat until", code: wrapCondition(code), lineOffset: WRAPPER_LINES }],
+    scripts: [
+      { scope: "request", name: "repeat until", code: conditionBody(code), wrap: wrapConditionBody, lineOffset: WRAPPER_LINES, locals: ["response"], shown: code.trim() },
+    ],
   });
   const lines = logLines(state.logs);
-  const logs = lines.length ? { logs: lines } : {};
+  const logs = { ...(lines.length ? { logs: lines } : {}), ...(traces?.length ? { debug: traces } : {}) };
   if (errors.length) return { error: `"repeat until" script failed: ${errors[0].message}`, ...logs };
   const test = state.tests.find((t) => t.name === TEST_NAME);
   if (!test) return { error: '"repeat until" script did not run', ...logs };

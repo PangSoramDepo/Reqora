@@ -6,12 +6,14 @@ import { indentWithTab } from "@codemirror/commands";
 import { javascript, javascriptLanguage, scopeCompletionSource } from "@codemirror/lang-javascript";
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { forEachDiagnostic, linter, lintGutter } from "@codemirror/lint";
-import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState, Prec } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import { Icon } from "@/components/icon";
+import { setBreakpoints, useBreakpoints } from "@/lib/collections/breakpoints";
 import { completeScript, hoverScript, lintScript } from "@/lib/collections/script-analysis";
+import { breakpointGutter, syncBreakpoints } from "./breakpoint-gutter";
 import { SANDBOX_GLOBALS, type ScriptPhase } from "@/lib/collections/script-api";
 
 export type ScriptCodeEditorHandle = {
@@ -30,6 +32,8 @@ type Props = {
   handle?: Ref<ScriptCodeEditorHandle>;
   /** Wrap long lines (narrow panels). */
   wrap?: boolean;
+  /** Where this script's breakpoints are kept (see breakpoints.ts); without it there is no breakpoint gutter. */
+  breakpointKey?: string | null;
 };
 
 type Problems = { errors: number; warnings: number; first: { line: number; message: string; from: number } | null };
@@ -124,14 +128,15 @@ function problemsOf(state: EditorState): Problems {
  * CodeMirror editor for pre-request / post-response scripts: JavaScript highlighting, autocompletion for
  * the rq API (with docs), live lint (syntax errors, unknown rq members, sandbox pitfalls) and hover docs.
  */
-export function ScriptCodeEditor({ value, onValue, phase, label, placeholder, envNames = [], handle, wrap = false }: Props) {
+export function ScriptCodeEditor({ value, onValue, phase, label, placeholder, envNames = [], handle, wrap = false, breakpointKey = null }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
-  const latest = useRef({ onValue, envNames });
+  const [breakpoints] = useBreakpoints(breakpointKey);
+  const latest = useRef({ onValue, envNames, breakpointKey, breakpoints });
   const [problems, setProblems] = useState<Problems>({ errors: 0, warnings: 0, first: null });
 
   useEffect(() => {
-    latest.current = { onValue, envNames };
+    latest.current = { onValue, envNames, breakpointKey, breakpoints };
   });
 
   useEffect(() => {
@@ -150,6 +155,18 @@ export function ScriptCodeEditor({ value, onValue, phase, label, placeholder, en
         doc: value,
         extensions: [
           basicSetup,
+          // Breakpoints for Debug runs (left of the line numbers).
+          breakpointKey
+            ? Prec.highest(
+                breakpointGutter(
+                  (line) => {
+                    const { breakpointKey: key, breakpoints: lines } = latest.current;
+                    if (key) setBreakpoints(key, lines.includes(line) ? lines.filter((l) => l !== line) : [...lines, line]);
+                  },
+                  (lines) => latest.current.breakpointKey && setBreakpoints(latest.current.breakpointKey, lines),
+                ),
+              )
+            : [],
           wrap ? EditorView.lineWrapping : [],
           keymap.of([indentWithTab]),
           EditorState.tabSize.of(2),
@@ -199,9 +216,14 @@ export function ScriptCodeEditor({ value, onValue, phase, label, placeholder, en
       editor.destroy();
       view.current = null;
     };
-    // The editor is created once per phase; later `value` changes are synced below.
+    // The editor is created once per phase (and breakpoint key); later `value` changes are synced below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
+  }, [phase, breakpointKey]);
+
+  // Breakpoints toggled elsewhere (the debugger, another editor of the same script).
+  useEffect(() => {
+    if (view.current && breakpointKey) syncBreakpoints(view.current, breakpoints);
+  }, [breakpoints, breakpointKey]);
 
   // Outside changes (snippets, reverting a draft) replace the document without losing the editor.
   useEffect(() => {

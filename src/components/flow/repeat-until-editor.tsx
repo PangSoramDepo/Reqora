@@ -3,6 +3,7 @@
 import { Icon } from "@/components/icon";
 import { NumberField } from "@/components/number-field";
 import { ScriptCodeEditor } from "@/components/collections/script-code-editor";
+import { nodeBreakpointKey } from "@/lib/collections/breakpoints";
 import { conditionOperators, MAX_REPEAT_WAIT_MS, type RepeatUntil, type WorkflowNode } from "@/lib/workflows/schema";
 import { TemplateField } from "./template-field";
 
@@ -24,7 +25,7 @@ const attemptsCap = (intervalMs: number) => Math.min(100, Math.floor(MAX_REPEAT_
  * "Repeat until": the node sends again on an interval until a condition on its own response is true — for
  * polling a status before the flow moves on.
  */
-export function RepeatUntilEditor({ node, onChange }: { node: HttpNode; onChange: (n: WorkflowNode) => void }) {
+export function RepeatUntilEditor({ node, onChange, workflowId }: { node: HttpNode; onChange: (n: WorkflowNode) => void; workflowId?: string }) {
   const repeat = node.config.repeat;
   const set = (next: RepeatUntil | undefined) => {
     const { repeat: _old, ...config } = node.config;
@@ -89,6 +90,7 @@ export function RepeatUntilEditor({ node, onChange }: { node: HttpNode; onChange
                   phase="post"
                   label="Repeat until script"
                   wrap
+                  breakpointKey={workflowId ? nodeBreakpointKey(workflowId, node.id, "until") : null}
                   value={repeat.script ?? ""}
                   onValue={(script) => patch({ script })}
                 />

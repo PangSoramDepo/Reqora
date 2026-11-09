@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { RunDebuggerDialog } from "@/components/flow/run-debugger";
 import { ErrorHelp } from "@/components/flow/error-help";
 import { diagnose, type Fix } from "@/lib/workflows/diagnose";
 import { Icon } from "@/components/icon";
@@ -150,6 +151,8 @@ export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun
   const [chosen, setChosen] = useState<{ runId: string; nodeId: string } | null>(null);
   // Which copy button just copied (shows a check briefly).
   const [copied, setCopied] = useState<string | null>(null);
+  // The step whose recorded scripts (a Debug run) are open in the debugger.
+  const [debugging, setDebugging] = useState<string | null>(null);
   const copy = (what: string, text: string) => {
     void navigator.clipboard?.writeText(text).then(() => {
       setCopied(what);
@@ -460,6 +463,20 @@ export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun
                 <div className="mb-space-xs">
                   <ScriptLogs logs={viewing.logs} />
                 </div>
+              )}
+              {viewing.debug && viewing.debug.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setDebugging(viewing.nodeId)}
+                  data-testid="step-debug"
+                  className="mb-space-xs flex items-center gap-1 px-space-xs py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 font-label-md text-label-md"
+                >
+                  <Icon name="bug_report" className="text-body-md" />
+                  Step through {viewing.debug.length === 1 ? "the script" : `${viewing.debug.length} scripts`}
+                </button>
+              )}
+              {debugging === viewing.nodeId && (
+                <RunDebuggerDialog workflowId={run.workflowId} steps={[viewing]} title={`Debugger — ${viewing.name}`} onClose={() => setDebugging(null)} />
               )}
               <pre className={`${CODE} text-on-surface`}>
                 {viewing.status === "skipped"

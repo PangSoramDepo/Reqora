@@ -34,6 +34,7 @@ import { readSavedPayload, TestPayloadEditor } from "./test-payload-editor";
 import { NodeInspector } from "./node-inspector";
 import { TemplateDataProvider } from "./template-data";
 import { WorkflowSwitcher } from "./workflow-switcher";
+import { RunDebuggerDialog } from "./run-debugger";
 import { confirmProduction } from "@/components/shell/production-guard";
 
 /** Layered layout: each node sits one column right of its deepest predecessor. */
@@ -67,6 +68,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [run, setRun] = useState<Run | undefined>();
+  // A finished Debug run, open in the debugger.
+  const [debugRun, setDebugRun] = useState<Run | null>(null);
   const [running, setRunning] = useState(false);
   const [loadTesting, setLoadTesting] = useState(false);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
@@ -321,7 +324,8 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   // A payload saved for this workflow, else the last run's (so tests match its shape), else the sample order.
   const testPayload = savedPayload ?? run?.trigger.body ?? SAMPLE_ORDER;
 
-  const execute = async () => {
+  /** `debug`: record the run's scripts, then open the debugger. */
+  const execute = async (debug = false) => {
     if (!workflow || running || viewOnly()) return;
     if (!(await confirmProduction(environment, `Run “${workflow.name}”`))) return;
     const trigger = workflow.nodes.find((n) => n.type === "webhook");
@@ -353,9 +357,10 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     };
     try {
       if (saveState.kind !== "saved") await autosaver.flush(); // run what's on screen, not a stale copy
-      const finished = await startRunLive(workflow.id, { body: testPayload }, environment, onProgress, runAs);
+      const finished = await startRunLive(workflow.id, { body: testPayload }, environment, onProgress, runAs, debug);
       await queue;
       setRun(finished);
+      if (debug) setDebugRun(finished);
     } catch (error) {
       setSaveState({ kind: "error", message: `Run failed: ${(error as Error).message}` });
     } finally {
@@ -517,13 +522,24 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
             className="flex items-center gap-space-xs px-space-md py-space-xs bg-primary text-on-primary rounded-xl shadow-lg transition-all hover:bg-primary-container active:scale-95 font-body-sm text-body-sm font-semibold disabled:opacity-60"
             type="button"
             disabled={running}
-            onClick={execute}
+            onClick={() => void execute()}
             title={`Run the draft in ${ENVIRONMENT_LABELS[environment].label} with ${
               savedPayload !== undefined ? "your saved test payload" : run ? "the last run's payload" : `sample order ${SAMPLE_ORDER.id}`
             }`}
           >
             <Icon name={running ? "progress_activity" : "bolt"} className={`text-body-md ${running ? "animate-spin" : ""}`} />
             <span>{running ? "Running…" : "Emit Webhook Test"}</span>
+          </button>
+          <button
+            type="button"
+            disabled={running}
+            onClick={() => void execute(true)}
+            data-testid="debug-run"
+            title="Run the test and record its scripts (Script nodes, “repeat until” scripts, linked requests' scripts) to step through them line by line. Set breakpoints by clicking left of a line number in a script."
+            className="flex items-center gap-1 px-space-sm py-space-xs bg-surface-container-high text-on-surface rounded-xl shadow-lg transition-all hover:bg-surface-container-highest active:scale-95 font-body-sm text-body-sm font-semibold disabled:opacity-60"
+          >
+            <Icon name="bug_report" className="text-body-md text-primary" />
+            <span className="hidden xl:inline">Debug</span>
           </button>
           <div className="relative">
             <button
@@ -594,6 +610,14 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           />
         )}
 
+        {debugRun && (
+          <RunDebuggerDialog
+            workflowId={debugRun.workflowId}
+            steps={debugRun.steps}
+            title={`Debugger — ${workflow.name} (${debugRun.status})`}
+            onClose={() => setDebugRun(null)}
+          />
+        )}
         {loadTesting && (
           <LoadTestPanel
             workflowId={workflow.id}

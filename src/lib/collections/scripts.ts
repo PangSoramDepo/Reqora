@@ -13,6 +13,7 @@ import {
 } from "quickjs-emscripten-core";
 import { VARIABLE_NAME } from "@/lib/workflows/schema";
 import { hostCrypto } from "./script-crypto";
+import { DEBUG_MAX_CHARS, DEBUG_MAX_STEPS, DEBUG_PRELUDE, instrumentScript, type DebugStep, type ScriptDebug, type ScriptDebugLog } from "./script-debug";
 import type { DraftRequest } from "./request";
 
 /**
@@ -69,8 +70,20 @@ function modulesUsed(code: string): ScriptModuleName[] {
 
 export type ScriptPhase = "pre" | "post";
 export type ScriptScope = "collection" | "folder" | "request";
-/** `lineOffset`: lines a caller's wrapper adds before the user's code, so errors report the user's line numbers. */
-export type ScriptSource = { scope: ScriptScope; name: string; code: string; lineOffset?: number };
+/**
+ * `code`: the user's code. `wrap`: a caller's wrapper around it (e.g. a Script node's), adding `lineOffset` lines
+ * before it, so errors report the user's line numbers. `locals`: names the wrapper defines for the code, which
+ * debug runs record too. `shown`: the code a debug run shows when `code` isn't exactly what was written.
+ */
+export type ScriptSource = {
+  scope: ScriptScope;
+  name: string;
+  code: string;
+  lineOffset?: number;
+  wrap?: (code: string) => string;
+  locals?: string[];
+  shown?: string;
+};
 
 /** rq.request: templates unresolved, params separate, no auth header yet (see DraftRequest). */
 export type ScriptRequest = DraftRequest;
@@ -132,7 +145,7 @@ const __fmt = (v) => {
   try { return JSON.stringify(v, (k, x) => (__isError(x) ? { name: x.name, message: x.message, ...x } : x)); } catch (e) { return String(v); }
 };
 const __log = (level) => (...args) => {
-  if (__logs.length < ${MAX_LOGS}) __logs.push({ level, message: args.map(__fmt).join(" ").slice(0, ${MAX_LOG_CHARS}) });
+  if (__logs.length < ${MAX_LOGS}) __logs.push({ level, message: args.map(__fmt).join(" ").slice(0, ${MAX_LOG_CHARS}), ...(__in.debug ? { step: __dbgStep() } : {}) });
 };
 globalThis.console = { log: __log("log"), info: __log("info"), warn: __log("warn"), error: __log("error") };
 
@@ -676,9 +689,10 @@ if (__in.response) {
   globalThis.responseHeaders = { ...__in.response.headers };
 }
 
+${DEBUG_PRELUDE}
 globalThis.__output = () => {
   for (const name of Object.keys(__legacyTests)) __tests.push({ name, passed: Boolean(__legacyTests[name]), ...(__legacyTests[name] ? {} : { error: "tests[" + JSON.stringify(name) + "] was false" }) });
-  return JSON.stringify({ request: __request, variables: __variables, logs: __logs, tests: __tests, environment: __envChanges, user: __userChanges });
+  return JSON.stringify({ request: __request, variables: __variables, logs: __logs, tests: __tests, environment: __envChanges, user: __userChanges, debug: __dbgOutput() });
 };
 `;
 
@@ -692,7 +706,12 @@ type RunInput = {
   /** The acting test user (rq.user), and how to read their values — again only names the scripts mention. */
   user?: ScriptUser | null;
   readUser?: (name: string) => string | undefined;
+  /** Record each script's run for stepping through (debug runs get a longer time limit). */
+  debug?: boolean;
 };
+
+/** Debug runs are slower (every statement is recorded). */
+const DEBUG_TIME_LIMIT_MS = 5000;
 
 /** Test-user names a script reads (rq.user.get / has, or {{user.NAME}} in itself or the request). */
 function userNames(code: string, request?: unknown): string[] {
@@ -753,16 +772,39 @@ function envNames(code: string, request?: unknown): string[] {
  * A pre-request script that throws stops the chain and is returned as `error`; post-response errors are
  * collected and later scripts still run, like Postman.
  */
-export async function runScripts({ phase, scripts, state, readEnv, response, user = null, readUser }: RunInput): Promise<{
+export async function runScripts({ phase, scripts, state, readEnv, response, user = null, readUser, debug = false }: RunInput): Promise<{
   state: ScriptState;
   errors: ScriptError[];
+  /** Debug runs: each script's recorded run. */
+  debug?: ScriptDebug[];
 }> {
   const engine = await quickjs();
   let current = state;
   const errors: ScriptError[] = [];
+  const traces: ScriptDebug[] = [];
+  const limitMs = debug ? DEBUG_TIME_LIMIT_MS : TIME_LIMIT_MS;
 
-  for (const script of scripts) {
-    if (!script.code.trim()) continue;
+  for (const source of scripts) {
+    if (!source.code.trim()) continue;
+    // Debug runs record every statement (probes keep line numbers, so errors still point at the right line).
+    const instrumented = debug ? instrumentScript(source.code, source.locals) : null;
+    const plain = source.wrap ? source.wrap(source.code) : source.code;
+    const script = { ...source, code: plain };
+    const runnable = instrumented ? (source.wrap ? source.wrap(instrumented.code) : instrumented.code) : plain;
+    const trace: ScriptDebug | null = debug
+      ? {
+          phase,
+          scope: source.scope,
+          source: source.name,
+          code: source.shown ?? source.code,
+          steps: [],
+          values: [],
+          states: [],
+          logs: [],
+          ...(instrumented ? {} : { note: "The script has a syntax error, so nothing was recorded — fix it and debug again." }),
+        }
+      : null;
+    if (trace) traces.push(trace);
     // Literal names the script reads, plus everything earlier scripts set (unset names are left out).
     const environment = Object.fromEntries(
       envNames(script.code, current.request).flatMap((name) => {
@@ -785,7 +827,7 @@ export async function runScripts({ phase, scripts, state, readEnv, response, use
     const runtime = engine.newRuntime();
     runtime.setMemoryLimit(MEMORY_LIMIT_BYTES);
     runtime.setMaxStackSize(1024 * 1024);
-    runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + TIME_LIMIT_MS));
+    runtime.setInterruptHandler(shouldInterruptAfterDeadline(Date.now() + limitMs));
     const context = runtime.newContext();
     try {
       const input = context.newString(
@@ -799,6 +841,9 @@ export async function runScripts({ phase, scripts, state, readEnv, response, use
           random: [...randomBytes(RANDOM_POOL_BYTES)],
           // Lines before the user's code in the evaluated source: the async wrapper, plus any caller wrapper.
           lineOffset: 1 + (script.lineOffset ?? 0),
+          debug: instrumented
+            ? { points: instrumented.points, maxSteps: DEBUG_MAX_STEPS, maxChars: DEBUG_MAX_CHARS, request: phase === "pre" && !source.wrap }
+            : null,
         }),
       );
       context.setProp(context.global, "__input", input);
@@ -847,10 +892,10 @@ export async function runScripts({ phase, scripts, state, readEnv, response, use
       const describe = (handle: QuickJSHandle) => {
         const err = context.dump(handle) as { message?: string; name?: string; stack?: string } | string;
         if (typeof err === "string") return err;
-        if (err?.message === "interrupted") return `timed out after ${TIME_LIMIT_MS}ms`;
+        if (err?.message === "interrupted") return `timed out after ${limitMs}ms`;
         return `${err?.name ?? "Error"}: ${err?.message ?? String(err)}${whereThrown(err?.stack, script.code, file, script.lineOffset)}`;
       };
-      const result = context.evalCode(`(async function(){\n${script.code}\n})()`, file);
+      const result = context.evalCode(`(async function(){\n${runnable}\n})()`, file);
       let threw: string | undefined;
       if (result.error) {
         threw = describe(result.error);
@@ -889,10 +934,19 @@ export async function runScripts({ phase, scripts, state, readEnv, response, use
       const parsed = JSON.parse(context.getString(out.value)) as Omit<ScriptState, "logs" | "tests" | "environment" | "user"> & {
         environment: Record<string, unknown>;
         user?: Record<string, unknown>;
-        logs: Omit<ScriptLog, "scope" | "source">[];
+        logs: (Omit<ScriptLog, "scope" | "source"> & { step?: number })[];
         tests: Omit<ScriptTest, "scope" | "source">[];
+        debug?: { steps: DebugStep[]; values: string; states: string; truncated: boolean } | null;
       };
       out.value.dispose();
+      if (trace && parsed.debug) {
+        trace.steps = parsed.debug.steps;
+        trace.values = JSON.parse(parsed.debug.values) as ScriptDebug["values"];
+        trace.states = JSON.parse(parsed.debug.states) as ScriptDebug["states"];
+        if (parsed.debug.truncated) trace.truncated = true;
+        trace.logs = parsed.logs.map((l): ScriptDebugLog => ({ step: Math.max(0, l.step ?? 0), level: l.level, message: l.message }));
+      }
+      for (const log of parsed.logs) delete log.step;
       const env = { ...current.environment };
       for (const [name, value] of Object.entries(parsed.environment ?? {})) {
         if (!VARIABLE_NAME.test(name)) {
@@ -922,6 +976,7 @@ export async function runScripts({ phase, scripts, state, readEnv, response, use
         tests: [...current.tests, ...parsed.tests.map((t) => ({ ...t, scope: script.scope, source: script.name }))],
       };
       if (threw !== undefined) {
+        if (trace) trace.error = { step: Math.max(0, trace.steps.findLastIndex((s) => !s.end)), message: threw };
         fail(threw);
         if (phase === "pre") break;
       }
@@ -930,7 +985,7 @@ export async function runScripts({ phase, scripts, state, readEnv, response, use
       runtime.dispose();
     }
   }
-  return { state: current, errors };
+  return { state: current, errors, ...(debug ? { debug: traces } : {}) };
 }
 
 /** Scripts may only change the request through plain strings; anything else keeps the previous value. */

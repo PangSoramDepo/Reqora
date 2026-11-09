@@ -1,4 +1,5 @@
 import { logLines } from "./condition-script";
+import type { ScriptDebug } from "./script-debug";
 import { runScripts, type ScriptUser } from "./scripts";
 
 /** A Script node's run: what it returned (`output`) or why it failed, its console output and environment changes. */
@@ -8,6 +9,8 @@ export type NodeScriptResult = ({ output: unknown } | { error: string }) & {
   environment: Record<string, string | null>;
   /** rq.user.set / unset calls (null = unset), for the caller to save to the acting user. */
   user?: Record<string, string | null>;
+  /** Debug runs: the script's recorded run. */
+  debug?: ScriptDebug[];
 };
 
 // Reserved rq.variables keys used to pass the run context in and the return value out of the sandbox.
@@ -41,15 +44,18 @@ export async function runNodeScript(
     variables,
     user,
     readUser,
+    debug = false,
   }: {
     readEnv: (name: string) => string | undefined;
     variables: Record<string, string>;
     user?: ScriptUser | null;
     readUser?: (name: string) => string | undefined;
+    debug?: boolean;
   },
 ): Promise<NodeScriptResult> {
-  const { state, errors } = await runScripts({
+  const { state, errors, debug: traces } = await runScripts({
     phase: "post",
+    debug,
     readEnv,
     user,
     readUser,
@@ -60,7 +66,7 @@ export async function runNodeScript(
       tests: [],
       environment: {},
     },
-    scripts: [{ scope: "request", name: "script node", code: wrapNodeScript(code), lineOffset: WRAPPER_LINES }],
+    scripts: [{ scope: "request", name: "script node", code, wrap: wrapNodeScript, lineOffset: WRAPPER_LINES, locals: ["trigger", "nodes"] }],
   });
   const vars = { ...state.variables };
   const raw = vars[RESULT_KEY];
@@ -70,7 +76,12 @@ export async function runNodeScript(
   Object.assign(variables, vars);
 
   const lines = logLines(state.logs);
-  const extra = { environment: state.environment, ...(state.user ? { user: state.user } : {}), ...(lines.length ? { logs: lines } : {}) };
+  const extra = {
+    environment: state.environment,
+    ...(state.user ? { user: state.user } : {}),
+    ...(lines.length ? { logs: lines } : {}),
+    ...(traces?.length ? { debug: traces } : {}),
+  };
   const failedTest = state.tests.find((t) => !t.passed);
   if (errors.length) return { error: `script failed: ${errors[0].message}`, ...extra };
   if (failedTest) return { error: `test "${failedTest.name}" failed: ${failedTest.error ?? "assertion failed"}`, ...extra };

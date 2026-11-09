@@ -4,6 +4,7 @@ import { useState } from "react";
 import { conditionOperators, type WorkflowNode } from "@/lib/workflows/schema";
 import { NumberField } from "@/components/number-field";
 import { ScriptCodeEditor } from "@/components/collections/script-code-editor";
+import { nodeBreakpointKey } from "@/lib/collections/breakpoints";
 import { Icon } from "@/components/icon";
 import { useEnvironment } from "@/lib/environment";
 import { webhookCurl, webhookUrl } from "@/lib/workflows/templates";
@@ -301,6 +302,7 @@ export function NodeConfigForm({
               phase="pre"
               label="Script"
               wrap
+              breakpointKey={workflowId ? nodeBreakpointKey(workflowId, node.id) : null}
               value={node.config.code}
               onValue={(code) => onChange({ ...node, config: { code } })}
             />
@@ -309,6 +311,7 @@ export function NodeConfigForm({
             <span className="text-primary font-mono">trigger</span> and <span className="text-primary font-mono">{'nodes["node-id"]'}</span> hold the
             run so far. Use <span className="text-primary font-mono">rq.environment.set</span> / <span className="text-primary font-mono">rq.variables.set</span> to
             pass values on; the returned object becomes <span className="text-tertiary font-mono">{`{{${node.id}.key}}`}</span>. Throw to fail the step.
+            To step through it, click left of a line number for a breakpoint and use <span className="text-primary">Debug</span> in the run bar.
           </span>
         </div>
       );

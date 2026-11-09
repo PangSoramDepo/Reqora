@@ -71,7 +71,9 @@ export const sendAdHoc = (
   location?: { collectionId: string; folderId: string | null; requestId?: string; name?: string },
   /** Send as this test user (id). */
   userId?: string | null,
-) => request<SendOutcome>("/api/send", json("POST", { definition, environment, ...location, ...(userId ? { userId } : {}) }));
+  /** Record the scripts' runs (scripts.debug) for the debugger. */
+  debug = false,
+) => request<SendOutcome>("/api/send", json("POST", { definition, environment, ...location, ...(userId ? { userId } : {}), ...(debug ? { debug } : {}) }));
 
 /** Recent Collections sends for the Live Execution Console. */
 export const fetchRecentSends = (limit = 25) => request<{ data: SendRecord[] }>(`/api/sends?limit=${limit}`).then((r) => r.data);

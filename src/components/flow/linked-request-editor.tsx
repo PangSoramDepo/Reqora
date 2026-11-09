@@ -110,7 +110,7 @@ export function LinkedRequestEditor({
       .finally(() => setSaving(false));
   };
 
-  const send = async () => {
+  const send = async (debug = false) => {
     if (!draft || sending) return;
     if (!(await confirmProduction(environment, `Send “${draft.name.trim() || "request"}”`))) return;
     setSending(true);
@@ -119,6 +119,7 @@ export function LinkedRequestEditor({
       environment,
       { collectionId: request!.collectionId, folderId: draft.folderId, requestId, name: draft.name.trim() || undefined },
       sendAs,
+      debug,
     )
       .then(setOutcome)
       .catch((e: Error) => setOutcome({ error: e.message, durationMs: 0 }))
@@ -217,7 +218,8 @@ export function LinkedRequestEditor({
                 saving={saving}
                 sending={sending}
                 onSave={save}
-                onSend={send}
+                onSend={() => void send()}
+                onDebug={() => void send(true)}
                 onOpenScope={(source) => window.open(`/collections?${source.scope}=${encodeURIComponent(source.id)}`, "_blank", "noreferrer")}
                 showAddToFlow={false}
               />

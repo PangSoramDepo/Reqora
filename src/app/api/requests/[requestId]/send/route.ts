@@ -37,6 +37,8 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/request
       workspaceId: access.workspaceId,
       environment: environment.data,
       ...(user ? { user } : {}),
+      // `?debug=1`: record the scripts' runs (scripts.debug) for stepping through.
+      ...(request.nextUrl.searchParams.get("debug") === "1" ? { debug: true } : {}),
       baseUrl: request.nextUrl.origin,
       // The response and the console log show real values, like Postman.
       onUnscrubbed: (outcome) => {

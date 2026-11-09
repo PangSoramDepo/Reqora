@@ -16,6 +16,7 @@ import { NodeConfigForm } from "./node-config-form";
 import { NodeDocs } from "./node-docs";
 import { RepeatChecks, ScriptLogs } from "./repeat-checks";
 import { RepeatUntilEditor } from "./repeat-until-editor";
+import { RunDebuggerDialog } from "./run-debugger";
 import { AvailableData, DataTree } from "./data-tree";
 import { TemplateField } from "./template-field";
 import { ErrorHelp } from "./error-help";
@@ -248,6 +249,7 @@ export function NodeInspector({ node, workflowId, readOnly, roles, step, running
   const [showDocs, setShowDocs] = useState(false);
   const [copied, setCopied] = useState(false);
   const [rawOutput, setRawOutput] = useState(false);
+  const [debugging, setDebugging] = useState(false);
   const [pathCopied, setPathCopied] = useState<string | null>(null);
   // The linked request open in the editor dialog. Saving there refreshes linked nodes (see FlowWorkspace).
   const [editing, setEditing] = useState<string | null>(null);
@@ -485,7 +487,7 @@ export function NodeInspector({ node, workflowId, readOnly, roles, step, running
             </div>
 
             <HttpPanels node={node} tab={tab} onChange={onChange} onEdit={editLinked} />
-            <RepeatUntilEditor node={node} onChange={onChange} />
+            <RepeatUntilEditor node={node} onChange={onChange} workflowId={workflowId} />
           </>
         ) : (
           <NodeConfigForm node={node} workflowId={workflowId} onChange={onChange} />
@@ -568,6 +570,21 @@ export function NodeInspector({ node, workflowId, readOnly, roles, step, running
           )}
           {step?.checks && step.checks.length > 0 && <RepeatChecks checks={step.checks} attempts={step.attempts} />}
           {step?.logs && step.logs.length > 0 && <ScriptLogs logs={step.logs} />}
+          {step?.debug && step.debug.length > 0 && workflowId && (
+            <button
+              type="button"
+              onClick={() => setDebugging(true)}
+              data-testid="step-debug"
+              className="self-start flex items-center gap-1 px-space-xs py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25 font-label-md text-label-md"
+            >
+              <Icon name="bug_report" className="text-body-md" />
+              Step through {step.debug.length === 1 ? "the script" : `${step.debug.length} scripts`}
+              {step.debug.some((d) => d.error) && <span className="w-1.5 h-1.5 rounded-full bg-error" />}
+            </button>
+          )}
+          {debugging && step && workflowId && (
+            <RunDebuggerDialog workflowId={workflowId} steps={[step]} title={`Debugger — ${node.name}`} onClose={() => setDebugging(false)} />
+          )}
           {step?.output !== undefined && !rawOutput ? (
             <div className="p-space-xs rounded-lg bg-surface-container-lowest shadow-inner max-h-72 overflow-auto" data-testid="output-tree">
               <DataTree root={node.id} value={step.output} onPick={copyPath} />

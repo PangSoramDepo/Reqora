@@ -55,6 +55,8 @@ type SendOptions = {
   context?: Pick<TemplateContext, "trigger" | "nodes">;
   /** The test user the request is sent as: `{{user.NAME}}`, and rq.user (changes are saved to them). */
   user?: UserHandle;
+  /** Record the scripts' runs (scripts.debug) for stepping through. */
+  debug?: boolean;
 };
 
 const sent = (p: PreparedRequest): SentRequest => ({
@@ -95,6 +97,7 @@ export async function sendRequest(
     variables = {},
     context,
     user,
+    debug = false,
   }: SendOptions,
 ): Promise<SendOutcome> {
   const def = target.definition;
@@ -112,8 +115,11 @@ export async function sendRequest(
   };
   const secrets = () => [...resolved];
 
+  /** Debug sends: the scripts' recorded runs so far (pre-request, then post-response). */
+  const traces: NonNullable<ScriptReport["debug"]> = [];
   /** Saves the scripts' environment changes, then scrubs. Every return goes through here exactly once. */
   const finish = <T extends SendOutcome>(outcome: T): T => {
+    if (debug && outcome.scripts) outcome.scripts.debug = traces;
     for (const [name, value] of Object.entries(outcome.scripts?.environment ?? {})) {
       try {
         const { kind } = writeEnv(workspaceId, environment, name, value);
@@ -153,8 +159,9 @@ export async function sendRequest(
     tests: [],
     environment: {},
   };
-  const pre = await runScripts({ phase: "pre", scripts: effective.preScripts, state, readEnv, user: scriptUser, readUser });
+  const pre = await runScripts({ phase: "pre", scripts: effective.preScripts, state, readEnv, user: scriptUser, readUser, debug });
   state = pre.state;
+  traces.push(...(pre.debug ?? []));
   if (pre.errors.length) {
     const e = pre.errors[0];
     return finish(
@@ -243,9 +250,11 @@ export async function sendRequest(
     readEnv,
     user: scriptUser,
     readUser,
+    debug,
     response: { status: response.status, statusText: response.statusText, headers, body: text, responseTime: durationMs },
   });
 
+  traces.push(...(post.debug ?? []));
   return finish(
     {
       status: response.status,

@@ -303,7 +303,8 @@ export function CollectionsWorkspace() {
       .finally(() => setSaving(false));
   };
 
-  const send = async () => {
+  /** `debug`: record the scripts for the debugger (Response → Debugger). */
+  const send = async (debug = false) => {
     if (!selectedId || !draft || sendingId) return;
     if (!(await confirmProduction(environment, `Send “${draft.name.trim() || "request"}”`))) return;
     const id = selectedId;
@@ -314,6 +315,7 @@ export function CollectionsWorkspace() {
       environment,
       collection ? { collectionId: collection.id, folderId: draft.folderId, requestId: id, name: draft.name.trim() || undefined } : undefined,
       sendAs,
+      debug,
     )
       .then((o) => setResult({ id, outcome: o }))
       .catch((e: Error) => setResult({ id, outcome: { error: e.message, durationMs: 0 } }))
@@ -518,7 +520,8 @@ export function CollectionsWorkspace() {
                 saving={saving}
                 sending={sending}
                 onSave={save}
-                onSend={send}
+                onSend={() => void send()}
+                onDebug={() => void send(true)}
                 onOpenScope={openScope}
               />
               {currentNotice && (

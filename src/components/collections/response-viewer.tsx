@@ -6,9 +6,10 @@ import { describeAssertion } from "@/lib/collections/assertions";
 import type { AssertionResult, Example, ScriptReport, SendOutcome } from "@/lib/collections/schema";
 import { ScopeBadge } from "./inherited";
 import { CodeView } from "./json-view";
+import { ScriptDebugger } from "./script-debugger";
 import { formatBytes, ICON_BUTTON, SELECT, statusTone } from "./ui";
 
-type Tab = "pretty" | "raw" | "headers" | "tests" | "console";
+type Tab = "pretty" | "raw" | "headers" | "tests" | "console" | "debugger";
 
 /** One row of the Test Results tab: a script test or a declarative assertion. */
 type TestRow = { key: string; passed: boolean; label: string; detail?: string; badge?: { scope: "collection" | "folder" | "request"; source: string } };
@@ -154,6 +155,16 @@ export function ResponseViewer({ outcome, sending, examples, onSaveExample, onDe
     ...(view?.assertions ?? []).map((r, i) => ({ key: `a${i}`, passed: r.passed, label: describeAssertion(r.assertion), detail: r.actual })),
   ];
   const passed = results.filter((r) => r.passed).length;
+  const traces = scripts?.debug;
+  // A Debug send opens the debugger; a normal send leaves it.
+  const [seen, setSeen] = useState(outcome);
+  const [sends, setSends] = useState(0);
+  if (seen !== outcome) {
+    setSeen(outcome);
+    setSends((n) => n + 1);
+    if (traces) setTab("debugger");
+    else if (tab === "debugger") setTab("pretty");
+  }
   const consoleCount = scripts ? scripts.logs.length + scripts.errors.length : 0;
 
   const copy = () => {
@@ -299,6 +310,13 @@ export function ResponseViewer({ outcome, sending, examples, onSaveExample, onDe
               </span>
             )}
           </button>
+          {traces && (
+            <button type="button" role="tab" aria-selected={tab === "debugger"} className={tabClass("debugger")} onClick={() => setTab("debugger")} data-testid="debugger-tab">
+              <Icon name="bug_report" className="text-body-sm" />
+              <span>Debugger</span>
+              {traces.some((d) => d.error) && <span className="w-1.5 h-1.5 rounded-full bg-error" />}
+            </button>
+          )}
         </div>
         {view && (
           <div className="hidden md:flex items-center gap-2 py-1 font-label-sm text-label-sm text-outline">
@@ -313,7 +331,10 @@ export function ResponseViewer({ outcome, sending, examples, onSaveExample, onDe
         )}
       </div>
 
-      {/* Body */}
+      {tab === "debugger" && traces && !example ? (
+        <ScriptDebugger key={sends} traces={traces} className="flex-1 bg-surface-container-lowest" />
+      ) : (
+      /* Body */
       <div className="flex-1 bg-surface-container-lowest overflow-auto p-space-sm font-code-block text-code-block leading-relaxed">
         {!view && !failure && tab !== "console" && (
           <div className="h-full flex flex-col items-center justify-center gap-space-xs text-on-surface-variant font-body-sm text-body-sm">
@@ -385,6 +406,7 @@ export function ResponseViewer({ outcome, sending, examples, onSaveExample, onDe
           </div>
         )}
       </div>
+      )}
 
       {/* Bottom Assertion Bar */}
       {results.length > 0 && (
