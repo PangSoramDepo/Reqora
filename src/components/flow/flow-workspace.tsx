@@ -21,6 +21,8 @@ import type { NodeType, Run, Step, Workflow, WorkflowNode } from "@/lib/workflow
 import { SAMPLE_ORDER } from "@/lib/workflows/seed";
 import { followWorkspace, useWorkspaces } from "@/lib/workspaces/client";
 import { GettingStarted } from "./getting-started";
+import { RunAs } from "./run-as";
+import { useRunAs } from "@/lib/users/client";
 import { ResizeHandle } from "@/components/shell/resize-handle";
 import { createAutosaver, type HistoryState, type SaveState, type UpdateOptions } from "./autosaver";
 import { ExecutionStream } from "./execution-stream";
@@ -60,6 +62,8 @@ const wait = (ms: number) => (ms > 0 ? new Promise<void>((r) => setTimeout(r, ms
 
 export function FlowWorkspace({ workflowId }: { workflowId: string }) {
   const environment = useEnvironment();
+  // Who plays each role when this flow runs from the canvas (test users; remembered per flow and environment).
+  const [runAs] = useRunAs(workflowId, environment);
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [run, setRun] = useState<Run | undefined>();
@@ -349,7 +353,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
     };
     try {
       if (saveState.kind !== "saved") await autosaver.flush(); // run what's on screen, not a stale copy
-      const finished = await startRunLive(workflow.id, { body: testPayload }, environment, onProgress);
+      const finished = await startRunLive(workflow.id, { body: testPayload }, environment, onProgress, runAs);
       await queue;
       setRun(finished);
     } catch (error) {
@@ -490,6 +494,13 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
 
         {/* Simulation actions */}
         <div className="pointer-events-auto ml-auto shrink-0 flex items-center gap-space-xs">
+          <RunAs
+            workflowId={workflow.id}
+            roles={workflow.roles}
+            environment={environment}
+            readOnly={readOnly}
+            onRolesChange={(roles) => autosaver.update((wf) => ({ ...wf, roles: roles?.length ? roles : undefined }), { immediate: true, label: "Change roles" })}
+          />
           <button
             className="flex items-center gap-space-xs px-space-md py-space-xs bg-surface-container-high text-on-surface rounded-xl shadow-lg transition-all hover:bg-surface-container-highest active:scale-95 font-body-sm text-body-sm font-semibold"
             type="button"
@@ -587,6 +598,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
           <LoadTestPanel
             workflowId={workflow.id}
             workflowName={workflow.name}
+            roles={workflow.roles}
             environment={environment}
             defaultPayload={testPayload}
             beforeStart={async () => {
@@ -652,6 +664,7 @@ export function FlowWorkspace({ workflowId }: { workflowId: string }) {
               key={selected.id}
               node={selected}
               workflowId={workflowId}
+              roles={workflow.roles}
               readOnly={readOnly}
               step={steps.get(selected.id)}
               running={running}

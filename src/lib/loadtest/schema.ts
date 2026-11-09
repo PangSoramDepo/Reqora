@@ -30,6 +30,17 @@ export const loadTestConfigSchema = z
     trigger: z
       .object({ body: z.unknown().optional(), headers: z.record(z.string(), z.string()).optional() })
       .default({}),
+    /**
+     * Test users per flow role. `roles[role]` lists user ids or names (empty or missing: every user with that role
+     * tag — or every user, for a flow that names no roles). `per-vu`: each virtual user keeps one user;
+     * `per-run`: users take turns run by run.
+     */
+    users: z
+      .object({
+        assignment: z.enum(["per-vu", "per-run"]).default("per-vu"),
+        roles: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/), z.array(z.string().min(1).max(100)).max(1000)).default({}),
+      })
+      .default({ assignment: "per-vu", roles: {} }),
     /** The test fails when any threshold is exceeded. */
     thresholds: z
       .object({
@@ -74,6 +85,10 @@ export type LoadTest = {
   timeline: { second: number; succeeded: number; failed: number; p95Ms: number | null; activeVirtualUsers: number }[];
   /** Most frequent failure messages. */
   errors: { message: string; count: number }[];
+  /** The test users each role used. */
+  userPools?: { role: string; users: string[] }[];
+  /** Per test user and role: runs, failures and run duration. */
+  users?: { role: string; user: string; runs: number; failed: number; latency: LatencyStats | null }[];
 };
 
 export type LoadTestSummary = Pick<

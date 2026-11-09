@@ -1,6 +1,8 @@
 import "server-only";
 
 import { outboundFetch } from "@/lib/net/outbound";
+import { DEFAULT_ROLE, flowRoles, type TestUser } from "@/lib/users/schema";
+import { findTestUser, listTestUsers, usersWithRole } from "@/lib/users/store";
 import { executeScrubbed } from "@/lib/workflows/runner";
 import type { Workflow } from "@/lib/workflows/schema";
 import { LoadMetrics, verdictOf } from "./metrics";
@@ -41,7 +43,37 @@ function pause(ms: number, signal: AbortSignal) {
   });
 }
 
-export type StartResult = { ok: true; test: LoadTest } | { ok: false; reason: "busy" };
+export type StartResult = { ok: true; test: LoadTest } | { ok: false; reason: "busy" } | { ok: false; reason: "unknown_users"; detail: string };
+
+/**
+ * The test users each of the flow's roles uses: the ones listed in the config, else every user with that role
+ * tag (every user, for a flow that names no roles). Roles nobody plays are left out (their steps fail with why).
+ */
+export function userPools(
+  workflow: Pick<Workflow, "workspaceId" | "roles">,
+  config: Pick<LoadTestConfig, "environment" | "users">,
+): { pools: Map<string, TestUser[]>; unknown: string[] } {
+  const scope = { workspaceId: workflow.workspaceId, environment: config.environment };
+  const roles = flowRoles(workflow.roles);
+  const pools = new Map<string, TestUser[]>();
+  const unknown: string[] = [];
+  for (const role of roles) {
+    const listed = config.users.roles[role] ?? [];
+    let users: TestUser[];
+    if (listed.length) {
+      users = listed.flatMap((ref) => {
+        const found = findTestUser(scope, ref);
+        if (!found) unknown.push(ref);
+        return found ? [found] : [];
+      });
+    } else {
+      users = usersWithRole(scope, role);
+      if (!users.length && role === DEFAULT_ROLE && roles.length === 1) users = listTestUsers(scope).users;
+    }
+    if (users.length) pools.set(role, users);
+  }
+  return { pools, unknown };
+}
 
 /**
  * Starts a load test in the background: `virtualUsers` concurrent loops, each running the flow back to back
@@ -54,6 +86,8 @@ export function startLoadTest(
   { baseUrl, fetch: doFetch = outboundFetch(baseUrl) }: { baseUrl: string; fetch?: typeof fetch },
 ): StartResult {
   if (runningCount() >= MAX_RUNNING) return { ok: false, reason: "busy" };
+  const { pools, unknown } = userPools(workflow, config);
+  if (unknown.length) return { ok: false, reason: "unknown_users", detail: `no test users named ${unknown.map((u) => `"${u}"`).join(", ")} in ${config.environment}` };
 
   const startMs = Date.now();
   const stop = new AbortController();
@@ -67,6 +101,20 @@ export function startLoadTest(
     environment: config.environment,
     config,
     startedAt: new Date(startMs).toISOString(),
+    ...(pools.size ? { userPools: [...pools].map(([role, users]) => ({ role, users: users.map((u) => u.name) })) } : {}),
+  };
+  // Who plays each role in a run: per virtual user (fixed), or taking turns run by run.
+  let runCounter = 0;
+  const assign = (vu: number): { ids: Record<string, string>; names: Record<string, string> } => {
+    const turn = runCounter++;
+    const ids: Record<string, string> = {};
+    const names: Record<string, string> = {};
+    for (const [role, users] of pools) {
+      const user = users[(config.users.assignment === "per-vu" ? vu : turn) % users.length];
+      ids[role] = user.id;
+      names[role] = user.name;
+    }
+    return { ids, names };
   };
 
   // Stopping also cancels requests in flight; those runs are left out of the report.
@@ -87,13 +135,16 @@ export function startLoadTest(
     metrics.setActive(1, Date.now());
     try {
       do {
+        const played = assign(index);
         const result = await executeScrubbed(workflow, { source: "manual", ...config.trigger }, {
           baseUrl,
           environment: config.environment,
           fetch: fetchWithStop,
+          users: played.ids,
         }).catch((error: Error) => ({ status: "failed" as const, durationMs: 0, steps: [], error: error.message }));
         if (stop.signal.aborted) break;
         metrics.record(result, Date.now());
+        metrics.recordUsers(played.names, result.status === "succeeded", result.durationMs);
         await pause(config.thinkTimeMs, stop.signal);
       } while (nextIteration());
     } finally {

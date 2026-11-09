@@ -7,6 +7,8 @@ import { fetchLoadTest, fetchLoadTests, startLoadTest, stopLoadTest, type LoadTe
 import { LOAD_LIMITS, type LatencyStats, type LoadTest, type LoadTestSummary } from "@/lib/loadtest/schema";
 import type { Environment } from "@/lib/workflows/schema";
 import { confirmProduction } from "@/components/shell/production-guard";
+import { useTestUsers } from "@/lib/users/client";
+import { DEFAULT_ROLE, flowRoles } from "@/lib/users/schema";
 
 /** Chart colours, validated for the dark chart surface (lightness band, chroma, CVD, contrast). */
 const OK_COLOR = "#0aa5c2";
@@ -21,6 +23,8 @@ const CARD = "rounded-lg bg-surface-container-lowest/70 p-space-sm";
 type Props = {
   workflowId: string;
   workflowName: string;
+  /** The flow's roles (who acts), for choosing test users per role. */
+  roles?: string[];
   environment: Environment;
   defaultPayload: unknown;
   /** Saves pending canvas edits so the test runs what is on screen. */
@@ -38,6 +42,7 @@ type Form = {
   maxErrorRatePct: string;
   p95Ms: string;
   payload: string;
+  users: { assignment: "per-vu" | "per-run"; roles: Record<string, string[]> };
 };
 
 const ms = (v: number) => (v >= 10_000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`);
@@ -64,6 +69,7 @@ function toInput(form: Form, environment: Environment): { input?: LoadTestInput;
     rampUpSec: Number(form.rampUpSec || 0),
     thinkTimeMs: Number(form.thinkTimeMs || 0),
     trigger: body === undefined ? {} : { body },
+    users: form.users,
     thresholds: {
       ...(optionalNumber(form.maxErrorRatePct) === undefined ? {} : { maxErrorRatePct: optionalNumber(form.maxErrorRatePct) }),
       ...(optionalNumber(form.p95Ms) === undefined ? {} : { p95Ms: optionalNumber(form.p95Ms) }),
@@ -384,6 +390,41 @@ function Report({ test, onStop, stopping }: { test: LoadTest; onStop: () => void
         </table>
       </div>
 
+      {test.users && test.users.length > 0 && (
+        <div className={CARD} data-testid="load-test-per-user">
+          <span className={`${LABEL} block mb-1`}>Per test user</span>
+          <table className="w-full font-body-sm text-body-sm">
+            <thead>
+              <tr className="text-outline text-left font-label-sm text-label-sm">
+                <th className="font-normal py-0.5">User</th>
+                <th className="font-normal">Role</th>
+                <th className="font-normal text-right">Runs</th>
+                <th className="font-normal text-right">Failed</th>
+                <th className="font-normal text-right">Avg</th>
+                <th className="font-normal text-right">p95</th>
+                <th className="font-normal text-right">Max</th>
+              </tr>
+            </thead>
+            <tbody className="font-mono">
+              {test.users.map((u) => (
+                <tr key={`${u.role}:${u.user}`} className={u.failed && u.failed === u.runs ? "text-error" : "text-on-surface"}>
+                  <td className="py-0.5">{u.user}</td>
+                  <td className="text-secondary">{u.role}</td>
+                  <td className="text-right">{u.runs.toLocaleString()}</td>
+                  <td className={`text-right ${u.failed ? "text-error" : "text-outline"}`}>{u.failed.toLocaleString()}</td>
+                  {latencyCells(u.latency).map((c, i) => (
+                    <td key={i} className="text-right">
+                      {c}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <span className="font-body-sm text-body-sm text-outline">A user whose every run fails usually has a locked account or wrong credentials.</span>
+        </div>
+      )}
+
       {test.errors.length > 0 && (
         <div className={CARD}>
           <span className={`${LABEL} block mb-1`}>Top errors</span>
@@ -408,7 +449,77 @@ const Empty = () => <div className="h-16 flex items-center justify-center font-b
  * Configure and run a load test of the flow: concurrent virtual users run it back to back on the server, and
  * the report updates every second.
  */
-export function LoadTestPanel({ workflowId, workflowName, environment, defaultPayload, beforeStart, onClose }: Props) {
+/** Which test users play each role, and whether virtual users keep one user or take turns. */
+function UsersField({ environment, roles, value, onChange }: { environment: Environment; roles?: string[]; value: Form["users"]; onChange: (v: Form["users"]) => void }) {
+  const data = useTestUsers(environment);
+  const all = flowRoles(roles);
+  if (!data) return null;
+  if (data.users.length === 0) {
+    return (
+      <div className={`${CARD} font-body-sm text-body-sm text-on-surface-variant`}>
+        <span className={`${LABEL} block mb-1`}>Test users</span>
+        No test users in {ENVIRONMENT_LABELS[environment].label}: every run acts as nobody (<span className="font-mono text-tertiary">{"{{user.*}}"}</span>{" "}
+        fails). Add users on the Secrets page to spread load over many accounts.
+      </div>
+    );
+  }
+  return (
+    <div className={`${CARD} flex flex-col gap-space-sm`} data-testid="load-test-users">
+      <span className={LABEL}>Test users</span>
+      {all.map((role) => {
+        const chosen = value.roles[role] ?? [];
+        const tagged = data.users.filter((u) => u.roles.some((r) => r.toLowerCase() === role.toLowerCase()));
+        const pool = role === DEFAULT_ROLE && all.length === 1 && !tagged.length ? data.users : tagged;
+        const toggle = (id: string) => {
+          const next = chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id];
+          onChange({ ...value, roles: { ...value.roles, [role]: next } });
+        };
+        return (
+          <div key={role} className="flex flex-col gap-1">
+            <span className="font-body-sm text-body-sm text-on-surface">
+              {role === DEFAULT_ROLE && all.length === 1 ? "Users" : <span className="text-secondary">{role}</span>}{" "}
+              <span className="text-outline">
+                {chosen.length ? `${chosen.length} selected` : pool.length ? `all ${pool.length} with this role` : "nobody has this role"}
+              </span>
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {(pool.length ? pool : data.users).map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  aria-pressed={chosen.includes(u.id)}
+                  onClick={() => toggle(u.id)}
+                  className={`px-space-xs py-0.5 rounded font-mono text-body-sm ${
+                    chosen.includes(u.id) ? "bg-primary text-on-primary" : "bg-surface-container-high text-on-surface-variant hover:text-on-surface"
+                  }`}
+                >
+                  {u.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      <div className="flex flex-col gap-1 font-body-sm text-body-sm text-on-surface-variant">
+        {(
+          [
+            ["per-vu", "Each virtual user keeps one user", "VU 1 → first user, VU 2 → second… (wraps around)"],
+            ["per-run", "Users take turns run by run", "Spreads every user evenly over the runs"],
+          ] as const
+        ).map(([id, label, hint]) => (
+          <label key={id} className="flex items-start gap-space-xs cursor-pointer">
+            <input type="radio" name="user-assignment" className="mt-1" checked={value.assignment === id} onChange={() => onChange({ ...value, assignment: id })} />
+            <span>
+              <span className="text-on-surface">{label}</span> <span className="text-outline">— {hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function LoadTestPanel({ workflowId, workflowName, roles, environment, defaultPayload, beforeStart, onClose }: Props) {
   const [form, setForm] = useState<Form>({
     virtualUsers: "10",
     mode: "iterations",
@@ -419,6 +530,7 @@ export function LoadTestPanel({ workflowId, workflowName, environment, defaultPa
     maxErrorRatePct: "",
     p95Ms: "",
     payload: JSON.stringify(defaultPayload ?? {}, null, 2),
+    users: { assignment: "per-vu", roles: {} },
   });
   const [test, setTest] = useState<LoadTest | null>(null);
   const [history, setHistory] = useState<LoadTestSummary[]>([]);
@@ -510,6 +622,7 @@ export function LoadTestPanel({ workflowId, workflowName, environment, defaultPa
       maxErrorRatePct: c.thresholds.maxErrorRatePct === undefined ? "" : String(c.thresholds.maxErrorRatePct),
       p95Ms: c.thresholds.p95Ms === undefined ? "" : String(c.thresholds.p95Ms),
       payload: JSON.stringify(c.trigger.body ?? {}, null, 2),
+      users: { assignment: c.users?.assignment ?? "per-vu", roles: c.users?.roles ?? {} },
     });
     setTest(null);
   };
@@ -625,6 +738,8 @@ export function LoadTestPanel({ workflowId, workflowName, environment, defaultPa
                 <input aria-label="Max p95" className={INPUT} type="number" min={1} placeholder="none" value={form.p95Ms} onChange={(e) => set({ p95Ms: e.target.value })} />
               </Field>
             </div>
+
+            <UsersField environment={environment} roles={roles} value={form.users} onChange={(users) => set({ users })} />
 
             <Field label="Trigger payload (JSON)" hint="Every run receives this as {{trigger.body}}">
               <textarea

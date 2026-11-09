@@ -313,6 +313,16 @@ export function NodeCard({
         <div className="flex items-center gap-space-xs min-w-0">
           <Icon name={style.icon} className={`${style.text} text-headline-sm`} />
           <span className="font-headline-sm text-headline-sm text-on-surface truncate">{node.name}</span>
+          {(step?.actor || node.runAs) && (
+            <span
+              className="shrink-0 flex items-center gap-0.5 px-1 rounded bg-secondary/15 text-secondary font-label-sm text-label-sm"
+              title={step?.actor ? `Ran as ${step.actor.user} (${step.actor.role})` : `Runs as the ${node.runAs} test user`}
+              data-testid="node-actor"
+            >
+              <Icon name="person" className="text-[12px]" />
+              {step?.actor?.user ?? node.runAs}
+            </span>
+          )}
           {node.type === "http" && node.config.requestId && (
             <span title="Linked to a Collections request — edits there apply on every run" className="shrink-0 flex">
               <Icon name="link" className="text-outline text-body-md" />

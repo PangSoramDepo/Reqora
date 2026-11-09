@@ -5,6 +5,8 @@ import { z } from "zod";
 const nodeId = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,63}$/, "must start with a letter; letters, digits, _ and - only");
 const httpMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 const position = z.object({ x: z.number().finite(), y: z.number().finite() });
+/** A role in a flow (who acts), e.g. maker or authorizer; test users with that role tag play it. */
+const roleName = z.string().regex(/^[A-Za-z][A-Za-z0-9_-]{0,31}$/, "letters, digits, _ and -, starting with a letter (max 32)");
 
 const nodeBase = {
   id: nodeId,
@@ -15,6 +17,8 @@ const nodeBase = {
    * next nodes. The webhook trigger can't be disabled.
    */
   disabled: z.boolean().optional(),
+  /** The flow role whose test user this node acts as ({{user.*}}, rq.user); default: the flow's first role. */
+  runAs: roleName.optional(),
 };
 
 export const webhookNodeSchema = z.object({
@@ -152,6 +156,8 @@ export const edgeSchema = z.object({
 export const workflowInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().max(2000).optional(),
+  /** Who acts in this flow (e.g. maker, authorizer). None named: one role, "user". */
+  roles: z.array(roleName).max(10).optional(),
   nodes: z.array(nodeSchema).max(200),
   edges: z.array(edgeSchema).max(500),
 });
@@ -177,6 +183,8 @@ export const deployInputSchema = z.object({ version: z.number().int().min(1) });
 
 export const runInputSchema = z.object({
   environment: environmentSchema.default("production"),
+  /** Test user per role (id or name); roles left out get the first user with that role tag. */
+  users: z.record(roleName, z.string().min(1).max(100)).optional(),
   trigger: z
     .object({
       body: z.unknown().optional(),
@@ -207,7 +215,7 @@ export type DeploymentRecord = {
   live: boolean;
 };
 
-export type DeploymentDetail = DeploymentRecord & Pick<Workflow, "nodes" | "edges">;
+export type DeploymentDetail = DeploymentRecord & Pick<Workflow, "nodes" | "edges" | "roles">;
 
 export type Workflow = WorkflowInput & {
   id: string;
@@ -283,7 +291,10 @@ export type Step = {
   checks?: RepeatCheck[];
   /** Console output of a script node. */
   logs?: string[];
+  /** The test user this step acted as. */
+  actor?: StepActor;
 };
+export type StepActor = { role: string; user: string };
 export type RepeatCheck = { attempt: number; met: boolean; logs?: string[]; error?: string };
 
 export type RunTrigger = {
@@ -313,6 +324,8 @@ export type Run = {
   replayOf?: string;
   /** Set when another flow's Call Flow node started this run. */
   calledBy?: RunCaller;
+  /** Who played each role: role → test user name. */
+  users?: Record<string, string>;
 };
 
 export const RUN_WINDOWS = { "24h": 24, "7d": 24 * 7, "30d": 24 * 30 } as const;

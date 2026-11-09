@@ -1,5 +1,6 @@
 import { DEFAULT_USER_AGENT } from "@/lib/user-agent";
 import { topologicalOrder } from "./graph";
+import type { UserHandle } from "@/lib/users/schema";
 import { capStepBody, type RepeatCheck, type RunStatus, type RunTrigger, type Step, type StepRequest, type Workflow, type WorkflowNode } from "./schema";
 import { TemplateError, looseEquals, renderJson, renderString, renderValue, type TemplateContext } from "./template";
 
@@ -30,17 +31,26 @@ export type EngineDeps = {
    * Sends a linked http node's saved Collections request (with its scripts and tests). When omitted, linked
    * nodes send their stored copy like any other http node.
    */
-  sendLinked?: (requestId: string, ctx: Pick<TemplateContext, "trigger" | "nodes">) => Promise<LinkedResult>;
+  sendLinked?: (requestId: string, ctx: Pick<TemplateContext, "trigger" | "nodes">, user?: UserHandle) => Promise<LinkedResult>;
   /**
    * Evaluates a "repeat until" script condition against a node's response (the script sandbox). When omitted,
    * script conditions fail the step.
    */
-  checkCondition?: (code: string, output: unknown) => Promise<ConditionCheck>;
+  checkCondition?: (code: string, output: unknown, user?: UserHandle) => Promise<ConditionCheck>;
   /**
    * Runs a Script node's code in the script sandbox with the run so far (`trigger`, earlier `nodes`). When
    * omitted, script nodes fail the step.
    */
-  runScript?: (code: string, context: { trigger: unknown; nodes: Record<string, unknown> }) => Promise<ScriptRun>;
+  runScript?: (code: string, context: { trigger: unknown; nodes: Record<string, unknown> }, user?: UserHandle) => Promise<ScriptRun>;
+  /**
+   * The test user a node acts as ({{user.*}}, rq.user), or why there is none. When omitted, no user acts and
+   * `{{user.*}}` fails the step.
+   */
+  userFor?: (node: WorkflowNode) => UserHandle | { missing: string };
+  /** Runs before a node that acts as a user executes (e.g. logging the user in); throwing fails the step. */
+  beforeNode?: (node: WorkflowNode, user: UserHandle) => Promise<void>;
+  /** After a 401, logs the user in again; true = send the request once more. */
+  reauth?: (node: WorkflowNode, user: UserHandle) => Promise<boolean>;
   /**
    * Runs another flow for a Call Flow node and waits for it. When omitted, call nodes fail the step.
    * `output` is what later nodes read as {{node-id.*}}.
@@ -134,8 +144,25 @@ export async function executeWorkflow(
     }
 
     deps.onProgress?.({ type: "node", nodeId: node.id });
+    // The test user this node acts as.
+    const acting = deps.userFor?.(node);
+    const user = acting && "id" in acting ? acting : undefined;
+    ctx.user = user
+      ? (name) => {
+          const value = user.get(name);
+          if (value === undefined) throw new TemplateError(`test user “${user.name}” (${user.role}) has no value for "${name}"`);
+          return value;
+        }
+      : acting && "missing" in acting
+        ? () => {
+            throw new TemplateError(acting.missing);
+          }
+        : undefined;
+    // Recorded on the steps that act for someone (send or script).
+    const actor = user && (node.type === "http" || node.type === "script" || node.type === "call") ? { actor: { role: user.role, user: user.name } } : {};
     try {
-      const result = await runNode(node, ctx, deps, sleep);
+      if (user && deps.beforeNode) await deps.beforeNode(node, user);
+      const result = await runNode(node, ctx, deps, sleep, user);
       const port = result.port ?? "out";
       ctx.nodes[node.id] = result.output;
       takenPorts.set(node.id, port);
@@ -145,6 +172,7 @@ export async function executeWorkflow(
         status: "succeeded",
         durationMs: now() - stepStart,
         port: node.type === "response" ? undefined : port,
+        ...actor,
         request: result.request,
         output: result.output,
         ...(result.attempts ? { attempts: result.attempts } : {}),
@@ -154,7 +182,7 @@ export async function executeWorkflow(
     } catch (error) {
       failure = `${node.name}: ${(error as Error).message}`;
       const partial = error instanceof StepError ? error.partial : {};
-      record({ ...base, status: "failed", durationMs: now() - stepStart, ...partial, error: (error as Error).message });
+      record({ ...base, status: "failed", durationMs: now() - stepStart, ...actor, ...partial, error: (error as Error).message });
     }
   }
 
@@ -175,17 +203,28 @@ async function runNode(
   ctx: TemplateContext,
   deps: EngineDeps,
   sleep: (ms: number) => Promise<void>,
+  user?: UserHandle,
 ): Promise<NodeResult> {
   switch (node.type) {
     case "webhook":
       return { output: { body: ctx.trigger.body ?? null, headers: ctx.trigger.headers ?? {} } };
 
     case "http": {
-      const send = async (): Promise<NodeResult> => {
+      const sendOnce = async (): Promise<NodeResult> => {
         if (!node.config.requestId || !deps.sendLinked) return runHttp(node.config, ctx, deps);
-        const linked = await deps.sendLinked(node.config.requestId, { trigger: ctx.trigger, nodes: ctx.nodes });
+        const linked = await deps.sendLinked(node.config.requestId, { trigger: ctx.trigger, nodes: ctx.nodes }, user);
         if (!linked.ok) throw new StepError(linked.error ?? "linked request failed", { request: linked.request, output: linked.output });
         return { output: linked.output, request: linked.request };
+      };
+      // A 401 while acting as a user: log them in again once, then retry (an expired token).
+      const send = async (): Promise<NodeResult> => {
+        try {
+          return await sendOnce();
+        } catch (error) {
+          const status = error instanceof StepError ? (error.partial.output as { status?: unknown } | undefined)?.status : undefined;
+          if (status === 401 && user && deps.reauth && (await deps.reauth(node, user))) return sendOnce();
+          throw error;
+        }
       };
       const repeat = node.config.repeat;
       if (!repeat) return send();
@@ -210,7 +249,7 @@ async function runNode(
         let unmet: string;
         if (isScript) {
           if (!deps.checkCondition) throw new StepError(SCRIPTS_UNAVAILABLE, done(result, attempt));
-          const checked = await deps.checkCondition(repeat.script!, result.output);
+          const checked = await deps.checkCondition(repeat.script!, result.output, user);
           const logs = checked.logs?.length ? { logs: checked.logs } : {};
           if ("error" in checked) {
             checks.push({ attempt, met: false, error: checked.error, ...logs });
@@ -264,7 +303,7 @@ async function runNode(
     case "script": {
       if (!node.config.code.trim()) throw new StepError("the script is empty");
       if (!deps.runScript) throw new StepError("script nodes are not available here");
-      const ran = await deps.runScript(node.config.code, { trigger: ctx.trigger, nodes: { ...ctx.nodes } });
+      const ran = await deps.runScript(node.config.code, { trigger: ctx.trigger, nodes: { ...ctx.nodes } }, user);
       const logs = ran.logs?.length ? { logs: ran.logs } : {};
       if ("error" in ran) throw new StepError(ran.error, logs);
       return { output: ran.output, ...logs };

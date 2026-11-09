@@ -147,9 +147,10 @@ export function useSuggestMenu({
 }
 
 /** Suggestion data for Collections: environment variables, names the scripts set, and dynamic values. */
-export function collectionsSuggestData(env: string[], scriptVars: { vars: string[]; env: string[] }): SuggestData {
+export function collectionsSuggestData(env: string[], scriptVars: { vars: string[]; env: string[] }, user: string[] = []): SuggestData {
   return {
     env: [...new Set([...env, ...scriptVars.env])].sort(),
+    user,
     sources: scriptVars.vars.length
       ? [
           {

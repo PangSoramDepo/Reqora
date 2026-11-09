@@ -22,7 +22,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/workflo
   const deployment = getDeployment(workflowId, deploymentId);
   if (!deployment) return notFound(`deployment "${deploymentId}"`);
 
-  const input = { name: workflow.name, description: workflow.description, nodes: deployment.nodes, edges: deployment.edges };
+  const input = { name: workflow.name, description: workflow.description, nodes: deployment.nodes, edges: deployment.edges, ...(deployment.roles ? { roles: deployment.roles } : {}) };
   const issues = validateGraph(input);
   if (issues.length) return problem(422, "Unprocessable Content", { detail: "that deployment's graph is no longer valid", issues });
   const result = replaceWorkflow(workflowId, input, parsed.data.version);

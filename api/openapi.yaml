@@ -52,6 +52,15 @@ info:
     deletes it. Cross-references stay inside a workspace: linked http nodes, Call Flow nodes, request moves and
     inherited collection settings must point into the same workspace. Data from before workspaces lives in
     the "Default" workspace, with the first account as owner and other accounts as editors.
+
+    **Test users.** Each environment of a workspace has test users: named accounts with role tags (e.g. `maker`,
+    `authorizer`) and values (columns such as `login_id`, `password`, `access_token`; secret columns are encrypted
+    and write-only). A flow names its `roles`; each http / script node acts as one of them (`runAs`, default the
+    first). `{{user.NAME}}` reads the acting user's value and scripts save to them with `rq.user.set(NAME, value)`
+    (also `rq.user.get / unset / has / name / roles / role`). A run assigns users to roles (`users`, or the first
+    user with that role tag; a flow without roles uses the first user). With a login request set for the
+    environment, a user is logged in (that request sent as them) before they first act and again after the
+    session length or a 401 (the step is retried once). Collections can send as a user too.
 security:
   - sessionCookie: []
 servers:
@@ -261,6 +270,211 @@ paths:
         "403": { $ref: "#/components/responses/Problem" }
         "404": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/test-users:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+    get:
+      operationId: listTestUsers
+      summary: The active workspace's test users in an environment, their columns and login settings
+      responses:
+        "200":
+          description: OK (secret values are null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestUsers" }
+        "404": { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: createTestUser
+      summary: Add a test user (new value names become columns; names like *TOKEN*, *PASSWORD* are secret)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestUserInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestUser" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/test-users/import:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+    get:
+      operationId: exportTestUsers
+      summary: CSV of the test users (secret columns left empty)
+      responses:
+        "200":
+          description: CSV
+          content:
+            text/csv:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/Problem" }
+    post:
+      operationId: importTestUsers
+      summary: Import users from CSV (`user,roles,<column>,…`; roles separated by `;`); same names are updated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [csv]
+              properties:
+                csv: { type: string }
+      responses:
+        "200":
+          description: What happened
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created: { type: integer }
+                  updated: { type: integer }
+                  errors: { type: array, items: { type: string } }
+        "400": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/test-users/from-variables:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+    post:
+      operationId: testUserFromVariables
+      summary: Create a test user from environment variables (copied under the same names; the variables are kept)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, variables]
+              properties:
+                name: { type: string }
+                roles: { type: array, items: { type: string } }
+                variables: { type: array, items: { type: string } }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestUser" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "422": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/test-user-columns/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      operationId: putTestUserColumn
+      summary: Add a column, or change whether it's secret (values are re-encrypted or decrypted)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [secret, plain] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestUserColumn" }
+        "400": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteTestUserColumn
+      summary: Remove a column and every user's value in it
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/test-user-settings:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+    put:
+      operationId: putTestUserSettings
+      summary: Set the login request and session length (ends every user's session)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestUserSettings" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestUserSettings" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/test-users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getTestUser
+      summary: A test user (secret values null)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestUser" }
+        "404": { $ref: "#/components/responses/Problem" }
+    patch:
+      operationId: updateTestUser
+      summary: Rename, set roles, set or clear values (null clears); only given fields change
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                roles: { type: array, items: { type: string } }
+                values: { type: object, additionalProperties: { type: [string, "null"] } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TestUser" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+    delete:
+      operationId: deleteTestUser
+      summary: Delete a test user
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/test-users/{userId}/login:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: loginTestUser
+      summary: Log the user in now with the login request (`?logout=1` ends the session instead)
+      parameters:
+        - name: logout
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: "`{ ok, status, durationMs, saved }` (values the login script saved) or `{ ok: false, error }`"
+          content:
+            application/json:
+              schema: { type: object }
+        "404": { $ref: "#/components/responses/Problem" }
   /api/auth/login:
     post:
       operationId: logIn
@@ -887,6 +1101,10 @@ paths:
         - name: environment
           in: query
           schema: { $ref: "#/components/schemas/EnvironmentName" }
+        - name: as.{role}
+          in: query
+          description: "Test user (name or id) playing a role, e.g. `as.maker=maker01`; other roles are filled in automatically"
+          schema: { type: string }
       requestBody:
         content:
           application/json:
@@ -1354,7 +1572,7 @@ paths:
       - $ref: "#/components/parameters/RequestId"
     post:
       operationId: sendSavedRequest
-      summary: Send the request's saved definition from the server
+      summary: Send the request's saved definition from the server (`?user=` sends as a test user)
       description: |
         Templates resolve like workflow runs (`{{env.NAME}}` from the chosen environment, falling back to
         `REQORA_ENV_NAME`; `{{$guid}}`, `{{$timestamp}}`, `{{$isoTimestamp}}`). Like Postman, the result shows the
@@ -1370,6 +1588,10 @@ paths:
         - name: environment
           in: query
           schema: { $ref: "#/components/schemas/EnvironmentName" }
+        - name: user
+          in: query
+          description: Send as this test user (id or name), logged in first when the environment has a login request
+          schema: { type: string }
       responses:
         "200":
           description: The upstream response, or a SendFailure
@@ -1397,6 +1619,7 @@ paths:
                 folderId: { type: [string, "null"], description: "Inherit this folder's settings too" }
                 requestId: { type: string, description: "The saved request being edited; links the history entry to it" }
                 name: { type: string, maxLength: 200, description: "Label for script output and the send history" }
+                userId: { type: string, description: "Send as this test user (id or name): {{user.*}} and rq.user are theirs" }
       responses:
         "200":
           description: The upstream response, or a SendFailure
@@ -1724,6 +1947,14 @@ components:
           properties:
             maxErrorRatePct: { type: number, minimum: 0, maximum: 100 }
             p95Ms: { type: integer, minimum: 1 }
+        users:
+          type: object
+          description: >-
+            Test users per flow role (ids or names; empty: every user with that role tag). `per-vu`: each virtual user
+            keeps one user; `per-run`: users take turns run by run. Unknown users: 422.
+          properties:
+            assignment: { type: string, enum: [per-vu, per-run], default: per-vu }
+            roles: { type: object, additionalProperties: { type: array, items: { type: string } } }
     LatencyStats:
       type: object
       description: Milliseconds; percentiles are nearest-rank (sampled beyond 20,000 runs).
@@ -1810,6 +2041,25 @@ components:
             properties:
               message: { type: string }
               count: { type: integer }
+        userPools:
+          type: array
+          description: The test users each role used
+          items:
+            type: object
+            properties:
+              role: { type: string }
+              users: { type: array, items: { type: string } }
+        users:
+          type: array
+          description: Per test user and role
+          items:
+            type: object
+            properties:
+              role: { type: string }
+              user: { type: string }
+              runs: { type: integer }
+              failed: { type: integer }
+              latency: { oneOf: [{ $ref: "#/components/schemas/LatencyStats" }, { type: "null" }] }
     LoadTestSummary:
       type: object
       required: [id, workflowId, status, startedAt, elapsedMs, iterations, throughput, errorRatePct, environment, virtualUsers, p95Ms]
@@ -1894,6 +2144,9 @@ components:
         disabled:
           type: boolean
           description: Bypassed when true - not executed, and the run continues through all of its outputs. Not allowed on the webhook trigger.
+        runAs:
+          type: string
+          description: The flow role whose test user this node acts as ({{user.*}}, rq.user); default the flow's first role
     HttpMethod:
       type: string
       enum: [GET, POST, PUT, PATCH, DELETE]
@@ -2093,6 +2346,11 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 120 }
         description: { type: string, maxLength: 2000 }
+        roles:
+          type: array
+          maxItems: 10
+          items: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_-]{0,31}$" }
+          description: Who acts in this flow (e.g. maker, authorizer); none named means one role, "user"
         nodes:
           type: array
           maxItems: 200
@@ -2155,6 +2413,10 @@ components:
       type: object
       properties:
         environment: { $ref: "#/components/schemas/EnvironmentName" }
+        users:
+          type: object
+          additionalProperties: { type: string }
+          description: Test user (id or name) per role; roles left out get the first user with that role tag
         trigger:
           type: object
           properties:
@@ -2173,6 +2435,12 @@ components:
         nodeType: { type: string }
         name: { type: string }
         status: { type: string, enum: [succeeded, failed, skipped] }
+        actor:
+          type: object
+          description: The test user this step acted as
+          properties:
+            role: { type: string }
+            user: { type: string }
         startedAt: { type: string, format: date-time }
         durationMs: { type: integer }
         port: { type: string, description: Output port taken (condition nodes report `true`/`false`) }
@@ -2262,6 +2530,54 @@ components:
             runId: { type: string }
             workflowId: { type: string }
             nodeId: { type: string }
+        users:
+          type: object
+          additionalProperties: { type: string }
+          description: Who played each role (role → test user name)
+    TestUserColumn:
+      type: object
+      required: [name, kind]
+      properties:
+        name: { type: string }
+        kind: { type: string, enum: [secret, plain] }
+    TestUserSettings:
+      type: object
+      required: [loginRequestId]
+      properties:
+        loginRequestId: { type: [string, "null"], description: Saved request sent as a user to log them in }
+        sessionMinutes: { type: integer, minimum: 1, maximum: 1440, default: 30 }
+    TestUserInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$" }
+        roles: { type: array, maxItems: 10, items: { type: string } }
+        values: { type: object, additionalProperties: { type: [string, "null"] } }
+    TestUser:
+      type: object
+      required: [id, name, roles, sessionAt, values, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        roles: { type: array, items: { type: string } }
+        sessionAt: { type: [string, "null"], format: date-time, description: Last successful automatic login }
+        values:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              value: { type: [string, "null"], description: null for secret columns }
+              updatedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    TestUsers:
+      type: object
+      required: [environment, users, columns, settings]
+      properties:
+        environment: { $ref: "#/components/schemas/EnvironmentName" }
+        users: { type: array, items: { $ref: "#/components/schemas/TestUser" } }
+        columns: { type: array, items: { $ref: "#/components/schemas/TestUserColumn" } }
+        settings: { $ref: "#/components/schemas/TestUserSettings" }
     CollectionInput:
       type: object
       required: [name]

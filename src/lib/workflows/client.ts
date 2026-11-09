@@ -112,11 +112,13 @@ export async function startRunLive(
   trigger: Omit<RunTrigger, "source">,
   environment: Environment,
   onProgress: (event: RunProgress) => void,
+  /** Test user per role (id); roles left out are chosen automatically. */
+  users?: Record<string, string>,
 ): Promise<Run> {
   const response = await fetch(`/api/workflows/${workflowId}/runs`, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/x-ndjson" },
-    body: JSON.stringify({ trigger, environment }),
+    body: JSON.stringify({ trigger, environment, ...(users && Object.keys(users).length ? { users } : {}) }),
   });
   if (!response.ok || !response.body) {
     const problem = (await response.json().catch(() => ({}))) as { detail?: string; title?: string };

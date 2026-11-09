@@ -61,6 +61,7 @@ export class LoadMetrics {
   private readonly nodes = new Map<string, { name: string; type: NodeType; calls: number; failed: number; latency: Reservoir }>();
   private readonly seconds: Second[] = [];
   private readonly errors = new Map<string, number>();
+  private readonly users = new Map<string, { role: string; user: string; runs: number; failed: number; latency: Reservoir }>();
   succeeded = 0;
   failed = 0;
   active = 0;
@@ -112,10 +113,25 @@ export class LoadMetrics {
     }
   }
 
+  /** One run's result for the test users who played its roles (role → user name). */
+  recordUsers(played: Record<string, string> | undefined, ok: boolean, durationMs: number) {
+    for (const [role, user] of Object.entries(played ?? {})) {
+      const key = `${role}\u0000${user}`;
+      let entry = this.users.get(key);
+      if (!entry) {
+        entry = { role, user, runs: 0, failed: 0, latency: new Reservoir(2_000) };
+        this.users.set(key, entry);
+      }
+      entry.runs += 1;
+      if (!ok) entry.failed += 1;
+      entry.latency.add(durationMs);
+    }
+  }
+
   /** The metric part of a report, as of `nowMs`. */
   snapshot(nowMs: number): Pick<
     LoadTest,
-    "elapsedMs" | "activeVirtualUsers" | "iterations" | "throughput" | "errorRatePct" | "latency" | "nodes" | "timeline" | "errors"
+    "elapsedMs" | "activeVirtualUsers" | "iterations" | "throughput" | "errorRatePct" | "latency" | "nodes" | "timeline" | "errors" | "users"
   > {
     const completed = this.succeeded + this.failed;
     const elapsedMs = Math.max(0, nowMs - this.startMs);
@@ -147,6 +163,13 @@ export class LoadMetrics {
         .map(([message, count]) => ({ message, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, TOP_ERRORS),
+      ...(this.users.size
+        ? {
+            users: [...this.users.values()]
+              .map((u) => ({ role: u.role, user: u.user, runs: u.runs, failed: u.failed, latency: u.latency.stats() }))
+              .sort((a, b) => a.role.localeCompare(b.role) || a.user.localeCompare(b.user)),
+          }
+        : {}),
     };
   }
 }

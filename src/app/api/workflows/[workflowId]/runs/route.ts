@@ -31,8 +31,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const parsed = await parseBody(request, runInputSchema, { allowEmpty: true });
   if ("error" in parsed) return parsed.error;
 
-  const { environment, trigger } = parsed.data;
-  const options = { baseUrl: request.nextUrl.origin, environment };
+  const { environment, trigger, users } = parsed.data;
+  const options = { baseUrl: request.nextUrl.origin, environment, ...(users ? { users } : {}) };
   // Manual runs execute the draft, so changes can be tested before they are deployed.
   if (!request.headers.get("accept")?.includes("application/x-ndjson")) {
     const { run } = await runWorkflow(workflow, { source: "manual", ...trigger }, options);

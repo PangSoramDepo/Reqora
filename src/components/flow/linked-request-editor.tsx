@@ -19,6 +19,7 @@ import {
 import type { Collection, Example, SavedRequest, SendOutcome } from "@/lib/collections/schema";
 import { stable } from "@/lib/collections/stable";
 import { useEnvironment } from "@/lib/environment";
+import { useSendAs } from "@/lib/users/client";
 import { fetchVariables } from "@/lib/workflows/client";
 import { confirmProduction } from "@/components/shell/production-guard";
 
@@ -47,6 +48,7 @@ export function LinkedRequestEditor({
   onSaved,
 }: Props) {
   const environment = useEnvironment();
+  const [sendAs] = useSendAs(environment);
   const [request, setRequest] = useState<SavedRequest | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collection, setCollection] = useState<Collection | undefined>();
@@ -112,12 +114,12 @@ export function LinkedRequestEditor({
     if (!draft || sending) return;
     if (!(await confirmProduction(environment, `Send “${draft.name.trim() || "request"}”`))) return;
     setSending(true);
-    sendAdHoc(draft.definition, environment, {
-      collectionId: request!.collectionId,
-      folderId: draft.folderId,
-      requestId,
-      name: draft.name.trim() || undefined,
-    })
+    sendAdHoc(
+      draft.definition,
+      environment,
+      { collectionId: request!.collectionId, folderId: draft.folderId, requestId, name: draft.name.trim() || undefined },
+      sendAs,
+    )
       .then(setOutcome)
       .catch((e: Error) => setOutcome({ error: e.message, durationMs: 0 }))
       .finally(() => {

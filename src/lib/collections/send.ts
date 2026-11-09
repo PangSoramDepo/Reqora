@@ -5,6 +5,7 @@ import { resolveVariable, setVariableValue } from "@/lib/secrets/variables";
 import { scrub } from "@/lib/workflows/runner";
 import type { Environment } from "@/lib/workflows/schema";
 import { TemplateError, type TemplateContext } from "@/lib/workflows/template";
+import type { UserHandle } from "@/lib/users/schema";
 import { evaluateAssertions } from "./assertions";
 import { resolveEffective } from "./inherit";
 import { draftRequest, renderDraft, type PreparedRequest } from "./request";
@@ -52,6 +53,8 @@ type SendOptions = {
   variables?: Record<string, string>;
   /** Workflow run context, so templates can also use `{{trigger.body.x}}` and `{{node-id.body.x}}`. */
   context?: Pick<TemplateContext, "trigger" | "nodes">;
+  /** The test user the request is sent as: `{{user.NAME}}`, and rq.user (changes are saved to them). */
+  user?: UserHandle;
 };
 
 const sent = (p: PreparedRequest): SentRequest => ({
@@ -69,6 +72,7 @@ const report = (state: ScriptState, errors: ScriptReport["errors"]): ScriptRepor
   errors,
   variables: state.variables,
   environment: state.environment,
+  ...(state.user && Object.keys(state.user).length ? { user: state.user } : {}),
 });
 
 /**
@@ -90,10 +94,17 @@ export async function sendRequest(
     onUnscrubbed,
     variables = {},
     context,
+    user,
   }: SendOptions,
 ): Promise<SendOutcome> {
   const def = target.definition;
   const resolved = new Set<string>();
+  const readUser = (name: string) => {
+    const value = user?.get(name);
+    if (value !== undefined && value.length >= 6) resolved.add(value);
+    return value;
+  };
+  const scriptUser = user ? { name: user.name, roles: user.roles, role: user.role } : null;
   const readEnv = (name: string) => {
     const value = resolveVariable(workspaceId, environment, name) ?? process.env[`${ENV_PREFIX}${name}`];
     if (value !== undefined && value.length >= 6) resolved.add(value);
@@ -116,6 +127,19 @@ export async function sendRequest(
         });
       }
     }
+    for (const [name, value] of Object.entries(outcome.scripts?.user ?? {})) {
+      try {
+        user?.set(name, value);
+        if (value !== null && value.length >= 6) resolved.add(value);
+      } catch (error) {
+        outcome.scripts?.errors.push({
+          phase: "post",
+          scope: "request",
+          source: target.name,
+          message: `could not save "${name}" to test user “${user?.name}”: ${(error as Error).message}`,
+        });
+      }
+    }
     onUnscrubbed?.(outcome);
     return scrub(outcome, secrets());
   };
@@ -129,7 +153,7 @@ export async function sendRequest(
     tests: [],
     environment: {},
   };
-  const pre = await runScripts({ phase: "pre", scripts: effective.preScripts, state, readEnv });
+  const pre = await runScripts({ phase: "pre", scripts: effective.preScripts, state, readEnv, user: scriptUser, readUser });
   state = pre.state;
   if (pre.errors.length) {
     const e = pre.errors[0];
@@ -151,6 +175,16 @@ export async function sendRequest(
       if (value === undefined) throw new TemplateError(`environment variable "${name}" is not configured in ${environment}`);
       return value;
     },
+    ...(user
+      ? {
+          user: (name: string) => {
+            const changed = state.user?.[name];
+            const value = changed === null ? undefined : (changed ?? readUser(name));
+            if (value === undefined) throw new TemplateError(`test user “${user.name}” has no "${name}" in ${environment}`);
+            return value;
+          },
+        }
+      : {}),
   };
   let prepared;
   try {
@@ -207,6 +241,8 @@ export async function sendRequest(
     scripts: effective.postScripts,
     state,
     readEnv,
+    user: scriptUser,
+    readUser,
     response: { status: response.status, statusText: response.statusText, headers, body: text, responseTime: durationMs },
   });
 

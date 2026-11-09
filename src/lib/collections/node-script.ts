@@ -1,11 +1,13 @@
 import { logLines } from "./condition-script";
-import { runScripts } from "./scripts";
+import { runScripts, type ScriptUser } from "./scripts";
 
 /** A Script node's run: what it returned (`output`) or why it failed, its console output and environment changes. */
 export type NodeScriptResult = ({ output: unknown } | { error: string }) & {
   logs?: string[];
   /** rq.environment.set / unset calls (null = unset), for the caller to save. */
   environment: Record<string, string | null>;
+  /** rq.user.set / unset calls (null = unset), for the caller to save to the acting user. */
+  user?: Record<string, string | null>;
 };
 
 // Reserved rq.variables keys used to pass the run context in and the return value out of the sandbox.
@@ -34,11 +36,23 @@ rq.variables.set(${JSON.stringify(RESULT_KEY)}, JSON.stringify(__result === unde
 export async function runNodeScript(
   code: string,
   context: { trigger: unknown; nodes: Record<string, unknown> },
-  { readEnv, variables }: { readEnv: (name: string) => string | undefined; variables: Record<string, string> },
+  {
+    readEnv,
+    variables,
+    user,
+    readUser,
+  }: {
+    readEnv: (name: string) => string | undefined;
+    variables: Record<string, string>;
+    user?: ScriptUser | null;
+    readUser?: (name: string) => string | undefined;
+  },
 ): Promise<NodeScriptResult> {
   const { state, errors } = await runScripts({
     phase: "post",
     readEnv,
+    user,
+    readUser,
     state: {
       request: { method: "GET", url: "", params: [], headers: {} },
       variables: { ...variables, [CONTEXT_KEY]: JSON.stringify(context) },
@@ -56,7 +70,7 @@ export async function runNodeScript(
   Object.assign(variables, vars);
 
   const lines = logLines(state.logs);
-  const extra = { environment: state.environment, ...(lines.length ? { logs: lines } : {}) };
+  const extra = { environment: state.environment, ...(state.user ? { user: state.user } : {}), ...(lines.length ? { logs: lines } : {}) };
   const failedTest = state.tests.find((t) => !t.passed);
   if (errors.length) return { error: `script failed: ${errors[0].message}`, ...extra };
   if (failedTest) return { error: `test "${failedTest.name}" failed: ${failedTest.error ?? "assertion failed"}`, ...extra };

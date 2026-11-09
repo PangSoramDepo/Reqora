@@ -32,6 +32,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   const started = startLoadTest(workflow, parsed.data, { baseUrl: request.nextUrl.origin });
   if (!started.ok) {
+    if (started.reason === "unknown_users") return problem(422, "Unprocessable Content", { detail: started.detail });
     return problem(409, "Conflict", { detail: `${MAX_RUNNING} load tests are already running; stop one or wait for it to finish` });
   }
   return Response.json(started.test, { status: 202, headers: { Location: `/api/load-tests/${started.test.id}` } });

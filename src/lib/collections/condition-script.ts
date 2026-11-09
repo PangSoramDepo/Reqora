@@ -1,4 +1,4 @@
-import { runScripts, type ScriptLog, type ScriptResponse } from "./scripts";
+import { runScripts, type ScriptLog, type ScriptResponse, type ScriptUser } from "./scripts";
 
 /** `logs`: the script's console output for this check. */
 export type ConditionResult = ({ met: true } | { met: false } | { error: string }) & { logs?: string[] };
@@ -39,7 +39,18 @@ rq.test(${JSON.stringify(TEST_NAME)}, () => { if (!__met) throw new Error(${JSON
 export async function checkConditionScript(
   code: string,
   output: unknown,
-  { readEnv, variables = {} }: { readEnv: (name: string) => string | undefined; variables?: Record<string, string> },
+  {
+    readEnv,
+    variables = {},
+    user,
+    readUser,
+  }: {
+    readEnv: (name: string) => string | undefined;
+    variables?: Record<string, string>;
+    /** The acting test user (read-only here: rq.user.set changes aren't saved by a condition). */
+    user?: ScriptUser | null;
+    readUser?: (name: string) => string | undefined;
+  },
 ): Promise<ConditionResult> {
   if (!code.trim()) return { error: '"repeat until" script is empty' };
   const out = (output ?? {}) as { status?: number; headers?: Record<string, string>; body?: unknown; durationMs?: number };
@@ -53,6 +64,8 @@ export async function checkConditionScript(
   const { state, errors } = await runScripts({
     phase: "post",
     readEnv,
+    user,
+    readUser,
     response,
     state: { request: { method: "GET", url: "", params: [], headers: {} }, variables: { ...variables }, logs: [], tests: [], environment: {} },
     scripts: [{ scope: "request", name: "repeat until", code: wrapCondition(code), lineOffset: WRAPPER_LINES }],

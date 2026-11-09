@@ -9,7 +9,12 @@ export type TemplateContext = {
   nodes: Record<string, unknown>;
   /** Resolves `{{env.NAME}}`; should throw TemplateError when the variable is missing. */
   env: (name: string) => string;
+  /** Resolves `{{user.NAME}}` from the test user acting now; absent when no user is acting. */
+  user?: (name: string) => string;
 };
+
+/** Why `{{user.…}}` can't resolve when no test user acts in a step or send. */
+export const NO_USER = "no test user is acting here: add test users on the Secrets page (Test Users), then pick one under Run as / Send as";
 
 const PLACEHOLDER = /\{\{\s*([^{}]+?)\s*\}\}/g;
 const WHOLE_PLACEHOLDER = /^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$/;
@@ -128,6 +133,11 @@ export function lookup(expr: string, ctx: TemplateContext): unknown {
     const dynamic = DYNAMIC[root];
     if (!dynamic || path.length) throw new TemplateError(`unknown dynamic value "{{${expr}}}"`);
     return dynamic();
+  }
+  if (root === "user") {
+    if (path.length !== 1 || path[0].kind !== "key") throw new TemplateError(`invalid user reference "{{${expr}}}"`);
+    if (!ctx.user) throw new TemplateError(`{{${expr}}} needs a test user, but ${NO_USER}`);
+    return ctx.user(path[0].key);
   }
   if (root === "env") {
     if (path.length !== 1 || path[0].kind !== "key") throw new TemplateError(`invalid env reference "{{${expr}}}"`);

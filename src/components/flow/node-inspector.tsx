@@ -38,6 +38,8 @@ type InspectorProps = {
   workflowId?: string;
   /** View only (a Viewer of the workspace): edits aren't applied; the inspector says so. */
   readOnly?: boolean;
+  /** The flow's roles (who acts), for this step's "Run as". */
+  roles?: string[];
   step?: Step;
   running: boolean;
   onChange: (node: WorkflowNode) => void;
@@ -236,7 +238,7 @@ function HttpPanels({ node, tab, onChange, onEdit }: { node: HttpNode; tab: Tab;
 /** Names that look like credentials default to the secret kind when added from an error. */
 const SECRET_HINT = /SECRET|TOKEN|KEY|PASSWORD|PASS|CREDENTIAL|PRIVATE/;
 
-export function NodeInspector({ node, workflowId, readOnly, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
+export function NodeInspector({ node, workflowId, readOnly, roles, step, running, onChange, onRun, pinned, onTogglePin }: InspectorProps) {
   const router = useRouter();
   const environment = useEnvironment();
   const [tab, setTab] = useState<Tab>("Headers");
@@ -400,6 +402,31 @@ export function NodeInspector({ node, workflowId, readOnly, step, running, onCha
             onChange={(e) => onChange({ ...node, name: e.target.value || node.name })}
           />
         </div>
+
+        {(node.type === "http" || node.type === "script") && roles && roles.length > 1 && (
+          <div className="flex flex-col gap-space-xs">
+            <label className={SECTION_LABEL} htmlFor="node-run-as">
+              Run as
+            </label>
+            <select
+              id="node-run-as"
+              className={`${ROW} text-on-surface focus:outline-none`}
+              value={node.runAs && roles.includes(node.runAs) ? node.runAs : roles[0]}
+              onChange={(e) => onChange({ ...node, runAs: e.target.value === roles[0] ? undefined : e.target.value })}
+            >
+              {roles.map((r, i) => (
+                <option key={r} value={r}>
+                  {r}
+                  {i === 0 ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+            <span className="font-body-sm text-body-sm text-outline">
+              The test user playing this role sends this step: <span className="font-mono text-tertiary">{"{{user.*}}"}</span> and{" "}
+              <span className="font-mono text-tertiary">rq.user</span> are theirs. Pick users under Run as on the canvas.
+            </span>
+          </div>
+        )}
 
         {node.type !== "webhook" && <AvailableData />}
 

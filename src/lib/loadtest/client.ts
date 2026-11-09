@@ -22,6 +22,8 @@ export type LoadTestInput = {
   thinkTimeMs?: number;
   trigger?: { body?: unknown };
   thresholds?: { maxErrorRatePct?: number; p95Ms?: number };
+  /** Test users per role (ids; empty = everyone with the role) and how they're handed out. */
+  users?: { assignment: "per-vu" | "per-run"; roles: Record<string, string[]> };
 };
 
 export const startLoadTest = (workflowId: string, input: LoadTestInput) =>

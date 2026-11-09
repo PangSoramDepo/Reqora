@@ -211,17 +211,22 @@ function insertWorkflow(conn: DatabaseSync, workspaceId: string, id: string, inp
     .prepare(
       "INSERT INTO workflows (id, workspace_id, name, description, version, definition, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
     )
-    .run(id, workspaceId, input.name, input.description ?? null, JSON.stringify({ nodes: input.nodes, edges: input.edges }), now, now);
+    .run(id, workspaceId, input.name, input.description ?? null, definitionJson(input), now, now);
 }
 
+/** What a draft or deployment stores: the graph and the flow's roles. */
+const definitionJson = (input: Pick<WorkflowInput, "nodes" | "edges" | "roles">) =>
+  JSON.stringify({ nodes: input.nodes, edges: input.edges, ...(input.roles?.length ? { roles: input.roles } : {}) });
+
 function toWorkflow(row: WorkflowRow): Workflow {
-  const { nodes, edges } = JSON.parse(row.definition) as Pick<Workflow, "nodes" | "edges">;
+  const { nodes, edges, roles } = JSON.parse(row.definition) as Pick<Workflow, "nodes" | "edges" | "roles">;
   return {
     id: row.id,
     workspaceId: row.workspace_id,
     name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
     version: row.version,
+    ...(roles?.length ? { roles } : {}),
     nodes,
     edges,
     createdAt: row.created_at,
@@ -332,7 +337,7 @@ export function replaceWorkflow(id: string, input: WorkflowInput, expectedVersio
     .run(
       input.name,
       input.description ?? null,
-      JSON.stringify({ nodes: input.nodes, edges: input.edges }),
+      definitionJson(input),
       new Date().toISOString(),
       id,
       expectedVersion,
@@ -442,7 +447,7 @@ type DeploymentRow = {
 };
 
 function toDeployment(row: DeploymentRow, liveId: string | undefined, versions: Map<string, number>): DeploymentDetail {
-  const { nodes, edges } = JSON.parse(row.definition) as Pick<Workflow, "nodes" | "edges">;
+  const { nodes, edges, roles } = JSON.parse(row.definition) as Pick<Workflow, "nodes" | "edges" | "roles">;
   return {
     id: row.id,
     workflowId: row.workflow_id,
@@ -453,6 +458,7 @@ function toDeployment(row: DeploymentRow, liveId: string | undefined, versions: 
     nodeCount: nodes.length,
     edgeCount: edges.length,
     live: row.id === liveId,
+    ...(roles?.length ? { roles } : {}),
     nodes,
     edges,
   };

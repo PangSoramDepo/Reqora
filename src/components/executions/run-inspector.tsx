@@ -226,6 +226,9 @@ export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun
               <span className="truncate">
                 {workflowName ?? run.workflowId} · v{run.workflowVersion} · {run.trigger.source} trigger
                 {run.replayOf && <> · replay of {shortId(run.replayOf)}</>}
+                {run.users && Object.keys(run.users).length > 0 && (
+                  <> · as {Object.entries(run.users).map(([role, user]) => (role === "user" ? user : `${user} (${role})`)).join(", ")}</>
+                )}
                 {run.calledBy && (
                   <>
                     {" "}· called by{" "}
@@ -310,6 +313,16 @@ export function RunInspector({ run, workflowName, replaying, onReplay, onOpenRun
                     <span className={`px-space-xs py-space-xxs rounded font-label-sm text-label-sm truncate ${s.chip}`}>
                       {stepDetail(step)}
                     </span>
+                    {step.actor && (
+                      <span
+                        className="shrink-0 flex items-center gap-0.5 px-space-xs py-space-xxs rounded bg-secondary/15 text-secondary font-label-sm text-label-sm"
+                        title={`Acted as test user ${step.actor.user} (${step.actor.role})`}
+                        data-testid="step-actor"
+                      >
+                        <Icon name="person" className="text-[12px]" />
+                        {step.actor.user}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-space-sm flex-shrink-0">
                     <span className={`font-label-sm text-label-sm ${s.result}`}>{stepResult(step)}</span>

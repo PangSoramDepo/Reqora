@@ -31,6 +31,7 @@ import { stable } from "@/lib/collections/stable";
 import type { Collection, Example, SavedRequest, ScopeSettings, SendOutcome } from "@/lib/collections/schema";
 import { notifyRequestSent } from "@/lib/canvas-events";
 import { useEnvironment } from "@/lib/environment";
+import { useSendAs } from "@/lib/users/client";
 import { fetchVariables } from "@/lib/workflows/client";
 import type { Environment } from "@/lib/workflows/schema";
 import type { InheritSource } from "./auth-panel";
@@ -92,6 +93,8 @@ export function CollectionsWorkspace() {
         ? { kind: "collection", id: collectionParam }
         : null;
   const environment = useEnvironment();
+  // The test user requests are sent as (picked in the request bar).
+  const [sendAs] = useSendAs(environment);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -310,6 +313,7 @@ export function CollectionsWorkspace() {
       draft.definition,
       environment,
       collection ? { collectionId: collection.id, folderId: draft.folderId, requestId: id, name: draft.name.trim() || undefined } : undefined,
+      sendAs,
     )
       .then((o) => setResult({ id, outcome: o }))
       .catch((e: Error) => setResult({ id, outcome: { error: e.message, durationMs: 0 } }))

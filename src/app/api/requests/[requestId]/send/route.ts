@@ -4,6 +4,7 @@ import { recordSend } from "@/lib/collections/history";
 import { sendRequest } from "@/lib/collections/send";
 import { getRequest, requestScopes, requestWorkspace } from "@/lib/collections/store";
 import { accessTo } from "@/lib/workspaces/access";
+import { noteManualLogin, sendAsUser } from "@/lib/users/session";
 import type { SendOutcome } from "@/lib/collections/schema";
 import { environmentSchema } from "@/lib/workflows/schema";
 
@@ -18,12 +19,24 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/request
   }
   const saved = getRequest(requestId);
   if (!saved) return notFound(`request "${requestId}"`);
+  // `?user=<id or name>`: sent as that test user (logged in first when a login request is set).
+  const userRef = request.nextUrl.searchParams.get("user");
+  let user;
+  if (userRef) {
+    const acting = await sendAsUser({ workspaceId: access.workspaceId, environment: environment.data }, userRef, saved.id, { baseUrl: request.nextUrl.origin });
+    if ("error" in acting) {
+      if (acting.notFound) return notFound(`test user "${userRef}"`);
+      return Response.json({ error: acting.error, durationMs: 0 });
+    }
+    user = acting.user;
+  }
   let raw: SendOutcome | undefined;
   const scrubbed = await sendRequest(
     { name: saved.name, definition: saved.definition, ...requestScopes(saved.collectionId, saved.folderId) },
     {
       workspaceId: access.workspaceId,
       environment: environment.data,
+      ...(user ? { user } : {}),
       baseUrl: request.nextUrl.origin,
       // The response and the console log show real values, like Postman.
       onUnscrubbed: (outcome) => {
@@ -43,5 +56,6 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/request
       },
     },
   );
+  if (user) noteManualLogin({ workspaceId: access.workspaceId, environment: environment.data }, user, saved.id, raw ?? scrubbed);
   return Response.json(raw ?? scrubbed);
 }

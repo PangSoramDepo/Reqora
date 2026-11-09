@@ -15,7 +15,8 @@ export type DataSource = {
   ran: boolean;
 };
 
-export type SuggestData = { sources: DataSource[]; env: string[] };
+/** `user`: value names the acting test user has (columns of the Test Users table), when test users exist. */
+export type SuggestData = { sources: DataSource[]; env: string[]; user?: string[] };
 
 export type Suggestion = {
   /** The whole reference to put between `{{` and `}}`, e.g. `http-1.body.id` (`http-1.body.` to continue inside). */
@@ -88,6 +89,7 @@ export function sampleContext(sources: DataSource[], env: (name: string) => stri
     trigger: trigger ?? {},
     nodes: Object.fromEntries(sources.filter((s) => s.root !== "trigger").map((s) => [s.root, s.value])),
     env,
+    user: (name) => `‹user.${name}›`,
   };
 }
 
@@ -136,6 +138,7 @@ export function suggest(query: string, data: SuggestData, limit = 60): Suggestio
         complete: false,
       })),
       { insert: "env.", label: "env", detail: `environment variables (${data.env.length})`, complete: false },
+      ...(data.user?.length ? [{ insert: "user.", label: "user", detail: `acting test user (${data.user.length} values)`, complete: false }] : []),
       ...DYNAMIC_VALUES.map(([name, detail]) => ({ insert: name, label: name, detail, complete: true })),
     ];
     const byName = (s: Suggestion) => starts(s.label, q) || (q.length > 0 && s.detail.toLowerCase().includes(q.toLowerCase()));
@@ -143,6 +146,12 @@ export function suggest(query: string, data: SuggestData, limit = 60): Suggestio
   }
 
   const { base, partial, bracket } = parts;
+  if (base.trim() === "user" && !bracket) {
+    return (data.user ?? [])
+      .filter((name) => starts(name, partial))
+      .map((name) => ({ insert: `user.${name}`, label: name, detail: "test user value", complete: true }))
+      .slice(0, limit);
+  }
   if (base.trim() === "env" && !bracket) {
     return data.env
       .filter((name) => starts(name, partial))

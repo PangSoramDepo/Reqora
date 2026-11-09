@@ -5,8 +5,10 @@ import { sendLinkedRequest } from "@/lib/collections/linked";
 import { runNodeScript } from "@/lib/collections/node-script";
 import { outboundFetch } from "@/lib/net/outbound";
 import { resolveVariable, setVariableValue } from "@/lib/secrets/variables";
+import { flowRoles, type UserHandle } from "@/lib/users/schema";
+import { assignUsers, ensureSession, loginRequestOf, userHandle } from "@/lib/users/session";
 import { executeWorkflow, type ExecutionResult, type ProgressEvent } from "./engine";
-import { MAX_CALL_DEPTH, type Environment, type Run, type RunCaller, type RunTrigger, type Workflow } from "./schema";
+import { MAX_CALL_DEPTH, type Environment, type Run, type RunCaller, type RunTrigger, type Workflow, type WorkflowNode } from "./schema";
 import { getDeployedWorkflow, getWorkflow, insertRun } from "./store";
 
 const ENV_PREFIX = "REQORA_ENV_";
@@ -22,6 +24,8 @@ function redact(headers: Record<string, string> | undefined) {
 }
 
 /** Replaces every occurrence of the given secret values inside strings, recursively. */
+const scriptUser = (user: UserHandle) => ({ name: user.name, roles: user.roles, role: user.role });
+
 export function scrub<T>(value: T, secrets: string[]): T {
   if (secrets.length === 0) return value;
   if (typeof value === "string") {
@@ -44,6 +48,8 @@ type RunOptions = {
   calledBy?: RunCaller;
   /** Ids of the flows that called this one, outermost first (loop and depth checks). */
   callers?: string[];
+  /** Test user per role (id or name); roles left out are filled in automatically. */
+  users?: Record<string, string>;
 };
 
 type ExecuteOptions = {
@@ -60,6 +66,8 @@ type ExecuteOptions = {
    * Without it (load tests) called flows run without being stored.
    */
   runId?: string;
+  /** Test user per role (id or name); roles left out are filled in automatically. */
+  users?: Record<string, string>;
 };
 
 /** What a Call Flow node outputs: {{call-1.body.x}}, {{call-1.status}}, {{call-1.runId}}… */
@@ -82,11 +90,24 @@ export type CallOutput = {
  * outside the app. Http nodes linked to a Collections request send it exactly like Send in Collections.
  */
 async function execute(
-  workflow: Pick<Workflow, "id" | "workspaceId" | "nodes" | "edges">,
+  workflow: Pick<Workflow, "id" | "workspaceId" | "nodes" | "edges" | "roles">,
   trigger: RunTrigger,
-  { baseUrl, environment, onProgress, fetch: doFetch = outboundFetch(baseUrl), callers = [], runId }: ExecuteOptions,
-): Promise<{ result: ExecutionResult; secrets: string[] }> {
+  { baseUrl, environment, onProgress, fetch: doFetch = outboundFetch(baseUrl), callers = [], runId, users }: ExecuteOptions,
+): Promise<{ result: ExecutionResult & { users?: Record<string, string> }; secrets: string[] }> {
   const resolved = new Set<string>();
+  // Who plays each role in this run (test users), and the handles nodes act through.
+  const scope = { workspaceId: workflow.workspaceId, environment };
+  const roles = flowRoles(workflow.roles);
+  const assigned = assignUsers(scope, workflow.roles, users);
+  const handles = new Map<string, UserHandle | { missing: string }>(
+    [...assigned].map(([role, u]) => [role, "id" in u ? userHandle(u, role, resolved) : u]),
+  );
+  const net = { baseUrl, fetch: doFetch };
+  const loginRequest = loginRequestOf(scope);
+  const roleOf = (node: WorkflowNode) => (node.runAs && roles.includes(node.runAs) ? node.runAs : roles[0]);
+  // Only nodes that send or script anything log their user in; the login request itself never waits for a login.
+  const needsSession = (node: WorkflowNode) =>
+    (node.type === "http" && node.config.requestId !== loginRequest) || node.type === "script";
   // rq.variables set by one linked request's scripts are visible to the next ones in this run.
   const variables: Record<string, string> = {};
   const env = (name: string) => {
@@ -98,9 +119,18 @@ async function execute(
   const result = await executeWorkflow(workflow, trigger, {
     fetch: doFetch,
     env,
-    checkCondition: (code, output) => checkConditionScript(code, output, { readEnv: env, variables }),
-    runScript: async (code, context) => {
-      const ran = await runNodeScript(code, context, { readEnv: env, variables });
+    checkCondition: (code, output, user) =>
+      checkConditionScript(code, output, { readEnv: env, variables, user: user && scriptUser(user), readUser: user?.get }),
+    runScript: async (code, context, user) => {
+      const ran = await runNodeScript(code, context, { readEnv: env, variables, user: user && scriptUser(user), readUser: user?.get });
+      // rq.user.set / unset are saved to the acting test user.
+      for (const [name, value] of Object.entries(ran.user ?? {})) {
+        try {
+          user?.set(name, value);
+        } catch (error) {
+          return { error: `could not save "${name}" to test user “${user?.name}”: ${(error as Error).message}`, logs: ran.logs };
+        }
+      }
       // rq.environment.set / unset are saved to the run's environment, like Send in Collections.
       for (const [name, value] of Object.entries(ran.environment)) {
         try {
@@ -113,8 +143,17 @@ async function execute(
       return ran;
     },
     baseUrl,
-    sendLinked: (requestId, context) =>
-      sendLinkedRequest(requestId, { workspaceId: workflow.workspaceId, environment, baseUrl, variables, context, fetch: doFetch }),
+    sendLinked: (requestId, context, user) =>
+      sendLinkedRequest(requestId, { workspaceId: workflow.workspaceId, environment, baseUrl, variables, context, fetch: doFetch, user }),
+    userFor: (node) => handles.get(roleOf(node))!,
+    beforeNode: async (node, user) => {
+      if (needsSession(node)) await ensureSession(scope, user, net);
+    },
+    reauth: async (node, user) => {
+      if (!loginRequest || !needsSession(node)) return false;
+      await ensureSession(scope, user, net, { force: true });
+      return true;
+    },
     callFlow: async (workflowId, body, nodeId) => {
       const chain = [...callers, workflow.id];
       if (chain.includes(workflowId)) {
@@ -128,6 +167,8 @@ async function execute(
       if (target.workspaceId !== workflow.workspaceId) return { ok: false, error: "the called flow is in another workspace" };
 
       const child: RunTrigger = { source: "flow", body };
+      // The called flow's roles with the same names are played by the same users.
+      const sameRoles = Object.fromEntries([...assigned].flatMap(([role, u]) => ("id" in u ? [[role, u.id]] : [])));
       let called: ExecutionResult & { id?: string };
       let childSecrets: string[];
       if (runId) {
@@ -136,11 +177,12 @@ async function execute(
           environment,
           calledBy: { runId, workflowId: workflow.id, nodeId },
           callers: chain,
+          users: sameRoles,
         });
         called = stored.run;
         childSecrets = stored.secrets;
       } else {
-        ({ result: called, secrets: childSecrets } = await execute(target, child, { baseUrl, environment, fetch: doFetch, callers: chain }));
+        ({ result: called, secrets: childSecrets } = await execute(target, child, { baseUrl, environment, fetch: doFetch, callers: chain, users: sameRoles }));
       }
       for (const secret of childSecrets) resolved.add(secret);
 
@@ -158,12 +200,13 @@ async function execute(
     },
     onProgress,
   });
-  return { result, secrets: [...resolved] };
+  const played = Object.fromEntries([...assigned].flatMap(([role, u]) => ("id" in u ? [[role, u.name]] : [])));
+  return { result: { ...result, ...(Object.keys(played).length ? { users: played } : {}) }, secrets: [...resolved] };
 }
 
 /** Executes a workflow (see `execute`) with every resolved secret scrubbed from the result (load tests). */
 export async function executeScrubbed(
-  workflow: Pick<Workflow, "id" | "workspaceId" | "nodes" | "edges">,
+  workflow: Pick<Workflow, "id" | "workspaceId" | "nodes" | "edges" | "roles">,
   trigger: RunTrigger,
   options: ExecuteOptions,
 ): Promise<ExecutionResult> {
@@ -179,11 +222,11 @@ export async function executeScrubbed(
 export async function runWorkflow(
   workflow: Workflow,
   trigger: RunTrigger,
-  { baseUrl, environment, replayOf, onProgress, calledBy, callers }: RunOptions,
+  { baseUrl, environment, replayOf, onProgress, calledBy, callers, users }: RunOptions,
 ): Promise<{ run: Run; secrets: string[] }> {
   // The id comes first so flows this run calls can point back at it.
   const id = `run_${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`;
-  const { result, secrets } = await execute(workflow, trigger, { baseUrl, environment, onProgress, callers, runId: id });
+  const { result, secrets } = await execute(workflow, trigger, { baseUrl, environment, onProgress, callers, runId: id, users });
   const run: Run = {
     id,
     workflowId: workflow.id,

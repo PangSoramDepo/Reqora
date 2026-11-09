@@ -29,10 +29,14 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/hooks/[
     }
   }
 
+  // `?as.maker=maker01&as.authorizer=auth01` picks the test user per role; others are chosen automatically.
+  const users = Object.fromEntries(
+    [...request.nextUrl.searchParams].filter(([key]) => key.startsWith("as.") && key.length > 3).map(([key, value]) => [key.slice(3), value]),
+  );
   const { run, secrets } = await runWorkflow(
     workflow,
     { source: "webhook", body, headers: Object.fromEntries(request.headers) },
-    { baseUrl: request.nextUrl.origin, environment: environment.data },
+    { baseUrl: request.nextUrl.origin, environment: environment.data, users },
   );
 
   const headers = { "x-reqora-run-id": run.id };

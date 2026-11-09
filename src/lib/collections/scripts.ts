@@ -96,7 +96,12 @@ export type ScriptState = {
    * `{{env.NAME}}` resolves them, and the caller persists them to the selected environment afterwards.
    */
   environment: Record<string, string | null>;
+  /** Test-user changes made by rq.user.set / unset so far (null = unset); the caller saves them to the user. */
+  user?: Record<string, string | null>;
 };
+
+/** The test user scripts act as: rq.user.name / roles / role, and get / set of their values. */
+export type ScriptUser = { name: string; roles: string[]; role: string };
 
 // Runs inside QuickJS. Builds the `rq` API from __input (a JSON string) and exposes __output() for the result.
 const PRELUDE = String.raw`
@@ -181,11 +186,16 @@ const __env = __in.environment;
 // Replaces {{NAME}} (Postman style) and Reqora's {{env.NAME}} / {{vars.NAME}}; unknown names are left as they are.
 const __replaceIn = (text, lookup) => String(text).replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (m, k) => {
   const v = k.startsWith("env.") ? (Object.prototype.hasOwnProperty.call(__env, k.slice(4)) ? __env[k.slice(4)] : undefined)
+    : k.startsWith("user.") ? (Object.prototype.hasOwnProperty.call(__userVals, k.slice(5)) ? __userVals[k.slice(5)] : undefined)
     : k.startsWith("vars.") ? __variables[k.slice(5)]
     : lookup(k);
   return v === undefined ? m : v;
 });
 const __envChanges = {};
+const __userInfo = __in.user || null;
+const __userVals = __in.userValues || {};
+const __userChanges = {};
+const __noUser = () => { throw new Error("rq.user: no test user is acting here — pick one under Run as / Send as, or add test users on the Secrets page (Test Users)"); };
 globalThis.rq = {
   request: __request,
   response: __in.response && {
@@ -211,6 +221,21 @@ globalThis.rq = {
     has: (k) => Object.prototype.hasOwnProperty.call(__env, k),
     replaceIn: (text) => __replaceIn(text, (k) => rq.environment.get(k)),
   },
+  // The acting test user: values saved here go to that user (e.g. the access token from a login response).
+  user: __userInfo ? {
+    name: __userInfo.name,
+    roles: __userInfo.roles,
+    role: __userInfo.role,
+    get: (k) => (Object.prototype.hasOwnProperty.call(__userVals, k) ? __userVals[k] : undefined),
+    set: (k, v) => {
+      if (v === undefined || v === null) throw new TypeError("rq.user.set(" + __fmt(k) + ") needs a value; use unset to remove it");
+      const value = typeof v === "string" ? v : __fmt(v);
+      __userVals[String(k)] = value;
+      __userChanges[String(k)] = value;
+    },
+    unset: (k) => { delete __userVals[String(k)]; __userChanges[String(k)] = null; },
+    has: (k) => Object.prototype.hasOwnProperty.call(__userVals, k),
+  } : { name: undefined, roles: [], role: undefined, get: __noUser, set: __noUser, unset: __noUser, has: () => false },
   test: (name, fn) => {
     try { fn(); __tests.push({ name: String(name), passed: true }); }
     catch (e) { __tests.push({ name: String(name), passed: false, error: String(e && e.message || e) }); }
@@ -653,7 +678,7 @@ if (__in.response) {
 
 globalThis.__output = () => {
   for (const name of Object.keys(__legacyTests)) __tests.push({ name, passed: Boolean(__legacyTests[name]), ...(__legacyTests[name] ? {} : { error: "tests[" + JSON.stringify(name) + "] was false" }) });
-  return JSON.stringify({ request: __request, variables: __variables, logs: __logs, tests: __tests, environment: __envChanges });
+  return JSON.stringify({ request: __request, variables: __variables, logs: __logs, tests: __tests, environment: __envChanges, user: __userChanges });
 };
 `;
 
@@ -664,7 +689,20 @@ type RunInput = {
   /** Environment values readable via rq.environment.get — only the names the scripts mention are resolved. */
   readEnv: (name: string) => string | undefined;
   response?: ScriptResponse;
+  /** The acting test user (rq.user), and how to read their values — again only names the scripts mention. */
+  user?: ScriptUser | null;
+  readUser?: (name: string) => string | undefined;
 };
+
+/** Test-user names a script reads (rq.user.get / has, or {{user.NAME}} in itself or the request). */
+function userNames(code: string, request?: unknown): string[] {
+  const names = new Set<string>();
+  for (const m of code.matchAll(/user\.(?:get|has)\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)/g)) names.add(m[1]);
+  const templated = /\{\{\s*user\.([A-Za-z0-9_]+)\s*\}\}/g;
+  for (const t of code.matchAll(templated)) names.add(t[1]);
+  if (request) for (const t of JSON.stringify(request).matchAll(templated)) names.add(t[1]);
+  return [...names];
+}
 
 /**
  * " (line 4: x.getPath();)" for the first stack frame inside the user's script — QuickJS messages such as
@@ -715,7 +753,7 @@ function envNames(code: string, request?: unknown): string[] {
  * A pre-request script that throws stops the chain and is returned as `error`; post-response errors are
  * collected and later scripts still run, like Postman.
  */
-export async function runScripts({ phase, scripts, state, readEnv, response }: RunInput): Promise<{
+export async function runScripts({ phase, scripts, state, readEnv, response, user = null, readUser }: RunInput): Promise<{
   state: ScriptState;
   errors: ScriptError[];
 }> {
@@ -733,6 +771,16 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
       }),
     );
     for (const [name, value] of Object.entries(current.environment)) if (value !== null) environment[name] = value;
+    const userChanged = current.user ?? {};
+    const userValues: Record<string, string> = user
+      ? Object.fromEntries(
+          userNames(script.code, current.request).flatMap((name) => {
+            const value = name in userChanged ? userChanged[name] : readUser?.(name);
+            return value === undefined || value === null ? [] : [[name, value]];
+          }),
+        )
+      : {};
+    for (const [name, value] of Object.entries(userChanged)) if (value !== null) userValues[name] = value;
 
     const runtime = engine.newRuntime();
     runtime.setMemoryLimit(MEMORY_LIMIT_BYTES);
@@ -746,6 +794,8 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
           variables: current.variables,
           environment,
           response,
+          user,
+          userValues,
           random: [...randomBytes(RANDOM_POOL_BYTES)],
           // Lines before the user's code in the evaluated source: the async wrapper, plus any caller wrapper.
           lineOffset: 1 + (script.lineOffset ?? 0),
@@ -836,8 +886,9 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
         if (phase === "pre") break;
         continue;
       }
-      const parsed = JSON.parse(context.getString(out.value)) as Omit<ScriptState, "logs" | "tests" | "environment"> & {
+      const parsed = JSON.parse(context.getString(out.value)) as Omit<ScriptState, "logs" | "tests" | "environment" | "user"> & {
         environment: Record<string, unknown>;
+        user?: Record<string, unknown>;
         logs: Omit<ScriptLog, "scope" | "source">[];
         tests: Omit<ScriptTest, "scope" | "source">[];
       };
@@ -852,8 +903,19 @@ export async function runScripts({ phase, scripts, state, readEnv, response }: R
           env[name] = typeof value === "string" ? value : null;
         }
       }
+      const userState = { ...userChanged };
+      for (const [name, value] of Object.entries(parsed.user ?? {})) {
+        if (!VARIABLE_NAME.test(name)) {
+          threw ??= `rq.user.set: invalid name "${name.slice(0, 80)}" (letters, digits and _, starting with a letter or _; max 64)`;
+        } else if (typeof value === "string" && value.length > MAX_ENV_VALUE) {
+          threw ??= `rq.user.set("${name}"): value is longer than ${MAX_ENV_VALUE} characters`;
+        } else {
+          userState[name] = typeof value === "string" ? value : null;
+        }
+      }
       current = {
         environment: env,
+        ...(Object.keys(userState).length ? { user: userState } : {}),
         request: phase === "pre" ? sanitizeRequest(parsed.request, current.request) : current.request,
         variables: Object.fromEntries(Object.entries(parsed.variables ?? {}).map(([k, v]) => [k, String(v)])),
         logs: [...current.logs, ...parsed.logs.map((l) => ({ ...l, scope: script.scope, source: script.name }))].slice(-MAX_LOGS),

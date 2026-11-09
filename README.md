@@ -31,6 +31,13 @@ In production set `REQORA_SECRET_KEY` (32 bytes, hex or base64) — the server r
   Members are Owners (also manage members, rename/delete), Editors (change anything inside) or Viewers (read
   only). Each workspace has its own production / staging / sandbox variables. Data from before workspaces is in
   "Default"; API clients can pick a workspace with the `X-Reqora-Workspace` header.
+- **Test users.** On the Secrets page (Test Users), each environment has users with roles (e.g. `maker`,
+  `authorizer`) and values (`login_id`, `password`, tokens; secret columns are encrypted). Steps read the acting user
+  with `{{user.login_id}}`; scripts save to them with `rq.user.set("access_token", …)`. Set a **login request** and
+  users are logged in automatically before they act (again after the session length or a 401). Flows name their
+  roles and each step has **Run as**; pick users per role under Run as on the canvas, in load tests (each virtual
+  user keeps one user, or users take turns), on webhooks (`?as.maker=maker01`) and in Collections (Send as).
+  `/api/demo/bank/*` is a small maker-checker demo API to try it with.
 - **Call Flow.** A Call Flow node runs another flow of the same workspace and waits for it: the called flow's
   deployed version (or its draft if never deployed) gets the node's body as `{{trigger.body}}`, and its Response
   becomes `{{call-1.body.*}}`. Called runs show in Execution History, linked to their caller.

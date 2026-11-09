@@ -16,6 +16,7 @@ export const NODE_DOCS: Record<NodeType, Doc> = {
       "URL, headers and JSON body accept templates: {{env.NAME}}, {{trigger.body.x}}, {{node-id.body.x}}.",
       "Responses with status ≥ 400 fail the step (and skip the nodes after it).",
       "Relative URLs (/api/...) go to Reqora itself; private network addresses are blocked unless allowed.",
+      "{{user.NAME}} is the acting test user's value (e.g. {{user.access_token}}); with roles in the flow, Run as picks which role's user sends this step.",
     ],
     outputs: ["{{id.status}} — HTTP status", "{{id.body.field}} — parsed JSON body", "{{id.headers.name}} — response headers", "{{id.durationMs}}"],
     tips: ["Copy cURL (next to Run) shows the request with templates unresolved.", "Linked nodes: Edit request (or click the URL, headers or body) edits the saved request in a dialog without leaving the canvas; Unlink to edit a separate copy instead."],

@@ -4,6 +4,7 @@ import { sendInputSchema, type SendOutcome } from "@/lib/collections/schema";
 import { recordSend } from "@/lib/collections/history";
 import { sendRequest } from "@/lib/collections/send";
 import { collectionWorkspace, requestScopes } from "@/lib/collections/store";
+import { noteManualLogin, sendAsUser } from "@/lib/users/session";
 import { activeWorkspace } from "@/lib/workspaces/access";
 
 /**
@@ -16,11 +17,21 @@ export async function POST(request: NextRequest) {
   const { workspaceId } = access;
   const parsed = await parseBody(request, sendInputSchema);
   if ("error" in parsed) return parsed.error;
-  const { definition, environment, collectionId, folderId, requestId, name = "request" } = parsed.data;
+  const { definition, environment, collectionId, folderId, requestId, userId, name = "request" } = parsed.data;
   // Inherit only from a collection of the same workspace.
   if (collectionId && collectionWorkspace(collectionId) !== workspaceId) return notFound(`collection "${collectionId}"`);
   // Like Postman, the response panel and the Live Execution Console show real values (the sender chose the
   // environment; stored workflow run history stays scrubbed).
+  // Sent as a test user: {{user.*}} and rq.user are theirs (logged in first when a login request is set).
+  let user;
+  if (userId) {
+    const acting = await sendAsUser({ workspaceId, environment }, userId, requestId, { baseUrl: request.nextUrl.origin });
+    if ("error" in acting) {
+      if (acting.notFound) return notFound(`test user "${userId}"`);
+      return Response.json({ error: acting.error, durationMs: 0 });
+    }
+    user = acting.user;
+  }
   let raw: SendOutcome | undefined;
   const scrubbed = await sendRequest(
     { name, definition, ...requestScopes(collectionId, folderId) },
@@ -28,11 +39,13 @@ export async function POST(request: NextRequest) {
       workspaceId,
       environment,
       baseUrl: request.nextUrl.origin,
+      ...(user ? { user } : {}),
       onUnscrubbed: (outcome) => {
         raw = outcome;
         recordSend({ workspaceId, requestId, collectionId, name, method: definition.method, url: definition.url, environment }, outcome);
       },
     },
   );
+  if (user) noteManualLogin({ workspaceId, environment }, user, requestId, raw ?? scrubbed);
   return Response.json(raw ?? scrubbed);
 }

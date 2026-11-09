@@ -158,6 +158,8 @@ export const sendInputSchema = z.object({
   /** The saved request being edited, if any, and its (possibly edited) name — for scripts' labels and history. */
   requestId: id.optional(),
   name: z.string().trim().min(1).max(200).optional(),
+  /** Send as this test user (id or name): {{user.*}} and rq.user are theirs. */
+  userId: z.string().min(1).max(100).optional(),
 });
 
 /** Convert a request into a workflow http node config, saved (requestId) or unsaved (definition + location). */
@@ -191,6 +193,8 @@ export type ScriptReport = {
   variables: Record<string, string>;
   /** Environment changes from rq.environment.set / unset (null = unset), saved to the selected environment. */
   environment?: Record<string, string | null>;
+  /** Test-user changes from rq.user.set / unset (null = unset), saved to the user the request was sent as. */
+  user?: Record<string, string | null>;
 };
 
 /** The request exactly as it went on the wire (after scripts, templates and auth). Scrubbed in API responses; real values in the send history. */

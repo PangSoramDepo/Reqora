@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useTestUsers } from "@/lib/users/client";
 import { fetchVariables } from "@/lib/workflows/client";
 import type { Environment, Step, Workflow } from "@/lib/workflows/schema";
 import { outputShape, type DataSource } from "@/lib/workflows/template-suggest";
@@ -11,6 +12,8 @@ type Inserter = (text: string) => boolean;
 type TemplateData = {
   sources: DataSource[];
   env: string[];
+  /** Value names of the environment's test users ({{user.NAME}}). */
+  user: string[];
   /** True when there's a run to preview with. */
   hasRun: boolean;
   /** The template field that had focus last registers here, so picking data inserts into it. */
@@ -62,6 +65,7 @@ export function TemplateDataProvider({
 }) {
   const [env, setEnv] = useState<{ environment: Environment; names: string[] } | null>(null);
   const target = useRef<Inserter | null>(null);
+  const testUsers = useTestUsers(environment);
 
   useEffect(() => {
     let live = true;
@@ -102,6 +106,7 @@ export function TemplateDataProvider({
   const value: TemplateData = {
     sources,
     env: env?.environment === environment ? env.names : [],
+    user: testUsers?.columns.map((c) => c.name) ?? [],
     hasRun: steps.size > 0,
     setTarget: (insert) => {
       target.current = insert;

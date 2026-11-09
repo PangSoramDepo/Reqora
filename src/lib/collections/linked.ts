@@ -1,6 +1,7 @@
 import "server-only";
 
 import { capStepBody, type Environment, type StepRequest, type Workflow, type WorkflowNode } from "@/lib/workflows/schema";
+import type { UserHandle } from "@/lib/users/schema";
 import type { TemplateContext } from "@/lib/workflows/template";
 import type { SendOutcome } from "./schema";
 import { describeAssertion } from "./assertions";
@@ -62,6 +63,8 @@ export async function sendLinkedRequest(
     variables: Record<string, string>;
     context: Pick<TemplateContext, "trigger" | "nodes">;
     fetch?: typeof fetch;
+    /** The test user the step acts as. */
+    user?: UserHandle;
   },
 ): Promise<LinkedStep> {
   const saved = getRequest(requestId);
@@ -79,6 +82,7 @@ export async function sendLinkedRequest(
       baseUrl: options.baseUrl,
       variables: options.variables,
       context: options.context,
+      ...(options.user ? { user: options.user } : {}),
       onUnscrubbed: (outcome) => {
         raw = outcome;
       },

@@ -7,6 +7,7 @@ import { beautifyJson } from "@/lib/collections/beautify";
 import { folderChain, flattenTree, folderPath } from "@/lib/collections/folders";
 import { scriptVariables } from "@/lib/collections/script-vars";
 import { collectionsSuggestData, SuggestDataProvider } from "@/components/flow/suggest-menu";
+import { useSendAs, useTestUsers } from "@/lib/users/client";
 import { convertBody } from "@/lib/collections/request";
 import { REQUEST_METHODS, type Collection, type RequestDefinition, type RequestMethod } from "@/lib/collections/schema";
 import { ENVIRONMENT_LABELS } from "@/lib/environment";
@@ -175,9 +176,12 @@ export function RequestBuilder({
   // {{ suggestions: this environment's variables, plus names this request's (and its folders' and collection's)
   // scripts set with rq.variables / rq.environment.
   const scopes = [collection?.settings, ...(collection ? folderChain(collection.folders, draft.folderId).map((f) => f.settings) : [])];
+  const testUsers = useTestUsers(environment);
+  const [sendAs, setSendAs] = useSendAs(environment);
   const suggestData = collectionsSuggestData(
     variableNames,
     scriptVariables(def.preScript, def.postScript, ...scopes.flatMap((s) => [s?.preScript, s?.postScript])),
+    testUsers?.columns.map((c) => c.name) ?? [],
   );
 
   return (
@@ -288,6 +292,28 @@ export function RequestBuilder({
               onValue={(url) => setDef((d) => ({ ...d, url }))}
             />
             <div className="flex items-center gap-1 pl-2">
+              {testUsers && testUsers.users.length > 0 && (
+                <label
+                  className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-surface-container-high font-label-sm text-label-sm text-secondary"
+                  title="Send as a test user: {{user.*}} and rq.user are theirs (logged in first when a login request is set)"
+                >
+                  <Icon name="person" className="text-body-sm" />
+                  <select
+                    aria-label="Send as"
+                    data-testid="send-as"
+                    className="bg-transparent focus:outline-none cursor-pointer max-w-28"
+                    value={testUsers.users.some((u) => u.id === sendAs) ? (sendAs ?? "") : ""}
+                    onChange={(e) => setSendAs(e.target.value || null)}
+                  >
+                    <option value="" className="bg-surface-container-high text-on-surface">No user</option>
+                    {testUsers.users.map((u) => (
+                      <option key={u.id} value={u.id} className="bg-surface-container-high text-on-surface">
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <span
                 className={`px-1.5 py-0.5 rounded bg-surface-container-high font-label-sm text-label-sm whitespace-nowrap ${env.tone}`}
                 title="Active target environment (change it in the top bar)"

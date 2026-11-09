@@ -7,6 +7,7 @@ import { deleteVariable, fetchVariables, type VariablesResponse } from "@/lib/wo
 import { ENVIRONMENTS, type Environment } from "@/lib/workflows/schema";
 import { AddSecretDrawer, type DrawerTarget } from "./add-secret-drawer";
 import { KpiGrid } from "./kpi-grid";
+import { TestUsersPanel } from "./test-users-panel";
 import { UsageMatrix } from "./usage-matrix";
 import { VariablesTable } from "./variables-table";
 
@@ -31,6 +32,11 @@ export function SecretsWorkspace() {
   const [result, setResult] = useState<LoadResult | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState("");
+  // Variables (one value per name) or Test Users (a set of values per user). `?tab=users` opens the users.
+  const [view, setView] = useState<"variables" | "users">("variables");
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "users") void Promise.resolve().then(() => setView("users"));
+  }, []);
   const [drawer, setDrawer] = useState<DrawerTarget | null>(null);
   const [notice, setNotice] = useState<{ env: Environment; tone: "ok" | "error"; text: string } | null>(null);
   const [busyName, setBusyName] = useState<string | null>(null);
@@ -146,13 +152,36 @@ export function SecretsWorkspace() {
               })}
             </div>
 
+            <div className="flex items-center bg-surface-container-lowest p-space-xxs rounded-xl shadow-inner w-fit" role="tablist" aria-label="Secrets view">
+              {(
+                [
+                  ["variables", "key", "Variables"],
+                  ["users", "group", "Test Users"],
+                ] as const
+              ).map(([id, icon, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={view === id}
+                  type="button"
+                  onClick={() => setView(id)}
+                  className={`flex items-center gap-space-xs px-space-md py-space-xs rounded-lg font-headline-sm text-headline-sm transition-all ${
+                    view === id ? "bg-surface-container-high text-primary shadow-sm" : "text-on-surface-variant hover:text-on-surface"
+                  }`}
+                >
+                  <Icon name={icon} className="text-body-lg" />
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <div className="hidden 2xl:flex items-center gap-space-xs px-space-sm py-space-xs rounded-lg bg-surface-container text-on-surface font-body-sm text-body-sm shadow-sm w-fit whitespace-nowrap">
               <Icon name="shield_lock" className="text-body-md text-tertiary" />
               <span className="text-on-surface-variant">Secrets are write-only · AES-256-GCM at rest</span>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-space-sm">
+          <div className={`flex flex-wrap items-center gap-space-sm ${view === "users" ? "hidden" : ""}`}>
             <div className="relative">
               <Icon
                 name="search"
@@ -195,7 +224,9 @@ export function SecretsWorkspace() {
             </div>
           )}
 
-          {current?.error ? (
+          {view === "users" ? (
+            <TestUsersPanel environment={env} variables={data?.data ?? []} />
+          ) : current?.error ? (
             <div className="flex flex-col items-start gap-space-sm p-space-md rounded-xl bg-error-container/30 text-error" role="alert">
               <div className="flex items-center gap-space-xs font-headline-sm text-headline-sm font-semibold">
                 <Icon name="error" className="text-body-lg" />

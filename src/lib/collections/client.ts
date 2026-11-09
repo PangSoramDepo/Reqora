@@ -69,7 +69,9 @@ export const sendAdHoc = (
   definition: RequestDefinition,
   environment: Environment,
   location?: { collectionId: string; folderId: string | null; requestId?: string; name?: string },
-) => request<SendOutcome>("/api/send", json("POST", { definition, environment, ...location }));
+  /** Send as this test user (id). */
+  userId?: string | null,
+) => request<SendOutcome>("/api/send", json("POST", { definition, environment, ...location, ...(userId ? { userId } : {}) }));
 
 /** Recent Collections sends for the Live Execution Console. */
 export const fetchRecentSends = (limit = 25) => request<{ data: SendRecord[] }>(`/api/sends?limit=${limit}`).then((r) => r.data);
