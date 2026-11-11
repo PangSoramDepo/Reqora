@@ -1,0 +1,23 @@
+# Rebuilt inside the image
+node_modules
+.next
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# Local data and secrets: never baked into an image
+.data
+.env*
+!.env.example
+
+# Not needed to build or run
+.git
+.gitignore
+.vscode
+.idea
+coverage
+test
+design
+*.log
+Dockerfile
+docker-compose*.yml
+.dockerignore

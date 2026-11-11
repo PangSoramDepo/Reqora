@@ -25,6 +25,27 @@ Requires Node 22.5+ (uses the built-in `node:sqlite`). Data lives in `.data/` (g
 development `secret.key`, the generated key that encrypts stored secrets. Delete `.data/` to start over.
 In production set `REQORA_SECRET_KEY` (32 bytes, hex or base64) — the server refuses to store secrets without it.
 
+## Docker
+
+```bash
+# .env next to docker-compose.yml (Compose reads it; never baked into the image)
+echo "REQORA_SECRET_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")" > .env
+
+docker compose up -d --build        # http://localhost:3000 — the first sign-up creates the first account
+docker compose logs -f reqora
+docker compose exec reqora npm run user -- create you@example.com "Your Name"   # more accounts / password resets
+```
+
+- **Data** is the SQLite database in the `reqora-data` volume (`/app/.data`); it survives rebuilds and new
+  containers. Back it up with `docker compose cp reqora:/app/.data/reqora.db ./reqora-backup.db`.
+- **Keep `REQORA_SECRET_KEY` safe and unchanged.** Stored secrets and test-user credentials are encrypted with it;
+  a different key can't read them. Compose refuses to start without it.
+- Other settings go in the same `.env`: `REQORA_PORT` (host port, default 3000), `REQORA_ALLOW_NETWORKS`,
+  `REQORA_ALLOW_SIGNUP`, `REQORA_ENV_*` — see `.env.example`.
+- Inside the container `localhost` is the container itself. To call an API running on your machine use
+  `http://host.docker.internal:<port>` and allow it: `REQORA_ALLOW_NETWORKS=host.docker.internal`.
+- `NODE_VERSION` picks the Node base image (default 24; needs 22.5+ for `node:sqlite`).
+
 ## Concepts
 
 - **Workspaces.** Flows, runs, collections, secrets and history belong to a workspace, picked in the top bar.

@@ -1,0 +1,38 @@
+# Reqora with Docker Compose.
+#
+#   1. Create .env next to this file (see .env.example), at least:
+#        REQORA_SECRET_KEY=<64 hex chars>   # node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+#   2. docker compose up -d --build
+#   3. Open http://localhost:3000 — the first sign-up creates the first account.
+#
+# Data (SQLite database) is kept in the "reqora-data" volume. Keep REQORA_SECRET_KEY safe and unchanged: stored
+# secrets and test-user credentials are encrypted with it and can't be read without it.
+
+name: reqora
+
+services:
+  reqora:
+    build:
+      context: .
+      args:
+        NODE_VERSION: ${NODE_VERSION:-24}
+    image: reqora:latest
+    restart: unless-stopped
+    ports:
+      - "${REQORA_PORT:-3000}:3000"
+    # Everything in .env reaches the app, e.g. REQORA_ENV_* values for {{env.NAME}} and REQORA_ALLOW_NETWORKS.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      REQORA_SECRET_KEY: ${REQORA_SECRET_KEY:?Set REQORA_SECRET_KEY in .env (64 hex chars) — see docker-compose.yml}
+      REQORA_DB_PATH: /app/.data/reqora.db
+    volumes:
+      - reqora-data:/app/.data
+    # Lets flows and requests reach services running on this machine as host.docker.internal
+    # (also add it to REQORA_ALLOW_NETWORKS, e.g. REQORA_ALLOW_NETWORKS=host.docker.internal).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  reqora-data:
