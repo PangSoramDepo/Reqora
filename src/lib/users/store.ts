@@ -288,6 +288,26 @@ export function putColumn(scope: Scope, name: string, kind: ColumnKind): TestUse
   return { name, kind };
 }
 
+/**
+ * Puts the columns in the given order (every current column, each once). Returns the columns, or null when
+ * `names` isn't exactly the current set (e.g. someone else added or removed one meanwhile).
+ */
+export function reorderColumns(scope: Scope, names: string[]): TestUserColumn[] | null {
+  const current = columns(scope);
+  const known = new Set(current.map((c) => c.name));
+  if (names.length !== current.length || new Set(names).size !== names.length || !names.every((n) => known.has(n))) return null;
+  conn().exec("BEGIN");
+  try {
+    const update = conn().prepare("UPDATE test_user_columns SET position = ? WHERE workspace_id = ? AND environment = ? AND name = ?");
+    names.forEach((name, i) => update.run(i, scope.workspaceId, scope.environment, name));
+    conn().exec("COMMIT");
+  } catch (error) {
+    conn().exec("ROLLBACK");
+    throw error;
+  }
+  return columns(scope);
+}
+
 /** Removes a column and every user's value in it. */
 export function deleteColumn(scope: Scope, name: string): boolean {
   conn()

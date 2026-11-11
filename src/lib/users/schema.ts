@@ -53,6 +53,8 @@ export const userPatchSchema = z.object({
   values: z.record(valueName, z.string().max(10_000).nullable()).optional(),
 });
 export const columnInputSchema = z.object({ kind: z.enum(["secret", "plain"]) });
+/** The new column order: every column name, each once. */
+export const columnOrderSchema = z.object({ order: z.array(z.string().min(1).max(64)).max(200) });
 export const settingsInputSchema = z.object({
   loginRequestId: z.string().min(1).max(100).nullable(),
   sessionMinutes: z.number().int().min(1).max(1440).default(30),

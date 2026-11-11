@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { fetchCollections } from "@/lib/collections/client";
 import type { Collection } from "@/lib/collections/schema";
@@ -16,6 +16,7 @@ import {
   patchTestUser,
   putColumn,
   putUserSettings,
+  reorderColumns,
   testUsersChanged,
   useTestUsers,
   userFromVariables,
@@ -46,6 +47,68 @@ function ago(iso: string | null | undefined, now: number) {
 }
 
 type Notice = { tone: "ok" | "error"; text: string };
+
+/** Sticky first / last cells keep their own background so scrolled columns pass underneath. */
+const STICKY_LEFT = "sticky left-0 z-10 bg-surface-container-low shadow-[6px_0_6px_-6px_rgba(0,0,0,0.5)]";
+const STICKY_RIGHT = "sticky right-0 z-10 bg-surface-container-low shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.5)]";
+
+/**
+ * Sideways scrolling for a wide table: a visible scrollbar, plus ‹ › buttons at the edges while there's more to
+ * see that way.
+ */
+function ScrollX({ children }: { children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ left: false, right: false });
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const update = () => {
+      const left = el.scrollLeft > 2;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+      setMore((m) => (m.left === left && m.right === right ? m : { left, right }));
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", update);
+      observer.disconnect();
+    };
+  }, []);
+  const scroll = (dir: -1 | 1) => box.current?.scrollBy({ left: dir * Math.max(200, box.current.clientWidth * 0.6), behavior: "smooth" });
+  return (
+    <div>
+      {(more.left || more.right) && (
+        <div className="px-space-lg pb-space-xs flex items-center justify-end gap-1" data-testid="column-scroll">
+          <span className="font-label-sm text-label-sm text-outline mr-1">Scroll for more columns</span>
+          {(
+            [
+              [-1, "chevron_left", "Scroll to earlier columns", more.left],
+              [1, "chevron_right", "Scroll to more columns", more.right],
+            ] as const
+          ).map(([dir, icon, label, enabled]) => (
+            <button
+              key={dir}
+              type="button"
+              onClick={() => scroll(dir)}
+              disabled={!enabled}
+              aria-label={label}
+              title={label}
+              className="h-7 w-7 flex items-center justify-center rounded-full bg-surface-container-highest text-on-surface hover:bg-primary hover:text-on-primary disabled:opacity-30 disabled:pointer-events-none"
+            >
+              <Icon name={icon} className="text-body-lg" />
+            </button>
+          ))}
+        </div>
+      )}
+      <div ref={box} className="overflow-x-auto scrollbar-x pb-1" data-testid="test-users-scroll">
+        {children}
+      </div>
+    </div>
+  );
+}
 
 /** One cell: plain values edit inline; secrets are write-only (set / replace / clear). */
 function ValueCell({ user, column, now, onSave }: { user: TestUser; column: TestUserColumn; now: number; onSave: (value: string | null) => Promise<void> }) {
@@ -121,6 +184,9 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
   const [moving, setMoving] = useState<{ name: string; roles: string; picked: string[] } | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<{ loginRequestId: string; sessionMinutes: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Column order just changed here (shown until the server's list catches up), and the column being dragged.
+  const [order, setOrder] = useState<string[] | null>(null);
+  const [dragging, setDragging] = useState<{ name: string; over: string | null } | null>(null);
   const env = ENVIRONMENT_LABELS[environment].label;
 
   useEffect(() => {
@@ -155,6 +221,25 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
       </div>
     );
   }
+
+  const sameSet = order !== null && order.length === data.columns.length && data.columns.every((c) => order.includes(c.name));
+  const columns = sameSet ? order.map((n) => data.columns.find((c) => c.name === n)!) : data.columns;
+  /** Moves a column to `to` (an index in the current order) and saves the new order. */
+  const moveColumn = (name: string, to: number) => {
+    const names = columns.map((c) => c.name);
+    const from = names.indexOf(name);
+    if (from < 0 || to < 0 || to >= names.length || from === to) return;
+    names.splice(to, 0, ...names.splice(from, 1));
+    setOrder(names);
+    setBusy("order");
+    reorderColumns(environment, names)
+      .then(() => testUsersChanged())
+      .catch((e: Error) => {
+        setOrder(null); // back to the saved order
+        setNotice({ tone: "error", text: `Could not reorder columns: ${e.message}` });
+      })
+      .finally(() => setBusy(null));
+  };
 
   const settings = settingsDraft ?? { loginRequestId: data.settings.loginRequestId ?? "", sessionMinutes: data.settings.sessionMinutes };
   const requests = collections.flatMap((c) => c.requests.map((r) => ({ id: r.id, label: `${c.name} / ${r.name}`, method: r.method })));
@@ -327,15 +412,42 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
           </form>
         )}
 
-        <div className="overflow-x-auto">
+        <ScrollX>
           <table className="w-full min-w-max border-collapse">
             <thead>
               <tr className="font-label-sm text-label-sm text-outline uppercase tracking-wider text-left">
-                <th className="px-space-sm py-space-xs font-medium">User</th>
+                <th className={`px-space-sm py-space-xs font-medium ${STICKY_LEFT}`}>User</th>
                 <th className="px-space-sm py-space-xs font-medium">Roles</th>
-                {data.columns.map((c) => (
-                  <th key={c.name} className="px-space-sm py-space-xs font-medium">
+                {columns.map((c, i) => (
+                  <th
+                    key={c.name}
+                    data-column={c.name}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", c.name);
+                      setDragging({ name: c.name, over: null });
+                    }}
+                    onDragOver={(e) => {
+                      if (!dragging) return;
+                      e.preventDefault();
+                      if (dragging.over !== c.name) setDragging({ ...dragging, over: c.name });
+                    }}
+                    onDragLeave={() => dragging?.over === c.name && setDragging({ ...dragging, over: null })}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const name = dragging?.name ?? e.dataTransfer.getData("text/plain");
+                      setDragging(null);
+                      if (name) moveColumn(name, i);
+                    }}
+                    onDragEnd={() => setDragging(null)}
+                    className={`group px-space-sm py-space-xs font-medium cursor-grab active:cursor-grabbing ${
+                      dragging?.name === c.name ? "opacity-40" : ""
+                    } ${dragging && dragging.over === c.name && dragging.name !== c.name ? "bg-primary/10 shadow-[inset_2px_0_0_var(--color-primary)]" : ""}`}
+                    title="Drag to reorder"
+                  >
                     <span className="flex items-center gap-1 normal-case tracking-normal font-mono text-body-sm">
+                      <Icon name="drag_indicator" className="text-body-md text-outline -ml-1 group-hover:text-on-surface" />
                       {c.name}
                       <button
                         type="button"
@@ -349,6 +461,28 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
                       >
                         {c.kind === "secret" ? "secret" : "plain"}
                       </button>
+                      <span className="flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                      <button
+                        type="button"
+                        className={`${ICON_BTN} disabled:invisible`}
+                        aria-label={`Move column ${c.name} left`}
+                        title="Move left"
+                        disabled={i === 0 || busy === "order"}
+                        onClick={() => moveColumn(c.name, i - 1)}
+                      >
+                        <Icon name="chevron_left" className="text-body-sm" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`${ICON_BTN} disabled:invisible`}
+                        aria-label={`Move column ${c.name} right`}
+                        title="Move right"
+                        disabled={i === columns.length - 1 || busy === "order"}
+                        onClick={() => moveColumn(c.name, i + 1)}
+                      >
+                        <Icon name="chevron_right" className="text-body-sm" />
+                      </button>
+                      </span>
                       <button
                         type="button"
                         className={ICON_BTN}
@@ -364,13 +498,13 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
                   </th>
                 ))}
                 <th className="px-space-sm py-space-xs font-medium">Session</th>
-                <th />
+                <th className={STICKY_RIGHT} />
               </tr>
             </thead>
             <tbody>
               {data.users.map((u) => (
                 <tr key={u.id} className="border-t border-outline-variant/15 align-middle hover:bg-surface-container/40" data-testid={`test-user-${u.name}`}>
-                  <td className="px-space-sm py-space-xs">
+                  <td className={`px-space-sm py-space-xs ${STICKY_LEFT}`}>
                     <input
                       aria-label={`Name of ${u.name}`}
                       className={`${FIELD} w-32 text-primary`}
@@ -400,7 +534,7 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
                       }}
                     />
                   </td>
-                  {data.columns.map((c) => (
+                  {columns.map((c) => (
                     <td key={c.name} className="px-space-sm py-space-xs">
                       <ValueCell
                         user={u}
@@ -413,7 +547,7 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
                   <td className="px-space-sm py-space-xs whitespace-nowrap font-body-sm text-body-sm">
                     {u.sessionAt ? <span className="text-primary">logged in {ago(u.sessionAt, now)}</span> : <span className="text-outline">—</span>}
                   </td>
-                  <td className="px-space-sm py-space-xs">
+                  <td className={`px-space-sm py-space-xs ${STICKY_RIGHT}`}>
                     <div className="flex items-center justify-end gap-1">
                       {data.settings.loginRequestId && (
                         <button
@@ -462,7 +596,7 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
               ))}
               {adding && (
                 <tr className="border-t border-outline-variant/15">
-                  <td className="px-space-sm py-space-xs">
+                  <td className={`px-space-sm py-space-xs ${STICKY_LEFT}`}>
                     <input autoFocus aria-label="New user name" placeholder="maker01" className={`${FIELD} w-32`} value={adding.name} onChange={(e) => {
                       const name = e.target.value;
                       setAdding((a) => a && { ...a, name });
@@ -510,12 +644,13 @@ export function TestUsersPanel({ environment, variables }: { environment: Enviro
               )}
             </tbody>
           </table>
-        </div>
+        </ScrollX>
         <p className="px-space-lg py-space-sm font-body-sm text-body-sm text-outline">
           Roles say what a user can do (e.g. <span className="text-secondary">maker</span>, <span className="text-secondary">authorizer</span>): a flow
           step set to “Run as maker” uses a user with that role. Templates read the acting user with{" "}
           <span className="font-mono text-tertiary">{"{{user.NAME}}"}</span>; scripts save to them with{" "}
-          <span className="font-mono text-tertiary">rq.user.set</span>.
+          <span className="font-mono text-tertiary">rq.user.set</span>. Drag a column header (or use its ‹ › buttons) to change the
+          column order; CSV export follows it.
         </p>
       </section>
 

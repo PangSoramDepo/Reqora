@@ -83,6 +83,20 @@ describe("test users", () => {
     expect(store.getTestUser(maker.id)!.values.login_id.value).toBe("1001");
   });
 
+  it("reorders columns, and refuses an order that doesn't list exactly the current columns", () => {
+    const scope2 = { workspaceId: WS, environment: "staging" as const };
+    store.createTestUser(scope2, { name: "u1", roles: [], values: { a: "1", b: "2", c: "3" } });
+    expect(store.listTestUsers(scope2).columns.map((c) => c.name)).toEqual(["a", "b", "c"]);
+    expect(store.reorderColumns(scope2, ["c", "a", "b"])?.map((c) => c.name)).toEqual(["c", "a", "b"]);
+    expect(store.listTestUsers(scope2).columns.map((c) => c.name)).toEqual(["c", "a", "b"]);
+    expect(store.exportTestUsers(scope2).split("\n")[0]).toBe("user,roles,c,a,b");
+    expect(store.reorderColumns(scope2, ["a", "b"])).toBeNull();
+    expect(store.reorderColumns(scope2, ["a", "a", "b"])).toBeNull();
+    expect(store.reorderColumns(scope2, ["a", "b", "x"])).toBeNull();
+    store.createTestUser(scope2, { name: "u2", roles: [], values: { d: "4" } });
+    expect(store.listTestUsers(scope2).columns.map((c) => c.name)).toEqual(["c", "a", "b", "d"]); // new columns go last
+  });
+
   it("changes only what a patch gives (roles survive a value update)", async () => {
     const { userPatchSchema } = await import("./schema");
     expect(userPatchSchema.parse({ values: { login_id: "1" } })).toEqual({ values: { login_id: "1" } });

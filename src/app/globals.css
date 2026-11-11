@@ -178,6 +178,23 @@
   display: none;
 }
 
+/* Wide tables that scroll sideways keep a thin, visible scrollbar (they're hidden everywhere else). */
+.scrollbar-x {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-outline-variant) transparent;
+}
+.scrollbar-x::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+}
+.scrollbar-x::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border-radius: 4px;
+}
+.scrollbar-x::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* Sidebar width; the rail toggle sets data-rail="collapsed" on <html> (see rail-toggle.tsx). The open width and
    the Node Inspector's width are set by their resize handles (see resize-handle.tsx). */
 :root {

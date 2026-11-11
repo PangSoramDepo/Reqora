@@ -25,6 +25,9 @@ export const patchTestUser = (id: string, patch: { name?: string; roles?: string
 export const deleteTestUser = (id: string) => call<void>(`/api/test-users/${id}`, { method: "DELETE" });
 export const putColumn = (env: Environment, name: string, kind: ColumnKind) =>
   call<TestUserColumn>(`${base(env)}/test-user-columns/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ kind }) });
+/** Saves the column order (every column name, each once). */
+export const reorderColumns = (env: Environment, order: string[]) =>
+  call<{ columns: TestUserColumn[] }>(`${base(env)}/test-user-columns`, { method: "PUT", body: JSON.stringify({ order }) });
 export const deleteColumn = (env: Environment, name: string) =>
   call<void>(`${base(env)}/test-user-columns/${encodeURIComponent(name)}`, { method: "DELETE" });
 export const putUserSettings = (env: Environment, settings: TestUserSettings) =>
