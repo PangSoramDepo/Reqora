@@ -180,6 +180,75 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Workspace" }
         "404": { $ref: "#/components/responses/Problem" }
+  /api/workspaces/{workspaceId}/export:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      operationId: exportWorkspace
+      summary: Export a whole workspace (editors and owners)
+      description: |
+        Downloads `<name>.reqora-workspace.json`: every collection (requests keep a `ref` so flows can be
+        re-linked), every flow's draft, and per environment the variables (plain ones with their values, secret
+        ones by name only) and test users (roles and plain columns; secret columns by name only). Runs, send
+        history, load tests, deployments and members aren't included. Import it with `POST /api/workspaces/import`.
+
+        `?check=1` returns `{ findings, summary }` instead: values that look like real credentials typed into
+        requests, examples or flows, and counts of what the file holds. `?examples=0` leaves out saved examples.
+      parameters:
+        - name: check
+          in: query
+          schema: { type: string, enum: ["1"] }
+        - name: examples
+          in: query
+          schema: { type: string, enum: ["0", "1"], default: "1" }
+      responses:
+        "200":
+          description: The export file (or the check, with `?check=1`)
+          headers:
+            Content-Disposition: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                description: "`reqora: workspace`, `version: 1`, `workspace`, `collections`, `flows`, `environments`"
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/workspaces/import:
+    post:
+      operationId: importWorkspace
+      summary: Create a new workspace from a workspace export
+      description: |
+        The signed-in user owns the new workspace, which becomes the active one. Linked flow steps, Call Flow
+        steps and the test users' login request point at the new copies. `notes` lists what to do next — the
+        secret variables and test-user columns to fill in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, description: The file's contents }
+                name: { type: string, maxLength: 80, description: "Name for the new workspace (default: the exported one's)" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [workspaceId, counts, notes]
+                properties:
+                  workspaceId: { type: string }
+                  counts:
+                    type: object
+                    properties:
+                      collections: { type: integer }
+                      flows: { type: integer }
+                      variables: { type: integer }
+                      testUsers: { type: integer }
+                  notes: { type: array, items: { type: string } }
+        "422": { $ref: "#/components/responses/Problem" }
   /api/workspaces/{workspaceId}/members:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
@@ -362,6 +431,32 @@ paths:
               schema: { $ref: "#/components/schemas/TestUser" }
         "409": { $ref: "#/components/responses/Problem" }
         "422": { $ref: "#/components/responses/Problem" }
+  /api/environments/{environment}/test-user-columns:
+    parameters:
+      - $ref: "#/components/parameters/Environment"
+    put:
+      operationId: reorderTestUserColumns
+      summary: Reorder the test-user columns (CSV export follows the order)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order]
+              properties:
+                order: { type: array, items: { type: string }, description: "Every column name, each once" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [columns]
+                properties:
+                  columns: { type: array, items: { $ref: "#/components/schemas/TestUserColumn" } }
+        "409": { $ref: "#/components/responses/Problem" }
   /api/environments/{environment}/test-user-columns/{name}:
     parameters:
       - $ref: "#/components/parameters/Environment"
@@ -1289,10 +1384,15 @@ paths:
 
         `?format=postman` downloads a Postman Collection v2.1 (`<name>.postman_collection.json`) instead:
         `{{env.x}}`/`{{vars.x}}` become `{{x}}`, common `rq.*` calls become `pm.*`, and tests become `pm.test` scripts.
+
+        `?examples=0` leaves out saved example responses (they hold real response data, e.g. a login's token).
       parameters:
         - name: format
           in: query
           schema: { type: string, enum: [reqora, postman], default: reqora }
+        - name: examples
+          in: query
+          schema: { type: string, enum: ["0", "1"], default: "1" }
       responses:
         "200":
           description: The export file
@@ -1301,6 +1401,36 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CollectionExport" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /api/collections/{collectionId}/export/check:
+    parameters:
+      - $ref: "#/components/parameters/CollectionId"
+    get:
+      operationId: checkCollectionExport
+      summary: Values in a collection that look like real credentials, before exporting it
+      description: |
+        Headers, auth, params, body fields and script variables with credential-like names and typed-in values
+        (not `{{env.*}}` / `{{user.*}}`), values with a well-known token shape (JWT, live API keys…), and tokens or
+        cookies in saved examples. Values are masked.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [findings]
+                properties:
+                  findings:
+                      type: array
+                      items:
+                        type: object
+                        required: [where, why, preview]
+                        properties:
+                          where: { type: string, description: "e.g. Bank › Login › Header “Authorization”" }
+                          why: { type: string }
+                          preview: { type: string, description: Masked value (first and last characters) }
+                          inExample: { type: boolean, description: In a saved example response (`?examples=0` leaves those out) }
         "404": { $ref: "#/components/responses/Problem" }
   /api/collections/{collectionId}/folders:
     parameters:

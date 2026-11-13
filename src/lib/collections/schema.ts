@@ -278,6 +278,8 @@ export const exampleInputSchema = z.object({
 export type Example = { id: string; requestId: string; name: string; status: number; response: ExampleResponse; createdAt: string };
 
 const exportedRequestSchema = z.object({
+  /** The request's id where it was exported (workspace exports only): flows' linked nodes point at it. */
+  ref: z.string().max(100).optional(),
   name,
   definition: requestDefinitionSchema,
   examples: z.array(exampleInputSchema).max(100).default([]),

@@ -16,6 +16,7 @@ import {
   workspacesChanged,
 } from "@/lib/workspaces/client";
 import { ROLE_LABELS, ROLES, type Member, type Role } from "@/lib/workspaces/schema";
+import { WorkspaceTransfer } from "./workspace-transfer";
 
 const CARD = "bg-surface-container rounded-xl shadow-sm";
 const FIELD =
@@ -335,6 +336,8 @@ export function WorkspaceSettings() {
         </section>
 
         <div className="flex flex-col gap-space-lg">
+          <WorkspaceTransfer workspaceId={current.id} workspaceName={current.name} canExport={current.role !== "viewer"} />
+
           {/* Roles */}
           <section className={`${CARD} px-space-lg py-space-md flex flex-col gap-space-sm`} aria-label="Roles">
             <h2 className="font-headline-sm text-headline-sm text-on-surface flex items-center gap-space-xs">

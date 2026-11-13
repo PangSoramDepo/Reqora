@@ -10,6 +10,8 @@ import {
 } from "./schema";
 
 export type ImportedRequest = {
+  /** Id where it was exported (workspace imports), to re-link flows. */
+  ref?: string;
   name: string;
   definition: RequestDefinition;
   examples?: { name: string; response: ExampleResponse }[];

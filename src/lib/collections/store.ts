@@ -469,7 +469,8 @@ export function deleteExample(id: string): boolean {
 }
 
 /** Creates a collection with folders and requests in one transaction. */
-export function insertImported(workspaceId: string, imported: ImportedCollection): Collection {
+/** `refs`: filled with exported request ref → new request id (workspace imports re-link flows with it). */
+export function insertImported(workspaceId: string, imported: ImportedCollection, refs?: Map<string, string>): Collection {
   const c = conn();
   const at = now();
   const collectionId = newId("col");
@@ -484,6 +485,7 @@ export function insertImported(workspaceId: string, imported: ImportedCollection
   let exampleOrder = 0;
   const insertRequest = (r: ImportedCollection["requests"][number], folderId: string | null) => {
     const requestId = newId("req");
+    if (refs && r.ref) refs.set(r.ref, requestId);
     insertRequestRow.run(requestId, collectionId, folderId, r.name, position++, JSON.stringify(r.definition), at, at);
     for (const ex of r.examples ?? []) {
       // Distinct created_at values keep the examples in their exported order.
@@ -651,13 +653,14 @@ export function duplicateCollection(id: string): Collection | undefined {
 }
 
 /** The whole collection as an export file (see `collectionExportSchema`), or undefined if it doesn't exist. */
-export function exportCollection(id: string): CollectionExport | undefined {
+export function exportCollection(id: string, { refs = false }: { refs?: boolean } = {}): CollectionExport | undefined {
   const collection = getCollection(id);
   if (!collection) return undefined;
   const c = conn();
   const rows = c.prepare("SELECT * FROM requests WHERE collection_id = ? ORDER BY position, name").all(id) as RequestRow[];
   const exampleRows = c.prepare("SELECT * FROM request_examples WHERE request_id = ? ORDER BY created_at");
   const exported = (r: RequestRow) => ({
+    ...(refs ? { ref: r.id } : {}),
     name: r.name,
     definition: parseDefinition(r.definition),
     examples: (exampleRows.all(r.id) as ExampleRow[]).map((ex) => ({ name: ex.name, response: JSON.parse(ex.response) as ExampleResponse })),

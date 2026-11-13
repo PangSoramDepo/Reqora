@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
-import { collectionExportUrl } from "@/lib/collections/client";
+import { CollectionExportButton } from "./export-check";
 import { subtreeIds } from "@/lib/collections/folders";
 import type { Collection, Folder, RequestSummary, ScopeSettings } from "@/lib/collections/schema";
 import { REQUEST_DRAG_MIME } from "@/lib/workflows/defaults";
@@ -626,24 +626,24 @@ export function Explorer(props: Props) {
                 <button type="button" className={HOVER_BTN} title="Duplicate collection" onClick={() => onDuplicate("collection", c.id)}>
                   <Icon name="content_copy" className="text-body-sm" />
                 </button>
-                <a
+                <CollectionExportButton
+                  collectionId={c.id}
+                  name={c.name}
+                  format="reqora"
                   className={HOVER_BTN}
-                  download
-                  href={collectionExportUrl(c.id)}
                   title="Export collection (.reqora.json) — import it later from Import › Reqora collection"
-                  aria-label={`Export ${c.name}`}
                 >
                   <Icon name="download" className="text-body-sm" />
-                </a>
-                <a
+                </CollectionExportButton>
+                <CollectionExportButton
+                  collectionId={c.id}
+                  name={c.name}
+                  format="postman"
                   className={HOVER_BTN}
-                  download
-                  href={collectionExportUrl(c.id, "postman")}
                   title="Export for Postman (Collection v2.1)"
-                  aria-label={`Export ${c.name} for Postman`}
                 >
                   <Icon name="ios_share" className="text-body-sm" />
-                </a>
+                </CollectionExportButton>
                 <button type="button" className={HOVER_BTN} title="Delete collection" onClick={() => onDelete("collection", c.id, c.name)}>
                   <Icon name="delete" className="text-body-sm" />
                 </button>
